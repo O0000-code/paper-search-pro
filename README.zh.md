@@ -10,14 +10,16 @@
 
 # paper-search-pro
 
-**面向 Claude Code 的学术文献检索 Skill。**
+**以 Skill 形式提供的学术文献检索工具。**
+<br/>
+兼容 Claude Code、Codex、Cursor 等任何加载 Skill 的 Agent。
 <br/>
 五源 · 四档 · 单文件 Shadcn 报告。
 
 <br/>
 
 <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache_2.0-000?style=flat-square" alt="Apache 2.0"/></a>
-<a href="SKILL.md"><img src="https://img.shields.io/badge/Claude_Code-Skill-000?style=flat-square" alt="Claude Code Skill"/></a>
+<a href="SKILL.md"><img src="https://img.shields.io/badge/agent-Skill-000?style=flat-square" alt="Agent Skill"/></a>
 <img src="https://img.shields.io/badge/Python-3.10+-000?style=flat-square" alt="Python 3.10+"/>
 <img src="https://img.shields.io/badge/version-2.1.0-000?style=flat-square" alt="v2.1.0"/>
 
@@ -31,10 +33,10 @@
 
 ## 它做什么
 
-你在 Claude Code 中请求文献，这个 Skill 跨 **OpenAlex · Semantic Scholar · CrossRef · PubMed · arXiv** 五个数据源做真实检索，通过并行 LLM SubAgent 进行相关性分级，输出一份单文件 HTML 报告，浏览器直接打开。无需第三方 LLM key — 主 Agent 本身就是 LLM。
+你在 Agent 对话框中请求文献，这个 Skill 跨 **OpenAlex · Semantic Scholar · CrossRef · PubMed · arXiv** 五个数据源做真实检索，通过并行 LLM SubAgent 进行相关性分级，输出一份单文件 HTML 报告，浏览器直接打开。无需第三方 LLM key — 你的 Agent 本身就是 LLM。
 
 ```text
-安装后，在 Claude Code 中：
+安装后，在你的 Agent 中：
 
   找一些关于老年人工作记忆训练的文献
 ```
@@ -43,11 +45,30 @@
 
 <br/>
 
+## 使用场景
+
+| 场景 | 档级 | 你会得到 |
+|---|:---:|---|
+| 写 proposal 前先 scope 主题 | Quick / Standard | 8 分钟内 20–60 篇高 RCS 文献 + 300 字执行摘要 |
+| 课程论文 / 学位论文章节的 background | Standard | 60–180 篇筛选，BibTeX 直接 import 到 Zotero / Mendeley |
+| 综述论文 — 需要真正的领域覆盖 | Deep | 180–400 篇 + 1 跳引文追溯 + 主题聚类 |
+| SR 准备：PRISMA 日志 + 可复现性审计 | Audit | 400–1000+ 篇，PRISMA-S 16 项披露，MeSH 精确 |
+| 给新加入的研究助理快速过一个领域 | Quick | 把 report.html 直接发给 ta — 三个 Tab，hover 看上下文 |
+
+<br/>
+
 ## 安装
 
+clone 到你 Agent 的 Skills 目录，然后装 Python 依赖：
+
 ```bash
+# Claude Code（最常见）
 git clone https://github.com/O0000-code/paper-search-pro.git \
   ~/.claude/skills/paper-search-pro
+
+# Codex     — clone 到 ~/.codex/skills/   （或你 Codex 的 skills 根目录）
+# Cursor    — clone 到 ~/.cursor/skills/  （或你 Cursor 的 skills 根目录）
+# 其它      — 以你 Agent 的 Skill loader 文档为准
 
 python3 -m pip install -r ~/.claude/skills/paper-search-pro/scripts/requirements.txt
 ```
@@ -140,7 +161,7 @@ PYTHONPATH=~/.claude/skills/paper-search-pro python3 -c \
 
 ## 工作原理
 
-[`SKILL.md`](SKILL.md) 中的 14 步 recipe 驱动每次运行。[`scripts/`](scripts/) 中的 Python helpers 处理所有确定性 API 工作；相关性分级委派给最多 5 个并行 SubAgent / 轮。无需第三方 LLM key — 主 Agent 本身就是 LLM。
+[`SKILL.md`](SKILL.md) 中的 14 步 recipe 驱动每次运行。[`scripts/`](scripts/) 中的 Python helpers 处理所有确定性 API 工作；相关性分级委派给最多 5 个并行 SubAgent / 轮。无需第三方 LLM key — 你的 Agent 本身就是 LLM。
 
 ```
         ┌──────────────────────────────────────────────────────────┐

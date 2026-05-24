@@ -10,14 +10,16 @@
 
 # paper-search-pro
 
-**Academic literature discovery for Claude Code.**
+**Academic literature discovery as a Skill.**
+<br/>
+Works with Claude Code, Codex, Cursor, and any agent that loads Skills.
 <br/>
 Five sources · four tiers · single-file Shadcn report.
 
 <br/>
 
 <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache_2.0-000?style=flat-square" alt="Apache 2.0"/></a>
-<a href="SKILL.md"><img src="https://img.shields.io/badge/Claude_Code-Skill-000?style=flat-square" alt="Claude Code Skill"/></a>
+<a href="SKILL.md"><img src="https://img.shields.io/badge/agent-Skill-000?style=flat-square" alt="Agent Skill"/></a>
 <img src="https://img.shields.io/badge/Python-3.10+-000?style=flat-square" alt="Python 3.10+"/>
 <img src="https://img.shields.io/badge/version-2.1.0-000?style=flat-square" alt="v2.1.0"/>
 
@@ -31,10 +33,10 @@ Five sources · four tiers · single-file Shadcn report.
 
 ## What it does
 
-You ask Claude Code for papers; this Skill runs a real multi-source literature search across **OpenAlex · Semantic Scholar · CrossRef · PubMed · arXiv**, classifies relevance via parallel LLM SubAgents, and writes a self-contained HTML report you can open in any browser. No external LLM keys — the main agent **is** the LLM.
+You ask your agent for papers; this Skill runs a real multi-source literature search across **OpenAlex · Semantic Scholar · CrossRef · PubMed · arXiv**, classifies relevance via parallel LLM SubAgents, and writes a self-contained HTML report you can open in any browser. No external LLM keys — your agent **is** the LLM.
 
 ```text
-In Claude Code, after install:
+In your agent's chat, after install:
 
   Find papers on working memory training in older adults
 ```
@@ -43,11 +45,30 @@ CJK in the query routes to Chinese UI; otherwise English. Both report flavors us
 
 <br/>
 
+## Use cases
+
+| Scenario | Tier | What you get |
+|---|:---:|---|
+| Scope a topic before writing the proposal | Quick / Standard | 20–60 top-RCS papers + 300-word executive summary in 8 min |
+| Background section for course paper / thesis chapter | Standard | 60–180 papers screened, BibTeX ready for Zotero / Mendeley |
+| Writing a review article — need real domain coverage | Deep | 180–400 papers + 1-hop citation chasing + topic clustering |
+| SR-prep: PRISMA log + reproducibility audit | Audit | 400–1000+ papers, PRISMA-S 16-item disclosure, MeSH-precise |
+| Onboarding a research assistant in a new field | Quick | Hand them the report.html — three tabs, hover for context |
+
+<br/>
+
 ## Install
 
+Clone into your agent's Skills directory, then install Python deps:
+
 ```bash
+# Claude Code (most common)
 git clone https://github.com/O0000-code/paper-search-pro.git \
   ~/.claude/skills/paper-search-pro
+
+# Codex     — clone into ~/.codex/skills/   (or your Codex skills root)
+# Cursor    — clone into ~/.cursor/skills/  (or your Cursor skills root)
+# Other     — your agent's Skill loader is the source of truth
 
 python3 -m pip install -r ~/.claude/skills/paper-search-pro/scripts/requirements.txt
 ```
@@ -140,7 +161,7 @@ PYTHONPATH=~/.claude/skills/paper-search-pro python3 -c \
 
 ## How it works
 
-A 14-step recipe in [`SKILL.md`](SKILL.md) drives every run. Python helpers in [`scripts/`](scripts/) do deterministic API work; relevance classification is delegated to up to five parallel SubAgents per round. No third-party LLM keys required — the main agent is the LLM.
+A 14-step recipe in [`SKILL.md`](SKILL.md) drives every run. Python helpers in [`scripts/`](scripts/) do deterministic API work; relevance classification is delegated to up to five parallel SubAgents per round. No third-party LLM keys required — your agent is the LLM.
 
 ```
         ┌──────────────────────────────────────────────────────────┐
