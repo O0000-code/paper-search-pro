@@ -12,7 +12,7 @@
 
 **以 Skill 形式提供的学术文献检索工具。**
 <br/>
-兼容 Claude Code、Codex、Cursor 等任何加载 Skill 的 Agent。
+原生支持 Claude Code；也可在 Codex 等加载 SKILL.md 格式的 Agent 中使用。
 <br/>
 五源 · 四档 · 单文件 Shadcn 报告。
 
@@ -62,13 +62,12 @@
 clone 到你 Agent 的 Skills 目录，然后装 Python 依赖：
 
 ```bash
-# Claude Code（最常见）
+# Claude Code（原生 Skill 支持）
 git clone https://github.com/O0000-code/paper-search-pro.git \
   ~/.claude/skills/paper-search-pro
 
-# Codex     — clone 到 ~/.codex/skills/   （或你 Codex 的 skills 根目录）
-# Cursor    — clone 到 ~/.cursor/skills/  （或你 Cursor 的 skills 根目录）
-# 其它      — 以你 Agent 的 Skill loader 文档为准
+# Codex   — clone 到你 Codex 的 skills 根目录（版本而异）
+# 其它    — 以你 Agent 的 SKILL.md 格式 loader 文档为准
 
 python3 -m pip install -r ~/.claude/skills/paper-search-pro/scripts/requirements.txt
 ```

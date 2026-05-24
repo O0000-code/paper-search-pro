@@ -12,7 +12,7 @@
 
 **Academic literature discovery as a Skill.**
 <br/>
-Works with Claude Code, Codex, Cursor, and any agent that loads Skills.
+Built natively for Claude Code; runs in Codex and any agent that loads the SKILL.md format.
 <br/>
 Five sources · four tiers · single-file Shadcn report.
 
@@ -62,13 +62,13 @@ CJK in the query routes to Chinese UI; otherwise English. Both report flavors us
 Clone into your agent's Skills directory, then install Python deps:
 
 ```bash
-# Claude Code (most common)
+# Claude Code (native Skill support)
 git clone https://github.com/O0000-code/paper-search-pro.git \
   ~/.claude/skills/paper-search-pro
 
-# Codex     — clone into ~/.codex/skills/   (or your Codex skills root)
-# Cursor    — clone into ~/.cursor/skills/  (or your Cursor skills root)
-# Other     — your agent's Skill loader is the source of truth
+# Codex — clone into your Codex skills root (varies by version)
+# Other agents — see your agent's documentation for the SKILL.md format
+#                loader location
 
 python3 -m pip install -r ~/.claude/skills/paper-search-pro/scripts/requirements.txt
 ```
