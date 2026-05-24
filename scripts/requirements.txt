@@ -1,27 +1,26 @@
-# paper-search-pro v2.0 runtime dependencies
-# Only libraries actually imported by scripts/*.py are listed here.
-# See scripts/vendored/README-vendored.md for libraries shipped in-tree
-# (pyalex / semanticscholar) that are imported via the vendored shim and
-# do NOT need to be pip-installed.
+# paper-search-pro runtime dependencies.
+# All libraries listed here are pip-installed at runtime — none are
+# vendored in-tree. The only vendored content lives under
+# `scripts/vendored/` (currently: tenacity_retry.py + paper-qa
+# attribution files); see `scripts/vendored/README-vendored.md`.
 
-# OpenAlex client (vendored copy under scripts/vendored/pyalex, but kept in
-# requirements.txt so non-vendored installs still work).
+# OpenAlex client (L1 primary source).
 pyalex>=0.21
 
-# Semantic Scholar client (vendored under scripts/vendored/semanticscholar).
+# Semantic Scholar client (L3 enrichment: influentialCitationCount + abstract fallback).
 semanticscholar>=0.10
 
-# PubMed via NCBI Entrez (used by scripts/pubmed_helper.py).
+# PubMed via NCBI Entrez (L2 medical: MeSH enricher / search).
 biopython>=1.85
 
-# arXiv API client (used by scripts/arxiv_helper.py).
+# arXiv API client (L2 freshness: T-0~T-4 preprint sentinel).
 arxiv>=2.1
 
-# HTTP client (used by scripts/crossref_helper.py).
+# HTTP client (CrossRef polite-pool calls).
 requests>=2.32
 
-# YAML config (~/.paper-search-pro/config.yaml).
+# YAML config loader (~/.paper-search-pro/config.yaml).
 PyYAML>=6.0
 
-# Template engine for HTML / Markdown report rendering.
+# Template engine for Markdown report rendering.
 Jinja2>=3.1
