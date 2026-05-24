@@ -1,0 +1,62 @@
+# Mirrors .skillignore — kept as .gitignore so git-tracked clones don't pick
+# up the 388MB node_modules / build artifacts. See .skillignore for the
+# authoritative distribution exclusion list.
+
+# Web artifact build output
+assets/webartifacts_app/paper-report/node_modules/
+assets/webartifacts_app/paper-report/dist/
+assets/webartifacts_app/paper-report/.parcel-cache/
+assets/webartifacts_app/paper-report/.vite/
+
+# Python
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS / editor
+.DS_Store
+**/.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Search outputs / caches
+paper-search-results/
+/tmp/paper-search-*/
+.cache/
+.coverage
+htmlcov/
+
+# Rework backups produced by backup-before-irreversible-rework rule
+**/*.backup
+**/*.before-*
+
+# Screenshot-only preview wrapper (regenerated per session)
+bundle-zh-preview.html
+
+# Secrets / personal config — should never be checked in.
+# (assets/default_config.yaml IS the template with empty placeholders; safe.)
+# Real config lives at ~/.paper-search-pro/config.yaml — outside this tree.
+.env
+.env.*
+**/.env
+**/.env.*
+config.local.yaml
+**/config.local.yaml
+
+# IDE / editor
+.vscode/
+.idea/
+*.iml
+.history/
+
+# Local Claude/agent runtime
+.claude/projects/
+.claude/local/
+
+# Node runtime (top-level safety; the React app's node_modules is already excluded above)
+node_modules/

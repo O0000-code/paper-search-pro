@@ -1,0 +1,27 @@
+# paper-search-pro v2.0 runtime dependencies
+# Only libraries actually imported by scripts/*.py are listed here.
+# See scripts/vendored/README-vendored.md for libraries shipped in-tree
+# (pyalex / semanticscholar) that are imported via the vendored shim and
+# do NOT need to be pip-installed.
+
+# OpenAlex client (vendored copy under scripts/vendored/pyalex, but kept in
+# requirements.txt so non-vendored installs still work).
+pyalex>=0.21
+
+# Semantic Scholar client (vendored under scripts/vendored/semanticscholar).
+semanticscholar>=0.10
+
+# PubMed via NCBI Entrez (used by scripts/pubmed_helper.py).
+biopython>=1.85
+
+# arXiv API client (used by scripts/arxiv_helper.py).
+arxiv>=2.1
+
+# HTTP client (used by scripts/crossref_helper.py).
+requests>=2.32
+
+# YAML config (~/.paper-search-pro/config.yaml).
+PyYAML>=6.0
+
+# Template engine for HTML / Markdown report rendering.
+Jinja2>=3.1

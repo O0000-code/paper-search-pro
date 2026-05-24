@@ -1,0 +1,43 @@
+{
+  "skill_name": "paper-search-pro",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Find papers on prospect theory in neuroeconomics from 2015 onwards",
+      "expected_output": "Standard-tier; 30-60 highly relevant; HTML report; OpenAlex primary",
+      "expectations": [
+        "Tier selected was 'standard'",
+        "Final HTML file exists and is < 500KB",
+        "execution_log.json has all 16 PRISMA-S items present",
+        "At least 25 papers have rcs >= 7",
+        "OpenAlex was the primary data source (sources field shows openalex first)",
+        "BibTeX export was generated and parses with bibtexparser",
+        "wall_clock_total_s < 700"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Quick lookup: 5 most-cited papers on CRISPR off-target effects 2024-2026",
+      "expected_output": "Quick-tier; 5-10 papers; minimal report",
+      "expectations": [
+        "Tier selected was 'quick'",
+        "Only OpenAlex was used (no SS calls)",
+        "No citation expansion performed",
+        "wall_clock_total_s < 350"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "I'm preparing a systematic review on dietary interventions for IBS in adults. Help me with the search.",
+      "expected_output": "Audit-tier with limitations warning; multi-database; PRISMA flow chart",
+      "expectations": [
+        "Tier selected was 'audit'",
+        "Limitations warning shown before execution",
+        "User confirmation was requested",
+        "PubMed was queried",
+        "prisma_flow_chart.mmd file was generated",
+        "decision_log.json contains per-paper LLM reasoning"
+      ]
+    }
+  ]
+}

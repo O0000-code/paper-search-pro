@@ -1,0 +1,71 @@
+# paper-search-pro default configuration (v2.0)
+# Copy to ~/.paper-search-pro/config.yaml and customize.
+#
+# v2.0 architecture: SKILL.md drives the workflow (recipe form). Python is
+# deterministic helpers only. Budget / state machine / LLM call wrappers are
+# removed — those are the Claude Code main agent's job.
+
+# ============================================================================
+# Data source credentials
+# ============================================================================
+#
+# Each user fills their own keys. The skill is portable: no key here works for
+# everyone — get your own from the issuing service (5 min each, free tier).
+
+# --- OpenAlex (L1 primary source) ---
+# OpenAlex 2026-02 switched from mailto polite pool to API key model.
+# Apply at: https://openalex.org/keys  (free, $1/day quota)
+# Either openalex_email OR openalex_api_key — having both is fine.
+openalex_email: ""
+openalex_api_key: ""
+
+# --- Semantic Scholar (L3 enrichment: influentialCitationCount + abstract fallback) ---
+# Apply at: https://www.semanticscholar.org/product/api  (free)
+# Boosts rate limit from 1 RPS to 1 RPS sustained + bursts.
+semantic_scholar_api_key: ""
+
+# --- PubMed / NCBI (L2 booster: MeSH enricher) ---
+# Apply at: https://account.ncbi.nlm.nih.gov/settings/  ->  API Key Management
+# Both required. ncbi_email is mandatory by NCBI API ToS.
+ncbi_email: ""
+ncbi_api_key: ""
+
+# --- CrossRef (L3 enrichment: funder / license / clinical-trial-number) ---
+# No key required. crossref_email goes in User-Agent for polite pool (10/s × 3 conc).
+crossref_email: ""
+
+# --- arXiv (L2 booster: T-0~T-4 freshness sentinel) ---
+# No key, no email. Rate-limited to 1 req per 3 s — handled by arxiv SDK.
+
+
+# ============================================================================
+# Output
+# ============================================================================
+
+output_dir: "./paper-search-results"
+default_tier: "standard"        # quick | standard | deep | audit
+language: "en"                  # en | zh — affects helper script messages, not data
+
+
+# ============================================================================
+# HTML rendering
+# ============================================================================
+# (No config keys here as of 2026-05-23. The Skill always uses the
+#  webartifacts Shadcn React bundle; the size-driven jinja2 fallback was
+#  removed for UX consistency, and the size advisory is gone too.)
+
+
+# ============================================================================
+# Cache
+# ============================================================================
+
+cache_enabled: true
+cache_ttl_days: 7
+cache_max_size_mb: 500
+
+
+# ============================================================================
+# Logging
+# ============================================================================
+
+log_level: "INFO"

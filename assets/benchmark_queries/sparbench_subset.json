@@ -1,0 +1,67 @@
+{
+  "name": "SPARBench-style subset (stub, 5 queries)",
+  "source_note": "SPARBench (Specialized PAper Retrieval Benchmark, arXiv:2507.15245) is a 2024 benchmark for academic paper retrieval. The OFFICIAL dataset (200+ queries with expert-validated gold standards) must be downloaded separately from https://arxiv.org/abs/2507.15245 supplementary material or the authors' release repo. Replace this file's `queries` array with the official `sparbench_v1.json` when available. The 5 stubs below are placeholder examples in SPARBench style (specialized domain queries with citation-graph gold standards).",
+  "license_note": "TBD pending official release. The placeholders below are original and freely usable for testing.",
+  "schema_version": "1.0",
+  "expected_field_format": {
+    "id": "integer",
+    "query": "specialized research question (often domain-jargon-heavy)",
+    "gold_papers": "list of DOI strings; expert-curated, typically 8-20 papers per query",
+    "domain": "subdiscipline tag",
+    "difficulty": "easy | medium | hard — SPARBench classifies by topic specificity"
+  },
+  "queries": [
+    {
+      "id": 1,
+      "query": "How do single-cell RNA-seq integration methods handle batch effects across heterogeneous tissue types in spatial transcriptomics?",
+      "gold_papers": [
+        "10.1038/s41587-021-01001-7",
+        "10.1038/s41592-019-0619-0",
+        "10.1038/s41587-022-01588-5"
+      ],
+      "domain": "Bioinformatics-SingleCell",
+      "difficulty": "hard"
+    },
+    {
+      "id": 2,
+      "query": "What are the experimental signatures of axion dark matter haloscopes in the microwave cavity frequency range?",
+      "gold_papers": [
+        "10.1103/PhysRevLett.124.101303",
+        "10.1103/PhysRevD.42.1297"
+      ],
+      "domain": "Physics-Astroparticle",
+      "difficulty": "hard"
+    },
+    {
+      "id": 3,
+      "query": "How do enzyme-mediated chemoselective C-H activation reactions in natural product biosynthesis differ from synthetic catalysis?",
+      "gold_papers": [
+        "10.1021/acs.chemrev.0c00865",
+        "10.1038/s41557-021-00731-0"
+      ],
+      "domain": "Chemistry-Biocatalysis",
+      "difficulty": "medium"
+    },
+    {
+      "id": 4,
+      "query": "What evidence supports the role of mitochondrial dynamics in age-related neurodegeneration onset in Drosophila models?",
+      "gold_papers": [
+        "10.1016/j.cell.2020.10.045",
+        "10.1038/s41586-021-03640-x"
+      ],
+      "domain": "Biology-Neurodegeneration",
+      "difficulty": "medium"
+    },
+    {
+      "id": 5,
+      "query": "How do graph neural networks for materials property prediction handle long-range periodicity in crystal structures?",
+      "gold_papers": [
+        "10.1103/PhysRevLett.120.145301",
+        "10.1038/s41524-021-00650-1"
+      ],
+      "domain": "Materials-Science-ML",
+      "difficulty": "medium"
+    }
+  ],
+  "todo_for_user": "Replace this stub with the official SPARBench v1 dataset when fetched from https://arxiv.org/abs/2507.15245. The benchmark runner (scripts/run_benchmark.py) accepts this same schema so no code change is needed — just swap the queries array."
+}

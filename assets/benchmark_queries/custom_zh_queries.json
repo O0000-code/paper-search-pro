@@ -1,0 +1,117 @@
+{
+  "name": "Custom Chinese-language psychology / behavioral science queries (15 queries)",
+  "purpose": "Self-built benchmark for paper-search-pro Chinese-language coverage testing. Author user is a Chinese-language psychology graduate student; these queries reflect realistic research topics in psychology, cognitive science, education, public health, and behavioral economics where bilingual literature (Chinese + English) is relevant. Use to assess (a) whether the Skill's English-trained classifier handles Chinese topic queries correctly via translation, (b) whether OpenAlex / Semantic Scholar recall is acceptable on these topics, (c) where CNKI / Wanfang supplementation would be needed (per known_limitations.md).",
+  "expected_difficulty_meaning": "easy = 30+ highly relevant English-language papers in OpenAlex; medium = 10-30 English papers exist but Chinese-language papers also important; hard = topic primarily Chinese-language or interdisciplinary, English-only search likely misses > 50% of literature",
+  "language_note": "Queries are in Chinese (Simplified). plan_search must translate or generate parallel English queries; report can be bilingual (config.language = 'zh' or 'en').",
+  "schema_version": "1.0",
+  "queries": [
+    {
+      "id": 1,
+      "query": "工作记忆训练对老年人认知功能的影响",
+      "domain": "Psychology-Cognitive-Aging",
+      "expected_difficulty": "easy",
+      "english_parallel": "Effects of working memory training on cognitive function in older adults"
+    },
+    {
+      "id": 2,
+      "query": "自我决定理论在教育情境中的应用",
+      "domain": "Psychology-Educational-Motivation",
+      "expected_difficulty": "easy",
+      "english_parallel": "Self-determination theory applied to educational contexts"
+    },
+    {
+      "id": 3,
+      "query": "正念冥想干预对大学生焦虑抑郁的元分析",
+      "domain": "Psychology-Clinical",
+      "expected_difficulty": "easy",
+      "english_parallel": "Meta-analysis of mindfulness meditation interventions on anxiety and depression in university students"
+    },
+    {
+      "id": 4,
+      "query": "中国留守儿童心理健康影响因素的纵向研究",
+      "domain": "Psychology-Developmental-China",
+      "expected_difficulty": "hard",
+      "english_parallel": "Longitudinal studies of psychological well-being factors among left-behind children in China",
+      "note": "Substantial Chinese-language literature on this topic; CNKI supplementation strongly recommended"
+    },
+    {
+      "id": 5,
+      "query": "社交媒体使用与青少年自尊的关系",
+      "domain": "Psychology-Social-Media",
+      "expected_difficulty": "easy",
+      "english_parallel": "Social media use and adolescent self-esteem"
+    },
+    {
+      "id": 6,
+      "query": "前景理论在金融决策中的神经经济学证据",
+      "domain": "Behavioral-Economics-Neuroscience",
+      "expected_difficulty": "medium",
+      "english_parallel": "Neuroeconomic evidence for prospect theory in financial decision-making"
+    },
+    {
+      "id": 7,
+      "query": "依恋类型对成年期亲密关系满意度的影响",
+      "domain": "Psychology-Personality",
+      "expected_difficulty": "easy",
+      "english_parallel": "Influence of attachment styles on intimate relationship satisfaction in adulthood"
+    },
+    {
+      "id": 8,
+      "query": "执行功能与儿童学业成就的发展关联",
+      "domain": "Psychology-Developmental-Cognitive",
+      "expected_difficulty": "easy",
+      "english_parallel": "Developmental relationships between executive function and academic achievement in children"
+    },
+    {
+      "id": 9,
+      "query": "孤独感对老年人心血管健康的影响机制",
+      "domain": "Health-Psychology-Aging",
+      "expected_difficulty": "medium",
+      "english_parallel": "Mechanisms linking loneliness to cardiovascular health in older adults"
+    },
+    {
+      "id": 10,
+      "query": "新冠疫情对中国大学生心理弹性的影响研究",
+      "domain": "Psychology-Crisis-China",
+      "expected_difficulty": "medium",
+      "english_parallel": "Effects of the COVID-19 pandemic on psychological resilience in Chinese university students",
+      "note": "Topic dual-language; English-only search recovers most but Chinese-language supplementation valuable"
+    },
+    {
+      "id": 11,
+      "query": "积极心理学干预对职场倦怠的有效性",
+      "domain": "Psychology-Organizational",
+      "expected_difficulty": "easy",
+      "english_parallel": "Effectiveness of positive psychology interventions on workplace burnout"
+    },
+    {
+      "id": 12,
+      "query": "视频游戏对青少年注意力和反应时的双重影响",
+      "domain": "Psychology-Cognitive-Media",
+      "expected_difficulty": "easy",
+      "english_parallel": "Dual effects of video games on adolescent attention and reaction time"
+    },
+    {
+      "id": 13,
+      "query": "中医情志理论与现代情绪调节的整合研究",
+      "domain": "Psychology-Cross-Cultural",
+      "expected_difficulty": "hard",
+      "english_parallel": "Integration of Traditional Chinese Medicine emotion theory with modern emotion regulation research",
+      "note": "Topic primarily Chinese-language; CNKI essential, OpenAlex/SS coverage poor"
+    },
+    {
+      "id": 14,
+      "query": "教师反馈方式对学生学习动机的影响",
+      "domain": "Educational-Psychology",
+      "expected_difficulty": "easy",
+      "english_parallel": "Effects of teacher feedback styles on student learning motivation"
+    },
+    {
+      "id": 15,
+      "query": "睡眠剥夺对大学生情绪认知双重任务表现的影响",
+      "domain": "Psychology-Cognitive-Affective",
+      "expected_difficulty": "medium",
+      "english_parallel": "Effects of sleep deprivation on dual-task performance combining emotion and cognition in university students"
+    }
+  ]
+}

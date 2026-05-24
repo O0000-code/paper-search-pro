@@ -1,0 +1,135 @@
+{
+  "name": "LitSearch-style subset (CS/NLP, 12 queries)",
+  "source_note": "These 12 queries are written in LitSearch (EMNLP 2024) style — natural-language research questions in CS/NLP with citation-graph gold standards. For the OFFICIAL LitSearch v1 dataset (597 queries), download from https://github.com/princeton-nlp/LitSearch (MIT license) and replace this file's `queries` array with the official `queries.jsonl`. The 12 queries below are synthesized for development testing only.",
+  "license_note": "Original LitSearch is MIT-licensed (Princeton NLP); these synthesized samples follow the same form and may be freely modified.",
+  "schema_version": "1.0",
+  "expected_field_format": {
+    "id": "integer",
+    "query": "natural-language research question (one sentence, no quotes)",
+    "gold_papers": "list of DOI strings; the papers a domain expert considers indispensable for the query (typically 5-15 papers per LitSearch query)",
+    "domain": "discipline tag (e.g., CS-NLP, CS-CV, CS-ML)"
+  },
+  "queries": [
+    {
+      "id": 1,
+      "query": "How do tokenization-free language models perform compared to subword-based architectures on multilingual tasks?",
+      "gold_papers": [
+        "10.18653/v1/2022.tacl-1.17",
+        "10.18653/v1/2021.acl-long.470",
+        "10.48550/arXiv.2305.07185",
+        "10.18653/v1/2019.acl-long.602"
+      ],
+      "domain": "CS-NLP"
+    },
+    {
+      "id": 2,
+      "query": "What are the methods for evaluating chain-of-thought prompting reliability across reasoning benchmarks?",
+      "gold_papers": [
+        "10.48550/arXiv.2201.11903",
+        "10.48550/arXiv.2305.04388",
+        "10.48550/arXiv.2210.03493"
+      ],
+      "domain": "CS-NLP"
+    },
+    {
+      "id": 3,
+      "query": "How does retrieval-augmented generation handle factual consistency in long-form question answering?",
+      "gold_papers": [
+        "10.48550/arXiv.2005.11401",
+        "10.48550/arXiv.2104.07567",
+        "10.18653/v1/2023.acl-long.546"
+      ],
+      "domain": "CS-NLP"
+    },
+    {
+      "id": 4,
+      "query": "What techniques improve sample efficiency in offline reinforcement learning from human feedback?",
+      "gold_papers": [
+        "10.48550/arXiv.2203.02155",
+        "10.48550/arXiv.2305.18290",
+        "10.48550/arXiv.2204.05862"
+      ],
+      "domain": "CS-ML"
+    },
+    {
+      "id": 5,
+      "query": "How do vision-language models handle compositional generalization in visual question answering?",
+      "gold_papers": [
+        "10.48550/arXiv.2103.00020",
+        "10.48550/arXiv.2204.14198",
+        "10.48550/arXiv.2301.12597"
+      ],
+      "domain": "CS-CV"
+    },
+    {
+      "id": 6,
+      "query": "What are the most effective methods for calibrating uncertainty in deep neural network predictions?",
+      "gold_papers": [
+        "10.48550/arXiv.1706.04599",
+        "10.48550/arXiv.2002.06470",
+        "10.48550/arXiv.2107.07511"
+      ],
+      "domain": "CS-ML"
+    },
+    {
+      "id": 7,
+      "query": "How does mechanistic interpretability research identify induction heads in transformer language models?",
+      "gold_papers": [
+        "10.48550/arXiv.2209.11895",
+        "10.48550/arXiv.2211.00593",
+        "10.48550/arXiv.2305.01610"
+      ],
+      "domain": "CS-NLP"
+    },
+    {
+      "id": 8,
+      "query": "What are the empirical scaling laws for compute-optimal training of large language models?",
+      "gold_papers": [
+        "10.48550/arXiv.2001.08361",
+        "10.48550/arXiv.2203.15556",
+        "10.48550/arXiv.2206.07682"
+      ],
+      "domain": "CS-ML"
+    },
+    {
+      "id": 9,
+      "query": "How do diffusion models compare to GANs for high-resolution image synthesis quality and diversity?",
+      "gold_papers": [
+        "10.48550/arXiv.2006.11239",
+        "10.48550/arXiv.2105.05233",
+        "10.48550/arXiv.2112.10752"
+      ],
+      "domain": "CS-CV"
+    },
+    {
+      "id": 10,
+      "query": "What approaches enable parameter-efficient fine-tuning of large language models for downstream tasks?",
+      "gold_papers": [
+        "10.48550/arXiv.2106.09685",
+        "10.48550/arXiv.2104.08691",
+        "10.48550/arXiv.2305.14314"
+      ],
+      "domain": "CS-NLP"
+    },
+    {
+      "id": 11,
+      "query": "How do agent-based LLM systems coordinate multi-step tool use and external API calls?",
+      "gold_papers": [
+        "10.48550/arXiv.2210.03629",
+        "10.48550/arXiv.2302.04761",
+        "10.48550/arXiv.2305.16291"
+      ],
+      "domain": "CS-NLP"
+    },
+    {
+      "id": 12,
+      "query": "What are the bias and fairness considerations when deploying speech recognition models across demographic groups?",
+      "gold_papers": [
+        "10.1073/pnas.1915768117",
+        "10.48550/arXiv.2105.14773",
+        "10.48550/arXiv.2104.04571"
+      ],
+      "domain": "CS-Speech"
+    }
+  ]
+}

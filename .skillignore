@@ -1,0 +1,42 @@
+# paper-search-pro distribution exclusions
+# These paths are excluded from skill packaging / distribution zips.
+# Tools that respect .skillignore: future Claude Code skill packagers,
+# rsync (via --filter=':- .skillignore'), and the bundle-artifact script.
+
+# --- Web artifact build output (rebuildable from source) ---
+assets/webartifacts_app/paper-report/node_modules/
+assets/webartifacts_app/paper-report/dist/
+assets/webartifacts_app/paper-report/.parcel-cache/
+assets/webartifacts_app/paper-report/.vite/
+
+# --- Python build artifacts ---
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- OS / editor noise ---
+.DS_Store
+**/.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# --- Local search outputs (user-generated; never distributed) ---
+paper-search-results/
+/tmp/paper-search-*/
+
+# --- Local dev caches ---
+.cache/
+.coverage
+htmlcov/
+
+# --- Backup / pre-rework artifacts (SA-Ship2 D1+D2 — added 2026-05-22) ---
+# Backups produced by `backup-before-irreversible-rework` rule should sit
+# under `~/<skill>-archive-<date>/` outside the Skill tree. Defensively
+# exclude any that leak in so they never ship with distribution.
+**/*.backup
+**/src.before-*/
