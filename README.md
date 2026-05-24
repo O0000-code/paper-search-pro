@@ -29,6 +29,12 @@ Five sources · four tiers · single-file Shadcn report.
 
 ![Findings — Swiss hero](docs/screenshots/findings.png)
 
+<div align="center">
+
+**[→ Live demo (opens the actual report in your browser)](https://o0000-code.github.io/paper-search-pro/)**
+
+</div>
+
 <br/>
 
 ## What it does

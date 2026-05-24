@@ -29,6 +29,12 @@
 
 ![文献结果 — Swiss 首页](docs/screenshots/findings-zh.png)
 
+<div align="center">
+
+**[→ 在线 Demo（浏览器直接打开真实报告）](https://o0000-code.github.io/paper-search-pro/)**
+
+</div>
+
 <br/>
 
 ## 它做什么
