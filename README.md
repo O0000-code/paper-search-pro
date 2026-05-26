@@ -197,5 +197,3 @@ Seventeen per-step reference documents live in [`references/`](references/) — 
 ## License
 
 Apache License 2.0 — see [`LICENSE.txt`](LICENSE.txt).
-
-Vendored from [futurehouse/paper-qa](https://github.com/futurehouse/paper-qa) (Apache 2.0). The deterministic helper subset — five-source clients + the federated-dedup resolver — is repackaged for Claude Code Skill consumption. The workflow recipe, the React report renderer, the parallel-classifier orchestration, and the dual-language UI are original to this project.

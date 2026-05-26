@@ -196,5 +196,3 @@ PYTHONPATH=~/.claude/skills/paper-search-pro python3 -c \
 ## License
 
 Apache License 2.0 — 见 [`LICENSE.txt`](LICENSE.txt)。
-
-源自 [futurehouse/paper-qa](https://github.com/futurehouse/paper-qa)（Apache 2.0）的 vendoring。确定性 helper 子集 — 5 个数据源客户端 + 联邦去重 resolver — 重新打包供 Claude Code Skill 使用。workflow recipe、React 报告渲染器、并行分级编排、双语 UI 均为本项目原创。
