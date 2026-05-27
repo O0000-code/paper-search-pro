@@ -40,3 +40,12 @@ htmlcov/
 # exclude any that leak in so they never ship with distribution.
 **/*.backup
 **/src.before-*/
+
+# --- Developer-only directories (added 2026-05-27) ---
+# Unit tests + eval fixtures are checked into the GitHub repo so contributors
+# can run them, but the Claude Code Skill runtime never invokes them — the
+# main agent follows SKILL.md's 14-step recipe and never imports pytest.
+# Excluding them keeps the distributed Skill bundle ~100 KB lighter and
+# removes confusing "what is this for?" surface area for end users.
+tests/
+evals/

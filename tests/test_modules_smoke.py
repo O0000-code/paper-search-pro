@@ -9,12 +9,27 @@ resolver that gained a CLI in the same wave. Each is checked twice:
      blocks and argparse misconfigurations).
 """
 
+import os
 import subprocess
 from pathlib import Path
 
 import pytest
 
-SKILL = Path("/Users/bo/.claude/skills/paper-search-pro")
+# Resolve the Skill root portably so contributors / CI can run these tests
+# without first renaming themselves to `bo`. Priority:
+#   1. PSP_SKILL_ROOT env var (CI / custom installs)
+#   2. Walk up from __file__ to find the Skill root (works when tests/ is
+#      checked out alongside scripts/ + SKILL.md, e.g. from a git clone)
+#   3. The conventional Claude Code install location under the current user
+SKILL = (
+    Path(os.environ["PSP_SKILL_ROOT"]).expanduser()
+    if os.environ.get("PSP_SKILL_ROOT")
+    else (
+        Path(__file__).resolve().parent.parent
+        if (Path(__file__).resolve().parent.parent / "SKILL.md").exists()
+        else Path("~/.claude/skills/paper-search-pro").expanduser()
+    )
+)
 MODULES = [
     "data_materialization",
     "discovery_curve",
