@@ -1208,9 +1208,48 @@
    strips shadow/blur, A4 18mm × 14mm margins, lets truncated rows wrap
    naturally on paper. 1:1 port of TARGET redesign/lib.jsx lines 64-111. */
 @media print {
+  /* Use a fixed CSS-pixel page size (1240×1754, the A4 portrait aspect
+     ratio scaled to the hero's design viewport) instead of `size: A4`.
+     Why: `size: A4` makes the browser treat the print viewport as 210mm
+     wide (~689 CSS px after default margins), which is narrower than
+     the desktop layout was designed for. In that narrow viewport the
+     hero's `max-width: 1240px` no longer constrains anything, the
+     4-column SwissTop grid collapses to ~577px of usable width, the
+     two 2.2fr columns shrink to ~111px each, and the 96px hero numerals
+     ("12", "91%") overflow into one another — visually they read as a
+     single "1291%" blob with no separator. Editorial / Document
+     layouts use narrow centered columns so they survived the squeeze,
+     but Grid took the hit.
+     Fixing this at the page-size root makes the print layout viewport
+     identical to the screen (1240 CSS px wide). Browsers' Print dialog
+     "Fit to Page" (default in Chrome / Edge / Safari) then auto-scales
+     this CSS page down onto whatever paper the user actually has — A4,
+     Letter, A3 — preserving proportions exactly. Print preview now
+     mirrors the screen pixel-for-pixel, no print-specific layout
+     overrides needed, all three hero layouts (Grid / Editorial /
+     Document) render as designed. */
   @page {
-    size: A4;
+    size: 1240px 1754px;
     margin: 18mm 14mm;
+    /* Override browser-injected URL / title / date / page-number headers and
+       footers. Modern browsers expose six named margin boxes around the page
+       area (@top-left/center/right + @bottom-left/center/right) — by default
+       the print engine fills these with its own content (page URL, document
+       title, date, "Page N of M"). Setting each to `content: ""` replaces
+       that default with empty content, leaving the page margin visually
+       blank. Spec: CSS Paged Media Module Level 3 §6 (margin boxes).
+       Support: Chrome 105+ / Edge 105+ honor margin box content
+       suppression; Firefox 99+ does too. Safari 18.2+ added partial
+       margin descriptor support but does NOT yet honor margin box content
+       override — users on older Safari may still see headers/footers and
+       can untick "Headers & footers" in the Safari print dialog manually
+       (we can't force the dialog state from CSS). */
+    @top-left      { content: ""; }
+    @top-center    { content: ""; }
+    @top-right     { content: ""; }
+    @bottom-left   { content: ""; }
+    @bottom-center { content: ""; }
+    @bottom-right  { content: ""; }
   }
   html, body {
     background: white !important;
@@ -1256,6 +1295,114 @@
     white-space: normal !important;
     text-overflow: clip !important;
   }
+
+  /* SwissTop hero column breathing room.
+     Browsers' print viewport CSS is narrower than the screen viewport
+     (Chrome ~793, Safari sometimes narrower). The 4-column hero grid
+     still renders (we no longer single-column-stack on print), but the
+     2.2fr stat cells shrink to ~95-130 CSS px, while the 96 px font
+     numerals are 100-150 px wide. Without explicit column-gap the two
+     numerals visually touch ("12" + "91%" → "1291%"). A 32 px gap is
+     the minimum that keeps them clearly separated on paper at any
+     reasonable print viewport, AND it never reaches screen (which has
+     1240 px hero with cells of 217 px already comfortable).
+     Note this is `gap` not `column-gap` so older browsers (Safari ≤
+     14.0) that don't grok the shorthand still get the rule. */
+  .rd-hero-swiss [style*="grid-template-columns"] {
+    gap: 32px !important;
+  }
+
+  /* ───────────────────────────────────────────────────────────────────
+     Safari-only fix: SwissTop hero physical print size compensation.
+
+     Root cause: Safari WebKit silently ignores `@page { size: 1240px
+     1754px }` (WebKit Bug #250685, MDN BCD #28626 — both verified open
+     2026-05). It falls back to the OS default page (A4, ~793 CSS-px
+     viewport). The SwissTop hero is designed at maxWidth 1240 — in
+     Safari it overflows the 793-px print viewport and fills 100% of the
+     physical A4 page, while Chrome's accepted 1240×1754 PDF MediaBox
+     lets the same hero shrink to ~64% during the printer's fit-to-page
+     scaling. The visible effect: Safari prints the hero 1.57x larger
+     than Chrome (96px hero font → 1.0" physical vs Chrome's 0.64").
+
+     Strategy: scale the SwissTop hero block down with `zoom: 0.64` ONLY
+     when the page is loaded in Safari (UA-detection class `.is-safari`
+     is added to <html> by src/lib/safari-detect.ts at load time). The
+     `zoom` property affects the layout box (unlike `transform: scale`),
+     so document flow naturally reflows below the smaller hero — no
+     manual margin compensation needed. WebKit supports `zoom` in print
+     reliably (it's the same MS-origin property Chrome/Edge also support).
+
+     Scoping safety:
+       - Inside @media print → screen view unaffected on any browser.
+       - Prefixed with .is-safari → Chrome / Firefox / Edge unaffected
+         in print (they don't get the class).
+       - Selector targets only the SwissTop outer container (Editorial /
+         Document use different maxWidth values 940 / 780 and are not
+         matched).
+     ─────────────────────────────────────────────────────────────────── */
+  .is-safari .rd-hero-swiss > div[style*="max-width: 1240px"] {
+    /* Force LAYOUT width to the design's 1240 CSS-px so the inner CSS Grid
+       (minmax(0, 6fr) 1fr minmax(0, 2.2fr) minmax(0, 2.2fr)) computes cell
+       widths exactly the way Chrome computes them (Query ≈ 358px, stat
+       cols ≈ 131px each). Without this, Safari's ~793px print viewport
+       squeezes the grid: minmax(0, 2.2fr) shrinks the stat columns to
+       ~50px, causing "+24 closely related from 187 papers screened" to
+       wrap into 5 lines and "HIGHLY"/"RELEVANT" to break across two lines.
+       After forcing width: 1240, internal cell widths and text wrapping
+       match Chrome 1:1. The `zoom: 0.64` then visually scales the whole
+       block down — including font sizes, paddings, gaps, AND the layout
+       box itself — so the rendered hero occupies ~793.6 CSS-px (≈ A4
+       width), with margin: 0 auto centering it on the page. */
+    width: 1240px !important;
+    zoom: 0.64;
+  }
+
+  /* ───────────────────────────────────────────────────────────────────
+     Paper list left-edge alignment in print.
+
+     Problem: On screen the paper-list rows have a 16px horizontal padding
+     (`padding: "14px 16px"` in PaperRowCatalog) plus a 34px right-aligned
+     rank column, which together push the "#01" character ~25 CSS px to
+     the right of the container's left edge — where FINDINGS / METHODS /
+     AUDIT / FILTER live. At a 1665px screen viewport this 25-px offset
+     is 1.5% of width and barely noticeable; at Safari's print A4 viewport
+     (~793 CSS px) it becomes 3.2% — visually a clear indent.
+
+     Fix: in print only, zero the row's horizontal padding (hover-affordance
+     breathing room doesn't apply on paper), left-align the #NN rank prefix
+     (padStart(2,'0') makes them all 3 chars wide so visual lineup is the
+     same as right-aligned), and zero the TierHeader's 4-px padding so the
+     bullet TierDot lines up at the same X. Result: "#01" and the section
+     header dot both sit flush at the container left edge, aligned with
+     FINDINGS / FILTER above. Screen layout untouched. Affects all browsers
+     equally (Chrome / Safari / Firefox / Edge) — Chrome's print also
+     benefits from the alignment cleanup. */
+  .rd-paper-row {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  .rd-paper-row > .tabular:first-of-type {
+    text-align: left !important;
+  }
+  /* TierHeader is the first <div> child of each tier <section> that contains
+     paper rows. Use :has() to scope precisely without adding a className.
+     Safari 15.4+, Chrome 105+, Firefox 121+ all support :has(). */
+  section:has(.rd-paper-row) > div:first-child {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    /* Keep the flex `gap: 12` so the section count, horizontal rule, and
+       description on the right still have natural spacing — we only need
+       to drop the bullet, not collapse all spacing. */
+  }
+  /* Hide the TierDot color bullet in print. With TierDot hidden, the section
+     name text (e.g. "FOUNDATIONAL") becomes the flex container's first
+     visible child and sits at X=0 — aligning vertically with #01, FINDINGS,
+     and FILTER. On screen the dot is a useful visual hierarchy marker; on
+     paper the section text + horizontal rule already convey grouping. */
+  section:has(.rd-paper-row) > div:first-child > *:first-child {
+    display: none !important;
+  }
 }
 
 /* Responsive stylesheet (delta4, 2026-05-24).
@@ -1278,7 +1425,14 @@
      - 480px adds further font + padding tightening for small phones
        (iPhone SE 320, regular phones 360-414). */
 
-@media (max-width: 860px) {
+/* `screen and` scope is critical: Chrome's print layout viewport is forced
+   to ~793 CSS px (Letter content area) regardless of `@page size: <length>`,
+   which is BELOW 860 px and would erroneously fire the responsive
+   single-column-stack overrides during print preview. We want print to use
+   the desktop hero layout (4-column grid, full-width numerals) so the
+   user sees the same visual rhythm they see on screen. Constraining the
+   responsive query to `screen` keeps it on phones/tablets only. */
+@media screen and (max-width: 860px) {
   /* Belt-and-suspenders: clip any residual overflow at the body so a stray
      inline-styled element can never push the page wider than the viewport. */
   body {
@@ -1439,7 +1593,10 @@
   }
 }
 
-@media (max-width: 480px) {
+/* Same `screen and` scope as the 860px block above — keep print out of
+   small-screen overrides; print should always use desktop layout, scaled
+   to paper by the browser's fit-to-page. */
+@media screen and (max-width: 480px) {
   /* Further reduce hero stat number for small phones (iPhone SE etc.). */
   .rd-hero-swiss [style*="font-size: 96px"] {
     font-size: 48px !important;
