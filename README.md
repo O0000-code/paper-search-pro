@@ -65,18 +65,25 @@ CJK in the query routes to Chinese UI; otherwise English. Both report flavors us
 
 ## Install
 
-Clone into your agent's Skills directory, then install Python deps:
+Clone into your agent's Skills directory. The target path varies by agent — pick the one matching what you use:
 
 ```bash
-# Claude Code (native Skill support)
+# Pick ONE target directory, depending on your agent:
+#   ~/.claude/skills/paper-search-pro          # Claude Code
+#   ~/.codex/skills/paper-search-pro           # Codex CLI
+#   ~/.agents/skills/paper-search-pro          # cross-agent convention (Goose, Roo, etc.)
+#   ~/.config/opencode/skills/paper-search-pro # OpenCode
+#   ~/.codeium/windsurf/skills/paper-search-pro # Windsurf
+#   ./.claude/skills/paper-search-pro          # project-local (Cursor, etc.)
+
 git clone https://github.com/O0000-code/paper-search-pro.git \
-  ~/.claude/skills/paper-search-pro
+  ~/.claude/skills/paper-search-pro   # change to your chosen path
 
-# Codex — clone into your Codex skills root (varies by version)
-# Other agents — see your agent's documentation for the SKILL.md format
-#                loader location
+# Point PSP_HOME at wherever you cloned. SKILL.md STEP 0 also auto-resolves
+# the common paths above, so this manual export is only needed for non-standard locations.
+export PSP_HOME="$HOME/.claude/skills/paper-search-pro"
 
-python3 -m pip install -r ~/.claude/skills/paper-search-pro/scripts/requirements.txt
+python3 -m pip install -r "$PSP_HOME/scripts/requirements.txt"
 ```
 
 Five free API keys (~15 min total) — see [`references/setup.md`](references/setup.md).
@@ -158,7 +165,7 @@ Five keys, all free, ~15 min total. Real config lives at `~/.paper-search-pro/co
 Verify readiness any time:
 
 ```bash
-PYTHONPATH=~/.claude/skills/paper-search-pro python3 -c \
+PYTHONPATH=$PSP_HOME python3 -c \
   "from scripts.config import load_config; c = load_config(); \
    print('ready' if c.openalex_api_key and c.ncbi_email else 'missing')"
 ```

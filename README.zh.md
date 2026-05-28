@@ -65,17 +65,25 @@
 
 ## 安装
 
-clone 到你 Agent 的 Skills 目录，然后装 Python 依赖：
+clone 到你 Agent 的 Skills 目录。具体路径因 Agent 而异 — 选你正在用的那个：
 
 ```bash
-# Claude Code（原生 Skill 支持）
+# 选 ONE 个目标目录，根据你的 Agent：
+#   ~/.claude/skills/paper-search-pro          # Claude Code
+#   ~/.codex/skills/paper-search-pro           # Codex CLI
+#   ~/.agents/skills/paper-search-pro          # 跨 Agent 约定（Goose、Roo 等）
+#   ~/.config/opencode/skills/paper-search-pro # OpenCode
+#   ~/.codeium/windsurf/skills/paper-search-pro # Windsurf
+#   ./.claude/skills/paper-search-pro          # 项目级（Cursor 等）
+
 git clone https://github.com/O0000-code/paper-search-pro.git \
-  ~/.claude/skills/paper-search-pro
+  ~/.claude/skills/paper-search-pro   # 改成你选的路径
 
-# Codex   — clone 到你 Codex 的 skills 根目录（版本而异）
-# 其它    — 以你 Agent 的 SKILL.md 格式 loader 文档为准
+# 把 PSP_HOME 指向你 clone 的位置。SKILL.md STEP 0 也会自动扫上面的常见路径，
+# 所以非标准位置才需要手动 export。
+export PSP_HOME="$HOME/.claude/skills/paper-search-pro"
 
-python3 -m pip install -r ~/.claude/skills/paper-search-pro/scripts/requirements.txt
+python3 -m pip install -r "$PSP_HOME/scripts/requirements.txt"
 ```
 
 5 个免费 API key（共约 15 分钟）— 见 [`references/setup.md`](references/setup.md)。
@@ -157,7 +165,7 @@ summary.md          300 字执行摘要（主 Agent 撰写）
 随时验证就绪状态：
 
 ```bash
-PYTHONPATH=~/.claude/skills/paper-search-pro python3 -c \
+PYTHONPATH=$PSP_HOME python3 -c \
   "from scripts.config import load_config; c = load_config(); \
    print('ready' if c.openalex_api_key and c.ncbi_email else 'missing')"
 ```
