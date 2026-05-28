@@ -3,7 +3,7 @@
 Referenced by `SKILL.md` STEP 3 (always-on L1 retrieval) and STEP 9 (citation expansion).
 
 **Entry point**: `python3 -m scripts.openalex_helper <subcmd> [args]` (must be run from skill root).
-**Init source**: `init_pyalex(load_config())` — uses `openalex_email` + `openalex_api_key` from `~/.paper-search-pro/config.yaml`. See `setup.md`.
+**Init source**: `init_pyalex(load_config())` — requires `openalex_api_key` from `~/.paper-search-pro/config.yaml` (mandatory since 2026-02-13). See `setup.md`.
 **Output**: every subcommand writes a JSON `UnifiedPaperEntity[]` (or single object) to stdout. Redirect to `raw/openalex.json` for STEP 5 federation.
 
 ## 11 subcommands

@@ -8,7 +8,7 @@ Run from **the user's current working directory** (do NOT `cd` into the skill di
 
 ```bash
 PYTHONPATH=~/.claude/skills/paper-search-pro python3 -c "from scripts.config import load_config; c = load_config(); \
-  print('openalex:', bool(c.openalex_api_key or c.openalex_email)); \
+  print('openalex:', bool(c.openalex_api_key)); \
   print('semantic_scholar:', bool(c.semantic_scholar_api_key)); \
   print('ncbi:', bool(c.ncbi_email)); \
   print('crossref:', bool(c.crossref_email))"
@@ -29,21 +29,22 @@ Minimum viable: `openalex` + `ncbi` (the only "required" pair for medical-capabl
 
 | | |
 |---|---|
-| Apply at | https://openalex.org/keys |
-| Cost | Free, $1/day quota for non-premium polite-pool use |
-| Time to issue | Instant (email confirmation only) |
-| Fills | `openalex_email` (and optionally `openalex_api_key`) |
-| Why required | L1 primary source. Without it, the whole pipeline halts. |
+| Apply at | https://openalex.org/settings/api |
+| Cost | Free, $1/day quota (~10k list calls / 1k searches) |
+| Time to issue | Instant |
+| Fills | `openalex_api_key` |
+| Why required | L1 primary source. As of 2026-02-13, API key is mandatory; `mailto=` polite pool is deprecated and ignored. |
 
 **Steps**:
-1. Visit https://openalex.org/keys
-2. Enter your email (used as polite-pool identifier)
-3. Receive confirmation email → click activation link
-4. Optionally generate API key for Premium quotas — email-only polite-pool works fine for our usage volume (~200 calls per Standard tier search)
+1. Register at https://openalex.org (any email)
+2. Visit https://openalex.org/settings/api → generate API key
+3. Paste into `openalex_api_key` in config
+
+Standard tier uses ~200 calls per search → well within the free $1/day. Deep/Audit heavy users may prepay $1-5; academic users can email support@openalex.org for free quota extension.
 
 **Verify**:
 ```bash
-curl -s 'https://api.openalex.org/works?search=cancer&mailto=YOUR_EMAIL&per_page=2' | head -c 300
+curl -s 'https://api.openalex.org/works?search=cancer&api_key=YOUR_KEY&per_page=2' | head -c 300
 # Should return JSON starting with {"meta":{...
 ```
 
@@ -133,8 +134,8 @@ After collecting keys, write to `~/.paper-search-pro/config.yaml` (the helper au
 # ============================================================================
 
 # --- OpenAlex (REQUIRED) ---
-openalex_email: "you@example.com"
-openalex_api_key: ""          # Optional Premium token
+openalex_api_key: "abcdef1234567890..."
+openalex_email: ""            # Deprecated since 2026-02-13; ignored
 
 # --- Semantic Scholar (RECOMMENDED) ---
 semantic_scholar_api_key: "abcdef1234567890..."
@@ -183,9 +184,8 @@ status = {
 }
 for k, v in status.items():
     print(f'{k:30s} {\"OK\" if v else \"MISSING\"}')
-all_ok = status['openalex_email'] or status['openalex_api_key']
-all_ok = all_ok and status['ncbi_email']
-print('\\nMINIMUM:', 'READY' if all_ok else 'NOT READY — fill openalex + ncbi')
+all_ok = status['openalex_api_key'] and status['ncbi_email']
+print('\\nMINIMUM:', 'READY' if all_ok else 'NOT READY — fill openalex_api_key + ncbi_email')
 "
 ```
 

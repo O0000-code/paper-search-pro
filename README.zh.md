@@ -148,7 +148,7 @@ summary.md          300 字执行摘要（主 Agent 撰写）
 
 | 层 | 数据源 | 角色 | 成本 | 申请地址 |
 |:---:|:---|:---|:---:|:---|
-| **L1** | OpenAlex | 主源 — 始终启用 | free | <https://openalex.org/keys> |
+| **L1** | OpenAlex | 主源 — 始终启用 | free | <https://openalex.org/settings/api> |
 | **L2** | PubMed | 医学 · MeSH 富化 | free | <https://account.ncbi.nlm.nih.gov/settings/> |
 | **L2** | arXiv | preprint freshness (T-0~T-4) | free | *（无需注册 — SDK 自带 1 req / 3 s 限速）* |
 | **L3** | Semantic Scholar | influentialCitationCount + 摘要回退 | free | <https://www.semanticscholar.org/product/api> |
@@ -159,7 +159,7 @@ summary.md          300 字执行摘要（主 Agent 撰写）
 ```bash
 PYTHONPATH=~/.claude/skills/paper-search-pro python3 -c \
   "from scripts.config import load_config; c = load_config(); \
-   print('ready' if (c.openalex_email or c.openalex_api_key) and c.ncbi_email else 'missing')"
+   print('ready' if c.openalex_api_key and c.ncbi_email else 'missing')"
 ```
 
 <br/>

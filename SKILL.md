@@ -112,7 +112,7 @@ For every literature search, follow these steps in order. Each step references a
 
 ```bash
 PYTHONPATH=~/.claude/skills/paper-search-pro python3 -c \
-  "from scripts.config import load_config; c = load_config(); print('OK' if (c.openalex_api_key or c.openalex_email) and c.ncbi_email else 'MISSING — see references/setup.md')"
+  "from scripts.config import load_config; c = load_config(); print('OK' if c.openalex_api_key and c.ncbi_email else 'MISSING — see references/setup.md')"
 ```
 
 If "MISSING", point the user to `references/setup.md` (5 keys, all free, ~15 min total) and halt.

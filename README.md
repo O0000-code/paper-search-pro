@@ -149,7 +149,7 @@ Five keys, all free, ~15 min total. Real config lives at `~/.paper-search-pro/co
 
 | Layer | Source | Role | Cost | Apply at |
 |:---:|:---|:---|:---:|:---|
-| **L1** | OpenAlex | primary — always on | free | <https://openalex.org/keys> |
+| **L1** | OpenAlex | primary — always on | free | <https://openalex.org/settings/api> |
 | **L2** | PubMed | medical · MeSH enricher | free | <https://account.ncbi.nlm.nih.gov/settings/> |
 | **L2** | arXiv | preprint freshness (T-0~T-4) | free | *(no signup — SDK enforces 1 req / 3 s)* |
 | **L3** | Semantic Scholar | influentialCitationCount + abstract fallback | free | <https://www.semanticscholar.org/product/api> |
@@ -160,7 +160,7 @@ Verify readiness any time:
 ```bash
 PYTHONPATH=~/.claude/skills/paper-search-pro python3 -c \
   "from scripts.config import load_config; c = load_config(); \
-   print('ready' if (c.openalex_email or c.openalex_api_key) and c.ncbi_email else 'missing')"
+   print('ready' if c.openalex_api_key and c.ncbi_email else 'missing')"
 ```
 
 <br/>
