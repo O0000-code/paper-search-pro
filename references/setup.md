@@ -2,12 +2,14 @@
 
 Referenced by `SKILL.md` setup check (before any tier runs). Total time: ~15 min. All keys are FREE.
 
+> **About `$PSP_HOME`**: every command below uses `PYTHONPATH=$PSP_HOME` so the same snippets work whether the Skill is installed at `~/.claude/skills/paper-search-pro` (Claude Code), `~/.codex/skills/paper-search-pro` (Codex), `~/.agents/skills/paper-search-pro` (cross-agent convention), or anywhere else. Set it once: `export PSP_HOME="<absolute directory containing SKILL.md>"`. SKILL.md STEP 0 has a three-layer auto-resolver if you want to skip the manual export.
+
 ## Quick status check
 
 Run from **the user's current working directory** (do NOT `cd` into the skill directory — see `output_files.md` for why):
 
 ```bash
-PYTHONPATH=~/.claude/skills/paper-search-pro python3 -c "from scripts.config import load_config; c = load_config(); \
+PYTHONPATH=$PSP_HOME python3 -c "from scripts.config import load_config; c = load_config(); \
   print('openalex:', bool(c.openalex_api_key)); \
   print('semantic_scholar:', bool(c.semantic_scholar_api_key)); \
   print('ncbi:', bool(c.ncbi_email)); \
@@ -171,7 +173,7 @@ log_level: "INFO"
 After editing config, run the full check **from the user's current working directory** (the `PYTHONPATH=` prefix lets `scripts.*` import without `cd`):
 
 ```bash
-PYTHONPATH=~/.claude/skills/paper-search-pro python3 -c "
+PYTHONPATH=$PSP_HOME python3 -c "
 from scripts.config import load_config
 c = load_config()
 status = {

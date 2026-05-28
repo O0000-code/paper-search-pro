@@ -37,17 +37,17 @@ These four rules govern every step below. Violating them is the dominant failure
 
 ### Rule A — NEVER `cd` into the Skill directory
 
-**Reason**: `cd ~/.claude/skills/paper-search-pro` rebinds `./` to the Skill asset directory. Every `./paper-search-results/...` after that lands inside the Skill folder, not where the user is working. Re-installing the Skill overwrites history; the user can't find outputs in their own working directory.
+**Reason**: `cd $PSP_HOME` rebinds `./` to the Skill asset directory. Every `./paper-search-results/...` after that lands inside the Skill folder, not where the user is working. Re-installing the Skill overwrites history; the user can't find outputs in their own working directory.
 
 **Correct pattern** — execute helpers from the user's working directory using `PYTHONPATH`:
 
 ```bash
-PYTHONPATH=~/.claude/skills/paper-search-pro \
+PYTHONPATH=$PSP_HOME \
   python3 -m scripts.openalex_helper search "<query>" --limit 30 \
   > "$SEARCH_DIR/raw/openalex.json"
 ```
 
-Where `$SEARCH_DIR` was set up earlier as an **absolute path under the user's PWD** (see STEP 0). Shell `cwd` remains the user's PWD; `./` paths resolve to where the user expects.
+Where `$PSP_HOME` is the Skill install directory (resolved in STEP 0) and `$SEARCH_DIR` is an **absolute path under the user's PWD** (also from STEP 0). Shell `cwd` remains the user's PWD; `./` paths resolve to where the user expects.
 
 ### Rule B — Parallelism is MANDATORY for SubAgent dispatch
 
@@ -104,14 +104,51 @@ Python helpers do deterministic work — NO LLM inside, NO external API key.
 
 For every literature search, follow these steps in order. Each step references a `references/` file for details. Skip files only when the step is obviously trivial for the case at hand — and announce the skip per Rule C.
 
-### STEP 0 — Setup (PYTHONPATH + working directory)
+### STEP 0 — Setup ($PSP_HOME + working directory)
 
 📖 BEFORE THIS STEP, read: `references/setup.md`.
+
+**Resolve the Skill install path into `$PSP_HOME`** — every later step uses `PYTHONPATH=$PSP_HOME`. The Skill ships as a SKILL.md package; different Agents install it at different paths (`~/.claude/skills/`, `~/.codex/skills/`, `~/.agents/skills/`, `~/.config/opencode/skills/`, project-local `.claude/skills/`, etc.). Resolve `$PSP_HOME` once via a three-layer chain — explicit injection first, env var second, filesystem fallback third — and reuse it in every helper invocation.
+
+```bash
+# Layer 1: explicit injection. If you (the agent) already know where this
+#          SKILL.md lives — because your harness exposed its absolute path —
+#          substitute it here and skip Layers 2-3:
+#   export PSP_HOME="<absolute directory containing this SKILL.md>"
+#
+# Layer 2: agent-injected env var (Claude Code / CodeBuddy populate these).
+# Layer 3: walk the known cross-agent install locations.
+
+PSP_HOME="${PSP_HOME:-${CLAUDE_SKILL_DIR:-${CODEBUDDY_SKILL_DIR:-}}}"
+if [ -z "$PSP_HOME" ]; then
+  for d in \
+    "$HOME/.claude/skills/paper-search-pro" \
+    "$HOME/.codex/skills/paper-search-pro" \
+    "$HOME/.agents/skills/paper-search-pro" \
+    "$HOME/.config/opencode/skills/paper-search-pro" \
+    "$HOME/.codeium/windsurf/skills/paper-search-pro" \
+    "$HOME/.config/goose/skills/paper-search-pro" \
+    "$HOME/.cline/skills/paper-search-pro" \
+    "$HOME/.roo/skills/paper-search-pro" \
+    "$HOME/.copilot/skills/paper-search-pro" \
+    "./.claude/skills/paper-search-pro" \
+    "./.codex/skills/paper-search-pro" \
+    "./.agents/skills/paper-search-pro" \
+    "./.cursor/skills/paper-search-pro" \
+    "./.opencode/skills/paper-search-pro" \
+    "./.windsurf/skills/paper-search-pro"; do
+    [ -f "$d/SKILL.md" ] && PSP_HOME="$d" && break
+  done
+fi
+[ -z "$PSP_HOME" ] && { echo "ERROR: paper-search-pro install not found. Set PSP_HOME to the directory containing SKILL.md."; exit 1; }
+export PSP_HOME
+echo "Using Skill install: $PSP_HOME"
+```
 
 **Verify config keys** (executed from any cwd, never `cd` into the Skill dir):
 
 ```bash
-PYTHONPATH=~/.claude/skills/paper-search-pro python3 -c \
+PYTHONPATH=$PSP_HOME python3 -c \
   "from scripts.config import load_config; c = load_config(); print('OK' if c.openalex_api_key and c.ncbi_email else 'MISSING — see references/setup.md')"
 ```
 
@@ -132,17 +169,35 @@ echo "Outputs will land in: $SEARCH_DIR"
 
 📖 BEFORE THIS STEP, read: `references/query_planner.md`.
 
-**Detect query language first**: if the user's query contains any CJK characters (Chinese / Japanese / Korean — Unicode ranges U+4E00–U+9FFF, U+3040–U+30FF, U+AC00–U+D7AF), set `LANG=zh`; otherwise `LANG=en`. This single boolean controls which UI language the final HTML report renders in (paper titles / abstracts / authors / venues are NEVER translated — only the report's UI chrome). Pass `--language $LANG` to STEP 12b.
+**Detect query language first**: if the user's query contains any Chinese character (Unicode range U+4E00–U+9FFF, CJK Unified Ideographs), set `UI_LANG=zh`; otherwise `UI_LANG=en`. This single boolean controls which UI language the final HTML report renders in (paper titles / abstracts / authors / venues are NEVER translated — only the report's UI chrome). Pass `--language $UI_LANG` to STEP 12b.
+
+The bundle ships with only English and Chinese dictionaries. Non-Chinese queries (including Japanese / Korean / European languages) all route to **English**, which is the international academic default — a Korean researcher reading an English UI is friendlier than the same researcher confronting a Chinese UI they cannot parse. Routing Japanese / Korean to Chinese was the previous heuristic; it was changed because the assumption "CJK readers can read Chinese UI" does not hold.
 
 ```bash
-# Heuristic: bash regex on the raw query.
-# `一-鿿` covers U+4E00–U+9FFF (CJK Unified Ideographs, the full
-# range — `一-龯` would stop at U+9FAF and miss 55 rare chars).
-# `ぁ-んァ-ヶ` covers Hiragana + Katakana; `가-힣` covers Hangul.
-if [[ "$USER_QUERY" =~ [一-鿿ぁ-んァ-ヶ가-힣] ]]; then
-  LANG=zh
+# Heuristic: bash regex on the raw query, applied in order — first match wins.
+#
+# Japanese kanji share Unicode U+4E00–U+9FFF with Chinese Han characters,
+# so a kanji-containing Japanese query like "東京大学の最新研究" would
+# look identical to a Chinese query at the codepoint level. To route such
+# queries to EN, check for hiragana (U+3041–U+309F) or katakana
+# (U+30A0–U+30FF) FIRST; real Japanese text almost always contains one or
+# the other, so this signal is reliable in practice.
+#
+# Order matters:
+#   1. hiragana/katakana present → Japanese → EN
+#   2. else CJK Unified Ideograph present → Chinese → ZH
+#   3. else → EN (default international)
+#
+# `ぁ-ヿ` covers U+3041–U+30FF (hiragana + katakana full range).
+# `一-鿿` covers U+4E00–U+9FFF (CJK Unified Ideographs, full range —
+#   `一-龯` would stop at U+9FAF and miss 55 rare chars).
+# Hangul (Korean) is not matched: those queries fall through to EN.
+if [[ "$USER_QUERY" =~ [ぁ-ヿ] ]]; then
+  UI_LANG=en  # Japanese → EN
+elif [[ "$USER_QUERY" =~ [一-鿿] ]]; then
+  UI_LANG=zh  # Chinese (no hiragana/katakana) → ZH
 else
-  LANG=en
+  UI_LANG=en  # everything else → EN
 fi
 ```
 
@@ -173,7 +228,7 @@ Tell the user what you decided ("I detected medical + CS signals — also search
 Always run OpenAlex first. For Standard+ tiers, use multi-strategy deep crawl:
 
 ```bash
-PYTHONPATH=~/.claude/skills/paper-search-pro \
+PYTHONPATH=$PSP_HOME \
   python3 -m scripts.openalex_helper double-sort "<query>" \
     --n 50 --year-min 2018 \
     > "$SEARCH_DIR/raw/openalex.json"
@@ -182,7 +237,7 @@ PYTHONPATH=~/.claude/skills/paper-search-pro \
 For Quick tier, single-strategy is fine:
 
 ```bash
-PYTHONPATH=~/.claude/skills/paper-search-pro \
+PYTHONPATH=$PSP_HOME \
   python3 -m scripts.openalex_helper search "<query>" \
     --limit 30 --year-min 2018 \
     > "$SEARCH_DIR/raw/openalex.json"
@@ -206,14 +261,14 @@ For Deep+Audit, also call topic-specific subcommands (e.g. `seminal`, `reviews`,
 
 - **Standard / Deep tier**: enrich OA-found papers with MeSH terms (mutates the openalex.json file in place):
   ```bash
-  PYTHONPATH=~/.claude/skills/paper-search-pro \
+  PYTHONPATH=$PSP_HOME \
     python3 -m scripts.pubmed_helper enrich \
       --input-file "$SEARCH_DIR/raw/openalex.json" \
       --output-file "$SEARCH_DIR/raw/openalex.json"
   ```
 - **Audit tier with explicit MeSH query**: independent MeSH search (produces a new file to federate later):
   ```bash
-  PYTHONPATH=~/.claude/skills/paper-search-pro \
+  PYTHONPATH=$PSP_HOME \
     python3 -m scripts.pubmed_helper search-mesh "Diabetes Mellitus, Type 2" \
       --year-min 2020 --limit 30 --pub-type "Randomized Controlled Trial" \
       > "$SEARCH_DIR/raw/pubmed.json"
@@ -223,7 +278,7 @@ For Deep+Audit, also call topic-specific subcommands (e.g. `seminal`, `reviews`,
 **arXiv — only if query contains freshness signals (preprint, 最新, 2024+):**
 
 ```bash
-PYTHONPATH=~/.claude/skills/paper-search-pro \
+PYTHONPATH=$PSP_HOME \
   python3 -m scripts.arxiv_helper freshness "<query>" \
     --days 4 --limit 30 \
     > "$SEARCH_DIR/raw/arxiv.json"
@@ -241,7 +296,7 @@ Subcommand reference:
 Combine all retrieval results into a single deduped KG. **Default output is a dict keyed by canonical_key** — that's what `rcs_parser` expects later, so do NOT pass `--as-list`:
 
 ```bash
-PYTHONPATH=~/.claude/skills/paper-search-pro \
+PYTHONPATH=$PSP_HOME \
   python3 -m scripts.federated_kg_resolver \
     --input-files "$SEARCH_DIR/raw/openalex.json" \
                   "$SEARCH_DIR/raw/pubmed.json" \
@@ -258,6 +313,8 @@ Pass only the input files you actually produced — skip ones that were not enab
 📖 BEFORE THIS STEP, read: `references/classifier_subagent_prompt.md` and `references/rcs_rubric.md`.
 
 Split the KG into batches of 10 papers each. Write to `"$SEARCH_DIR/batches/batch_NNN.jsonl"`.
+
+**Before dispatch**, expand `$PSP_HOME/references/rcs_rubric.md` into the actual absolute path (e.g. `/Users/alice/.claude/skills/paper-search-pro/references/rcs_rubric.md`) and substitute it for `{rubric_path}` in the classifier prompt template. Each SubAgent runs in its own shell where `$PSP_HOME` is **not** exported — passing the literal `$PSP_HOME` token would leave the SubAgent unable to find the rubric, which silently degrades scoring quality. See `references/classifier_subagent_prompt.md` for the full placeholder table.
 
 🔥 **PARALLELISM IS MANDATORY** (Rule B):
 
@@ -289,7 +346,7 @@ If you have more than 5 batches, send 5-at-a-time across multiple messages — e
 Each SubAgent reads its batch file, applies the RCS rubric, and writes `"$SEARCH_DIR/classifications/batch_NNN_result.json"`. Then merge classifications into the KG:
 
 ```bash
-PYTHONPATH=~/.claude/skills/paper-search-pro \
+PYTHONPATH=$PSP_HOME \
   python3 -m scripts.rcs_parser \
     --input-dir "$SEARCH_DIR/classifications/" \
     --kg "$SEARCH_DIR/kg.json" \
@@ -303,7 +360,7 @@ PYTHONPATH=~/.claude/skills/paper-search-pro \
 This step is NOT optional, even for Quick. The curve.json drives both STEP 8 stop decision and STEP 12 HTML chart rendering. If you skip it, the report shows an empty curve and PRISMA-S transparency suffers.
 
 ```bash
-PYTHONPATH=~/.claude/skills/paper-search-pro \
+PYTHONPATH=$PSP_HOME \
   python3 -m scripts.discovery_curve \
     --kg "$SEARCH_DIR/kg_classified.json" \
     --output "$SEARCH_DIR/curve.json"
@@ -329,7 +386,7 @@ Decision tree:
 For top-rcs papers (rcs >= 7), get the citation network:
 
 ```bash
-PYTHONPATH=~/.claude/skills/paper-search-pro \
+PYTHONPATH=$PSP_HOME \
   python3 -m scripts.openalex_helper citation-network <openalex_id> \
     --refs-limit 25 --cited-by-limit 25 \
     >> "$SEARCH_DIR/raw/citations.json"
@@ -347,14 +404,14 @@ For Quick tier, skipping STEP 10 is acceptable — but **announce the skip** per
 
 ```bash
 # Semantic Scholar — adds influentialCitationCount + abstract fallback + tldr
-PYTHONPATH=~/.claude/skills/paper-search-pro \
+PYTHONPATH=$PSP_HOME \
   python3 -m scripts.ss_helper \
     --input-file "$SEARCH_DIR/paper_list.json" \
     --mode enrich \
     --output-file "$SEARCH_DIR/paper_list.json"
 
 # CrossRef — adds funder + license + refs + clinical_trial_number in one fetch
-PYTHONPATH=~/.claude/skills/paper-search-pro \
+PYTHONPATH=$PSP_HOME \
   python3 -m scripts.crossref_helper \
     --input-file "$SEARCH_DIR/paper_list.json" \
     --mode all \
@@ -381,7 +438,7 @@ Save to `"$SEARCH_DIR/summary.md"`.
 
 ```bash
 # 12a. Materialize data for the renderer (also writes sibling chart_data / paper_list / metadata / prisma_log)
-PYTHONPATH=~/.claude/skills/paper-search-pro \
+PYTHONPATH=$PSP_HOME \
   python3 -m scripts.data_materialization \
     --kg "$SEARCH_DIR/kg_classified.json" \
     --summary "$SEARCH_DIR/summary.md" \
@@ -392,18 +449,18 @@ PYTHONPATH=~/.claude/skills/paper-search-pro \
     --output "$SEARCH_DIR/report_data.json"
 
 # 12b. Render HTML (Shadcn webartifacts — only renderer; no size cap)
-#      --language $LANG selects EN vs ZH UI; the bundle ships with both
-#      dictionaries inlined, $LANG just picks which one mounts. Resolution
+#      --language $UI_LANG selects EN vs ZH UI; the bundle ships with both
+#      dictionaries inlined, $UI_LANG just picks which one mounts. Resolution
 #      order inside the renderer is: explicit --language > metadata.language > en.
-PYTHONPATH=~/.claude/skills/paper-search-pro \
+PYTHONPATH=$PSP_HOME \
   python3 -m scripts.html_renderer_webartifacts \
     --data "$SEARCH_DIR/report_data.json" \
     --output "$SEARCH_DIR/report.html" \
     --query "<original query>" \
-    --language "$LANG"
+    --language "$UI_LANG"
 
 # 12c. MD report (uses materialized-dir for speed)
-PYTHONPATH=~/.claude/skills/paper-search-pro \
+PYTHONPATH=$PSP_HOME \
   python3 -m scripts.md_report \
     --materialized-dir "$SEARCH_DIR" \
     --query "<original query>" \
@@ -411,7 +468,7 @@ PYTHONPATH=~/.claude/skills/paper-search-pro \
     --output "$SEARCH_DIR/report.md"
 
 # 12d. Exports (BibTeX / RIS / CSV / papers.json — only rcs >= 5 by default)
-PYTHONPATH=~/.claude/skills/paper-search-pro \
+PYTHONPATH=$PSP_HOME \
   python3 -m scripts.generate_exports \
     --kg "$SEARCH_DIR/kg_classified.json" \
     --output-dir "$SEARCH_DIR/" \
@@ -425,7 +482,7 @@ PYTHONPATH=~/.claude/skills/paper-search-pro \
 📖 BEFORE THIS STEP, read: `references/prisma_s_checklist.md`.
 
 ```bash
-PYTHONPATH=~/.claude/skills/paper-search-pro \
+PYTHONPATH=$PSP_HOME \
   python3 -m scripts.prisma_s_logger \
     --search-id "$SEARCH_ID" \
     --kg "$SEARCH_DIR/kg_classified.json" \

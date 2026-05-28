@@ -1,6 +1,15 @@
 # Classifier SubAgent Prompt
 
-*This file is read by the main agent in STEP 6 of `SKILL.md` to compose the prompt sent to each parallel classifier Inline SubAgent. Copy the template, substitute `{batch_path}` and `{query}`, and dispatch via the `Task` tool.*
+*This file is read by the main agent in STEP 6 of `SKILL.md` to compose the prompt sent to each parallel classifier Inline SubAgent. Copy the template, substitute `{batch_path}`, `{query}`, `{output_path}`, and `{rubric_path}`, and dispatch via the `Task` tool.*
+
+**Placeholders** the main agent must substitute before dispatch:
+
+| Placeholder | Substitute with |
+|---|---|
+| `{query}` | The original user query string |
+| `{batch_path}` | `"$SEARCH_DIR/batches/batch_NNN.jsonl"` (absolute) |
+| `{output_path}` | `"$SEARCH_DIR/classifications/batch_NNN_result.json"` (absolute) |
+| `{rubric_path}` | **Expanded** `$PSP_HOME/references/rcs_rubric.md` — substitute the actual absolute path (e.g. `/Users/alice/.claude/skills/paper-search-pro/references/rcs_rubric.md`), NOT the literal `$PSP_HOME` token, because each SubAgent runs in its own shell where `$PSP_HOME` is not exported. |
 
 ## Prompt template (substitute placeholders, then send)
 
@@ -13,7 +22,7 @@ You are paper-search-pro's classifier SubAgent. Your job: assign an RCS (Relevan
 - Batch file path: {batch_path}
   Each line of this file is one paper as a JSON dict with these fields:
   paper_id, title, abstract, year, citation_count, venue, authors, topics, keywords
-- RCS rubric: ~/.claude/skills/paper-search-pro/references/rcs_rubric.md
+- RCS rubric: {rubric_path}
   Read this file FIRST before scoring. The rubric is the canonical authority.
 
 ## Task

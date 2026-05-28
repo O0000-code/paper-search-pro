@@ -8,11 +8,11 @@ Referenced by `SKILL.md` STEP 5 onwards — every helper writes into this layout
 >
 > This means:
 > - If the user invokes the skill from `/Users/alice/projects/thesis/`, outputs land in `/Users/alice/projects/thesis/paper-search-results/<id>/`
-> - The skill directory (`~/.claude/skills/paper-search-pro/`) is a READ-ONLY asset bundle and must NEVER contain search outputs.
-> - Never `cd ~/.claude/skills/paper-search-pro` before running helpers — that re-anchors `./` to the skill directory and pollutes the install.
-> - Use `PYTHONPATH=~/.claude/skills/paper-search-pro python3 -m scripts.<helper> ...` from the user's cwd instead.
+> - The skill directory (`$PSP_HOME` — resolves to `~/.claude/skills/paper-search-pro` under Claude Code, `~/.codex/skills/paper-search-pro` under Codex, etc.) is a READ-ONLY asset bundle and must NEVER contain search outputs.
+> - Never `cd $PSP_HOME` before running helpers — that re-anchors `./` to the skill directory and pollutes the install.
+> - Use `PYTHONPATH=$PSP_HOME python3 -m scripts.<helper> ...` from the user's cwd instead.
 >
-> See `SKILL.md` and `references/setup.md` for the `PYTHONPATH=` invocation pattern that preserves cwd.
+> See `SKILL.md` STEP 0 for how `$PSP_HOME` is resolved across agents (env var → fallback chain) and `references/setup.md` for the `PYTHONPATH=` invocation pattern that preserves cwd.
 
 ## search_id naming rule
 
