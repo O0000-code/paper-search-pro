@@ -21,7 +21,7 @@
 <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache_2.0-000?style=flat-square" alt="Apache 2.0"/></a>
 <a href="SKILL.md"><img src="https://img.shields.io/badge/agent-Skill-000?style=flat-square" alt="Agent Skill"/></a>
 <img src="https://img.shields.io/badge/Python-3.10+-000?style=flat-square" alt="Python 3.10+"/>
-<img src="https://img.shields.io/badge/version-2.1.1-000?style=flat-square" alt="v2.1.1"/>
+<img src="https://img.shields.io/badge/version-2.1.2-000?style=flat-square" alt="v2.1.2"/>
 
 </div>
 

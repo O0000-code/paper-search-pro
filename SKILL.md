@@ -5,7 +5,7 @@ license: Apache-2.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task
 metadata:
   author: Bo
-  version: 2.1.1
+  version: 2.1.2
   vendored-from: futurehouse/paper-qa (Apache 2.0)
 ---
 
