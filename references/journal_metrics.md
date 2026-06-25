@@ -1,142 +1,213 @@
-# Journal metrics (SSOT — quartiles, impact, naming rules)
+# Journal partitions & metrics (SSOT — platforms, fetch, ISSN join, naming)
 
 Single source of truth for everything paper-search-pro reports about a paper's
-**journal**: SJR quartile, OpenAlex open impact, and the external metrics we
-deliberately do **not** bundle. Read this before showing or filtering on any
-journal-level number, in either the human path (STEP 10/11) or agent mode.
+**journal**: the multi-platform partitions (中科院 CAS / JCR / SJR), the legacy
+SJR-only quartile + OpenAlex open impact, the ISSN join, attribution, and the
+naming rules. Read this before showing or filtering on any journal-level number,
+in either the human path (STEP 1 + STEP 10/11) or agent mode.
 
-The governing rule is **R-04 (naming铁律)**: our open metrics are **never** called
-"影响因子 / Impact Factor / JCR / 中科院分区 / 新锐分区". Those are proprietary or
-copyright-restricted and we neither bundle nor impersonate them.
+> **What changed in v2.2 (A-line).** The previous version of this file said JCR
+> and 中科院分区 were "external-link only" and that SJR needed a Cloudflare-busting
+> browser download. That is **out of date.** All three platforms are now pulled at
+> runtime from public GitHub mirrors with plain `requests` (no Cloudflare, no new
+> dependency) by `scripts/journal_rank.py`, joined by ISSN, and surfaced as
+> partitions on every paper. The "external link only" posture is gone for these
+> three; we still **never bundle or commit any ranking data** — it is fetched into
+> the user's local cache and used there.
 
----
-
-## What we provide vs. what we only link out to
-
-| Metric | Status in this Skill | Why |
-|---|---|---|
-| **SJR quartile** (Q1–Q4) | ✅ Provided — from a user-cached SCImago CSV (CC BY-NC, attribution mandatory) | Openly licensed for non-commercial cited use; safe to compute + display. |
-| **OpenAlex 2yr mean citedness** | ✅ Provided — `source.summary_stats` (CC0) | Open, free, zero-dependency. An OPEN impact figure, **NOT** a JIF (R-09). |
-| **OpenAlex journal h-index** | ✅ Provided — `source.summary_stats` (CC0) | Same source, open. |
-| **JCR Impact Factor / JCR quartile** | ❌ External link only | Clarivate proprietary; WoS Journals API returns 403; bundling/redistribution is prohibited (R-01). |
-| **中科院分区 (CAS) / 新锐分区** | ❌ External link only | Copyright + official enforcement notice + batch-export ban (R-02). |
-| **CWTS SNIP** | Reserved field (`cwts_snip`), not yet populated | journalindicators.com has no CF gate → a future optional cross-field check. |
-
-For the external-only metrics, the report/agent gives the user the **official
-query URL** so they can look it up themselves — we never inline the data:
-
-- JCR Impact Factor / quartile → <https://jcr.clarivate.com>
-- 中科院分区 (CAS journal tiers) → <https://www.fenqubiao.com>
-- 新锐 / cross-check tiers → <https://www.xr-scholar.com> (or the journal's own site)
+The governing rule is **R-04 (naming 铁律)**: a partition is a partition, an
+Impact Factor is an Impact Factor, and they are not interchangeable words.
+**Only the JCR `IF(2024)` is a real Impact Factor.** 中科院"区" and SJR quartile are
+**分区 / quartile**. OpenAlex 2-year mean citedness is an **open journal-impact**
+figure ("期刊影响力"), explicitly **NOT** a JIF (R-09).
 
 ---
 
-## SJR quartile — acquisition (R-03 / R-05)
+## The three partition platforms (the A-line multi-platform layer)
 
-The SJR CSV is **never committed to the repo and never redistributed** (R-03). It
-lives in the user's local cache: `~/.paper-search-pro/sjr/` (`DEFAULT_CACHE_DIR`).
-The Skill is cache-first — `sjr_helper.load()` reads the newest `*.csv` there; if
-none exists, quartiles are simply unavailable and the run still succeeds (impact
-is still attached where reachable). No CSV is never an error.
+| Platform | What it gives | Native taxonomy | Real IF? |
+|---|---|---|---|
+| **中科院 CAS** (中科院文献情报中心) | 大类分区 (区 1-4) + within-大类 rank + Top flag + up to six 小类 partitions | 区 1-4 (1 = best) | No — 区 is a PARTITION |
+| **JCR** (Clarivate) | Quartile Q1-Q4 + **IF(2024)** + category rank | Q1-Q4 | **Yes** — `impact_factor` is the genuine JIF |
+| **SJR** (SCImago) | SJR Best Quartile Q1-Q4 + SJR indicator value + per-category quartiles | Q1-Q4 | No — quartile/value is a PARTITION |
 
-Getting the CSV into the cache, two ways:
+Every annotated paper carries **all three** (each slot independently optional — a
+journal found on only one platform still yields a valid record). Filtering, when a
+tier is requested, applies to **one** platform; the other two stay as labels.
+
+### Data sources (GitHub raw mirrors — `requests`, no Cloudflare, zero new deps)
+
+The mirror URLs live in config (`rank.sources`) so a user can swap them. All three
+were curl-verified HTTP 200 on 2026-06-25.
+
+| Platform | Default mirror file | Format | ISSN format |
+|---|---|---|---|
+| CAS | `FQBJCR2025-UTF8.csv` (hitfyd/ShowJCR) | comma CSV, UTF-8, 23 cols | `2053-1583/2053-1583` (slash, hyphenated) |
+| JCR | `JCR2024-UTF8.csv` (hitfyd/ShowJCR) | comma CSV, UTF-8, 7 cols | ISSN + eISSN cols, hyphenated (either may be `N/A`) |
+| SJR | `scimagojr 2024.csv` (zotero-sjr-ranker) | **semicolon** CSV, **European decimals**, 27 cols | `"15424863, 00079235"` (comma, **no hyphen**) |
+
+- **Columns are resolved by name (fuzzy), never by index** — the live headers
+  drift from any spec sketch (CAS uses full-width `OA Journal Index（OAJ）`; the live
+  SJR 2024 file added an `SDG` column → 27 cols). By-name parsing is what keeps the
+  join robust across yearly snapshots.
+- CAS 大类分区 reads `3 [168/495]` → tier=3, rank="168/495"; `Top` is `是/否`; up to
+  six 小类 partitions (most rows use one or two). **Default partition = 大类**; 小类
+  is available for a finer pin.
+- JCR `IF(2024)` is a plain US float (`232.4`); `Category` may carry several
+  `;`-joined entries. **This is the only real Impact Factor in the whole system.**
+- SJR `SJR` value uses a comma decimal (`145,004` = 145.004); `Categories` is
+  `"Hematology (Q1); Oncology (Q1)"`.
+- 2026+ CAS stops updating; an optional `XR2026-UTF8.csv` (民间 新锐 接棒) can be
+  pointed to via config — but it **must be labelled non-official** if used.
+
+### Fetch (init-once; runtime; never committed)
+
+Data is pulled **at runtime** into `~/.paper-search-pro/ranks/` (`rank.cache_dir`)
+and **never enters the repo / git history** (R-02 / R-03). First use needs a
+one-time fetch; thereafter it is cache-first and only re-pulls when explicitly
+forced or the cache is stale (>365 days).
 
 ```bash
-# (a) Best-effort automated download — uses a real browser context (Playwright)
-#     because a bare HTTP GET is blocked by Cloudflare ("Just a moment", 403, R-05).
-PYTHONPATH=$PSP_HOME python3 -m scripts.sjr_helper download --year 2024
-#     If Playwright is not installed or CF does not clear, it prints a clear
-#     manual-download instruction + the official URL and exits gracefully.
-
-# (b) Manual — download from the portal and drop the file in the cache dir:
-#     https://www.scimagojr.com/journalrank.php  (Download data → CSV)
-#     save to  ~/.paper-search-pro/sjr/scimagojr-2024.csv
+# One-time (or after a year). All three platforms:
+PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank fetch
+# A single platform: --platform cas | jcr | sjr ; force re-pull: --force
+PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank fetch --platform cas
 
 # Inspect what's cached / look one journal up:
-PYTHONPATH=$PSP_HOME python3 -m scripts.sjr_helper info
-PYTHONPATH=$PSP_HOME python3 -m scripts.sjr_helper lookup 0022-3514 --category "Social Psychology"
+PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank info
+PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank lookup 0028-0836
 ```
 
-The CSV is a **26-column, semicolon-separated, European-decimal** file (`145,004`
-means 145.004). It is parsed by **column name**, not position, so a future yearly
-snapshot that reorders columns will not silently mis-map.
+A failed network / 404 degrades gracefully (that platform is absent; the others
+still load; the run never crashes). When nothing is cached, `journal_rank.load()`
+returns `None` and the whole partition layer silently no-ops — the report is
+byte-for-byte unchanged (R-19), exactly as if the feature were off.
 
-### Mandatory attribution (CC BY-NC)
+### Annotate + filter (the logic layer)
 
-Any time an SJR quartile is shown, the attribution string MUST travel with it:
-
+```python
+from scripts import journal_rank, rank_filter
+lk = journal_rank.load()                    # RankLookup | None (None → graceful degrade)
+rank_filter.annotate_papers(papers, lk)     # stamps paper.journal_rank (三家全标), once
+kept, dropped, nodata = rank_filter.filter_by_rank(
+        papers, platform, tiers=[1], quartiles=["Q1"], top=False)
 ```
-Data: SCImago Journal Rank (SCImago, https://www.scimagojr.com), CC BY-NC
-```
 
-- Agent mode: `meta.journal_metric.attribution` + per-metric `sjr_attribution`.
-- Human report: a conditional methodology footnote (auto-added when any paper has
-  an SJR quartile).
-- A longer legal note (`SJR_LEGAL_NOTICE`, includes the explicit "SJR is NOT the
-  Clarivate JCR Impact Factor" disclaimer) is available for report footers.
+- **annotate is platform-blind** — it labels all three platforms in one pass. Do it
+  once per result set.
+- **filter is a re-filter of the annotated pool** — switching platform/tier is just
+  calling `filter_by_rank` again on the same candidates (**no re-search**; the
+  "切换 = 重筛不重搜" contract, see Flow below).
+- **`no_platform_data` is reported, never silently dropped** — journals not on the
+  chosen platform are partitioned out and counted so the gap stays visible.
 
 ---
 
-## OpenAlex open impact (CC0; R-09 — NOT a JIF)
+## Default / ask / filter / report / switch flow (spec §7)
 
-From the journal's OpenAlex `source.summary_stats` (free, CC0, zero extra deps):
+This is the human-path interaction contract (agent mode surfaces the same facts in
+`meta.rank` instead of asking):
 
-- `openalex_2yr_mean_citedness` — mean citations to the journal's last-2-years docs.
-- `h_index` — the journal's OpenAlex h-index.
+- **Factory default standard = JCR** (`rank.default_platform`, user-settable to
+  `cas`/`sjr`). The default platform only **LABELS**; it never filters on its own.
+- **No partition mentioned → do not filter.** Show all three labels; let the user
+  refine.
+- **A tier was requested → filter this once.** From STEP 1 intent
+  (`parse_rank_intent`) or the user this round. The per-request tier filter is
+  **transient — never auto-persisted** to config.
+- **Ambiguous bare "Q1" (no platform, no persistent default) → ask one short
+  question**: *"按 JCR 还是 SJR?顺带设默认吗?"* The recogniser never guesses a
+  platform for a bare quartile.
+- **Always report what the run did**: *"本次按 {platform} 筛(留 N / 滤 M)"* + a light
+  offer to switch standard/tier or set a persistent default. Attach the platform's
+  attribution string.
+- **Switching standard/tier = RE-FILTER the annotated pool, NOT a re-search.** Only
+  when too few survivors remain do you go back to STEP 3 and deepen.
+- **Persist the default only on an explicit "以后都用 X"** → set
+  `rank.default_platform` in `~/.paper-search-pro/config.yaml`. Tier档位 is never
+  persisted, only the platform default.
 
-**R-09 is load-bearing**: `2yr_mean_citedness` ≠ the Clarivate JIF (measured
-example: JPSP ≈ 2.72 here vs. a JCR JIF of ~7–8 — different corpus, different
-window). Use it for **relative ranking / percentiles within your result set
-only**, never as an absolute IF threshold, and never label it "Impact Factor".
+For the headless flags that mirror this (`--rank-platform`, `--keep-tiers`,
+`--rank-category`, `--deepen-target`, the `meta.rank` block, adaptive deepening),
+see `references/agent_mode.md`.
 
-OpenAlex impact is enabled on the OpenAlex path automatically. On the SS-primary
-path it is enabled for any paper whose ISSN was recovered by backfill (below).
+---
+
+## Attribution (per-platform, exact — corrects the old SJR mislabel)
+
+Whenever a partition is shown, the matching attribution MUST travel with it. The
+canonical strings live in `journal_rank.ATTRIBUTION` so callers cannot drift; the
+display layer attaches them automatically (`journal_rank_attribution` in the MD
+report, `meta.rank.attribution` in agent mode).
+
+| Platform | Attribution / licence reality |
+|---|---|
+| **CAS** | 中科院文献情报中心期刊分区表. For personal / non-commercial use; **勿公开传播**. |
+| **JCR** | Journal Citation Reports (Clarivate). IF / quartile **© Clarivate**; for reference only. |
+| **SJR** | SCImago Journal Rank, scimagojr.com — **non-commercial use as long as it is cited (SCImago custom terms; NOT a Creative Commons / "CC BY-NC" licence)**. |
+
+> **The "CC BY-NC" label was wrong.** The previous file and the legacy `sjr_helper`
+> called SJR "CC BY-NC". SCImago's site carries no Creative Commons text; the actual
+> term is a custom "non-commercial use as long as cited" condition (legal review
+> §2.4). This file and `journal_rank.ATTRIBUTION` carry the corrected wording.
+
+A longer footer note is available as `journal_rank.LEGAL_NOTICE` (emphasises the
+runtime-fetch / no-redistribution posture and the "only JCR IF is a real IF" rule).
+Official portals for "verify at source" external links live in
+`journal_rank.PORTAL_URL` (CAS → fenqubiao.com, JCR → jcr.clarivate.com,
+SJR → scimagojr.com).
+
+### Compliance posture: we do not distribute data; we fetch it at runtime
+
+The ranking CSVs are **never committed to the repo and never redistributed**. They
+are pulled at runtime from public mirrors into the user's own local cache and used
+there. This is the "user-side fetch + runtime join + external link" posture the
+legal review settled on. The residual grey-area risk is a user's informed choice;
+the tool itself ships only **code + source URLs**, never data.
 
 ---
 
 ## ISSN join (the link key)
 
-Quartile + impact are joined to a paper by its journal **ISSN**:
+Partitions are joined to a paper by its journal **ISSN**:
 
-- **Normalization** — both sides strip hyphens, upper-case `X`, gate to 8 chars.
-  OpenAlex emits hyphenated (`0022-3514`); SJR stores hyphen-free (`00223514`);
-  they meet on the same 8-char key. A journal's print + e-ISSN both index to one
-  record, so an eISSN also joins.
-- **OpenAlex path** — `source.issn_l` (preferred, the linking ISSN) else the first
-  of `source.issn[]`, populated onto the entity during retrieval.
-- **Semantic Scholar path** — ISSN comes from `publicationVenue.issn`, present only
-  ~2/3 of the time (R-08). For the rest, agent mode does a **free OpenAlex
-  single-paper DOI lookup** to backfill `source.issn` so the SJR join is not
-  silently lost; `meta.journal_metric.issn_backfilled` / `issn_backfill_attempted`
-  report the recovery. A paper with no DOI cannot be backfilled — its metric
-  carries `issn_backfill_needed: true` so the gap stays visible rather than
-  vanishing.
+- **Normalisation** — every platform's ISSN is normalised onto one
+  `XXXX-XXXX` upper-case key (8 digits, `X` upper-cased). JCR/CAS arrive hyphenated;
+  SJR arrives hyphen-free; they meet on the same canonical key. A journal's print +
+  electronic ISSN both index to one record, so an eISSN also joins.
+- **OpenAlex path** — `source.issn_l` (preferred) else the first of `source.issn[]`.
+- **Semantic Scholar path** — ISSN from `publicationVenue.issn`, present only ~2/3 of
+  the time (R-08). Agent mode backfills the rest via a free OpenAlex single-paper
+  DOI lookup so the join is not silently lost; the human path reuses the same
+  backfilled ISSN before annotating.
 
 ---
 
-## Multi-category quartiles
+## Legacy SJR-only `journal_metric` (still supported, back-compat)
 
-A journal often sits in several Scopus categories with different quartiles, e.g.
-JPSP = `Social Psychology (Q1); Sociology and Political Science (Q2)`. We expose:
+Before the A-line multi-platform layer, the Skill had a **single-platform**
+SJR-only `journal_metric` (SJR quartile + OpenAlex open impact). It is **still in
+place** — the human display layer and the agent `--quartile` / `--min-impact`
+flags use it, and it renders its own line in the MD report. It coexists with the
+new `journal_rank` slot; neither clobbers the other.
 
-- `sjr_quartile` — the journal's **best** quartile across its categories (or the
-  category you pinned with `--journal-category` / the `--category` lookup flag).
-- `sjr_category_quartiles` — the full `{category: Qn}` map, so a consumer can see
-  exactly which field earns which tier and avoid being misled by a marginal
-  category inflating the headline quartile.
+| Metric | Status | Notes |
+|---|---|---|
+| **SJR quartile** (Q1–Q4) | ✅ legacy `journal_metric.sjr_quartile` | From a cached SCImago CSV; attribution mandatory. |
+| **OpenAlex 2yr mean citedness** | ✅ `journal_metric.openalex_2yr_mean_citedness` | CC0. An OPEN impact figure, **NOT** a JIF (R-09). |
+| **OpenAlex journal h-index** | ✅ `journal_metric.h_index` | Same source, open. |
+| **CWTS SNIP** | reserved (`cwts_snip`), not populated | future optional cross-field check. |
 
-When a quartile filter is applied (`--quartile Q1,Q2`), it tests `sjr_quartile`
-(the pinned/best value). Pin a category when you need the quartile to mean "Q1 in
-*this* field", not "Q1 in its easiest field".
+R-09 is load-bearing: `2yr_mean_citedness` ≠ the Clarivate JIF (measured: JPSP ≈
+2.72 here vs a JCR JIF of ~7–8 — different corpus, different window). Use it for
+relative ranking within your result set, never as an absolute IF threshold, and
+never label it "Impact Factor".
 
----
+**Filtering contract (signal-as-knob, both layers):** the metric/partition is
+always computed and attached to every paper; filtering is opt-in and only decides
+what is **returned / kept**. With no filter and no cached data, every paper is
+returned exactly as before — journal data is a pure additive layer (R-19).
+`meta.counts.after_journal_filter` (legacy) and `meta.counts.after_rank_filter`
+(multi-platform) keep the counts auditable.
 
-## Filtering contract (signal-as-knob)
-
-Journal metrics follow the same rule as relevance scoring: **the metric is always
-computed and attached to every paper; filtering is opt-in and only decides what is
-returned.** `--quartile` and `--min-impact` are the gates; `meta.counts.after_journal_filter`
-keeps the count auditable. With no filter and no cached CSV, every paper is
-returned exactly as before — journal metrics are a pure additive layer (R-19).
-
-For agent-mode flags and envelope shape, see `references/agent_mode.md`.
+For agent-mode flags and the full envelope shape, see `references/agent_mode.md`.

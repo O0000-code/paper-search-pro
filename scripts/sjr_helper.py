@@ -11,16 +11,17 @@ paper's journal ISSN to its SJR record.
 Hard compliance boundaries this module enforces (read 11_risk_distillation.md)
 ------------------------------------------------------------------------------
 - R-03 / R-05: the SJR CSV is **never** bundled into / committed to the repo.
-  The data is fetched/placed by the user into a local cache directory. A
-  ``--download`` best-effort path uses a real browser context (Playwright) to get
-  past Cloudflare's managed challenge; when that is unavailable it prints clear
-  manual-download instructions + the official source URL. A bare HTTP GET is
-  **known to 403** behind Cloudflare (R-05, empirically verified) — we do not
-  even attempt it.
+  The data is fetched/placed by the user into a local cache directory. Fetching
+  is done by the multi-platform ``journal_rank`` module via a public GitHub-raw
+  mirror over plain ``requests`` (no Cloudflare in the way, no extra dependency).
+  The old Playwright ``--download`` path was REMOVED in v2.2 A-1 (unreliable +
+  heavyweight). A bare HTTP GET of scimagojr.com *itself* still 403s behind
+  Cloudflare (R-05, empirically verified) — which is why the mirror is used.
 - R-03 attribution: every place that surfaces SJR data is responsible for the
-  citation "Data: SCImago Journal Rank (SCImago, https://www.scimagojr.com),
-  CC BY-NC". The canonical string lives in ``SJR_ATTRIBUTION`` /
-  ``SJR_LEGAL_NOTICE`` here so callers cannot drift.
+  SCImago citation. NOTE (corrected 2026-06-25, legal review §2.4): SJR is **NOT**
+  "CC BY-NC" — SCImago uses **custom terms** ("non-commercial use as long as it
+  is cited"), not any Creative Commons licence. The canonical, corrected string
+  lives in ``SJR_ATTRIBUTION`` / ``SJR_LEGAL_NOTICE`` here so callers cannot drift.
 - R-04 / R-09: this is **SJR分区 / 期刊影响力**, NOT a JCR Impact Factor. Nothing
   in this module names its outputs "impact factor", "JCR", or "中科院". The
   OpenAlex 2yr-mean-citedness impact figure (filled elsewhere) is likewise an
@@ -58,8 +59,11 @@ from typing import Dict, List, Optional, Tuple
 # ---------------------------------------------------------------------------
 
 #: Mandatory attribution to attach wherever SJR data is shown (R-03).
+#: CORRECTED 2026-06-25 (legal review §2.4): SJR is NOT "CC BY-NC". SCImago uses
+#: custom terms — "non-commercial use as long as it is cited" — not a CC licence.
 SJR_ATTRIBUTION = (
-    "Data: SCImago Journal Rank (SCImago, https://www.scimagojr.com), CC BY-NC"
+    "Data: SCImago Journal Rank, scimagojr.com — non-commercial use as long as "
+    "it is cited (SCImago custom terms; NOT a Creative Commons licence)."
 )
 
 #: Longer legal note for report footers / docs (R-03/R-05). SCImago's footer
@@ -73,6 +77,8 @@ SJR_LEGAL_NOTICE = (
 )
 
 #: Official download endpoint (out=xls actually returns a semicolon CSV).
+#: DEPRECATED in v2.2 A-1 (Playwright download removed; the journal_rank mirror
+#: fetch is used instead). Kept as a constant only for back-compat / reference.
 SJR_DOWNLOAD_URL = "https://www.scimagojr.com/journalrank.php?out=xls&year={year}"
 SJR_PORTAL_URL = "https://www.scimagojr.com"
 
@@ -231,9 +237,9 @@ def parse_sjr_csv(path: Path) -> List[JournalSJR]:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(
-            f"SJR CSV not found at {path}. Run `python3 -m scripts.sjr_helper "
-            f"--download` or place a manually-downloaded CSV there. See "
-            f"{SJR_DOWNLOAD_URL.format(year='YYYY')}"
+            f"SJR CSV not found at {path}. Run `python3 -m scripts.journal_rank "
+            f"fetch --platform sjr` to pull a public mirror, or place a "
+            f"manually-downloaded CSV there. Source: {SJR_PORTAL_URL}"
         )
 
     records: List[JournalSJR] = []
@@ -402,7 +408,8 @@ def build_journal_metric(
         metric.issn_backfill_needed = True
         return metric
 
-    # ---- SJR quartile (CC BY-NC; attribution mandatory when present, R-03) ----
+    # ---- SJR quartile (SCImago custom terms, NOT CC BY-NC; attribution mandatory
+    # when present, R-03) ----
     if sjr is not None:
         rec = sjr.for_issn(issn)
         if rec is not None:
@@ -441,96 +448,31 @@ def metric_is_empty(metric) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Best-effort download (R-05: Cloudflare requires a browser context)
+# Manual-acquisition guidance (Playwright auto-download REMOVED in v2.2 A-1:
+# it was unreliable + an extra dependency. The multi-platform `journal_rank`
+# module fetches GitHub-raw mirrors with plain `requests` instead. A direct GET
+# of scimagojr.com itself still 403s behind Cloudflare — R-05 — so the manual
+# path here points at the mirror-based fetcher.)
 # ---------------------------------------------------------------------------
 
 _MANUAL_DOWNLOAD_HELP = """\
-Could not auto-download the SJR CSV (SCImago is behind a Cloudflare challenge
-that a plain HTTP request cannot pass — R-05).
+No SJR CSV is cached yet.
 
-To get the data manually (one-time, ~1 min; SJR updates only once a year):
-  1. Open in a real browser:  {portal}
-  2. Click the CSV/Excel download (top-right of the journal rankings table), OR
-     visit:  {url}
-     (wait a few seconds for the Cloudflare check to clear, the file downloads
-      as e.g. "scimagojr 2024.csv")
-  3. Move the downloaded CSV into:  {cache}
-  4. Re-run your search — the quartile data will be picked up automatically.
+Get the data without a browser (one-time, ~1 min; SJR updates only once a year):
+  - Preferred: run the multi-platform fetcher, which pulls a public mirror with
+    plain HTTP (no Cloudflare, no extra dependency):
+        python3 -m scripts.journal_rank fetch --platform sjr
+  - Or manually: download the CSV from {portal} (or a mirror) and drop it into:
+        {cache}
+  - Then re-run your search — the quartile data is picked up automatically.
+
+A bare HTTP GET of scimagojr.com itself 403s behind Cloudflare (R-05), which is
+exactly why the mirror-based `journal_rank` fetch is the supported path.
 
 {attribution}
 """
-
-
-def download(
-    year: int = 2024,
-    *,
-    cache_dir: Optional[Path] = None,
-    timeout_ms: int = 60000,
-) -> Optional[Path]:
-    """Best-effort SJR CSV download via a real browser context (Playwright).
-
-    A bare HTTP GET 403s behind Cloudflare's managed challenge (R-05, verified),
-    so we use Playwright to (1) load the portal so the CF clearance cookie is
-    issued, then (2) navigate the download endpoint and capture the file. If
-    Playwright is not installed or the challenge does not clear, we print clear
-    manual-download instructions and return None (never raises for the missing
-    dependency — degrade gracefully)."""
-    cache_dir = Path(cache_dir) if cache_dir else DEFAULT_CACHE_DIR
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    url = SJR_DOWNLOAD_URL.format(year=year)
-
-    try:
-        from playwright.sync_api import sync_playwright  # type: ignore
-    except ImportError:
-        print(
-            _MANUAL_DOWNLOAD_HELP.format(
-                portal=SJR_PORTAL_URL, url=url, cache=cache_dir,
-                attribution=SJR_ATTRIBUTION,
-            )
-        )
-        return None
-
-    target = cache_dir / f"scimagojr {year}.csv"
-    try:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True)
-            context = browser.new_context(accept_downloads=True)
-            page = context.new_page()
-            # 1) Load the portal so Cloudflare issues a clearance cookie.
-            page.goto(f"{SJR_PORTAL_URL}/index.php", wait_until="load", timeout=timeout_ms)
-            # Give the managed challenge a moment to auto-clear.
-            try:
-                page.wait_for_load_state("networkidle", timeout=timeout_ms)
-            except Exception:
-                pass
-            # 2) Trigger the CSV download with the clearance cookie now held.
-            with page.expect_download(timeout=timeout_ms) as dl_info:
-                page.goto(url, timeout=timeout_ms)
-            download_obj = dl_info.value
-            download_obj.save_as(str(target))
-            browser.close()
-        if target.exists() and target.stat().st_size > 0:
-            print(f"Downloaded SJR CSV -> {target}")
-            print(SJR_ATTRIBUTION)
-            return target
-    except Exception as exc:  # CF didn't clear / network / browser issue
-        print(f"Automatic download failed ({type(exc).__name__}: {exc}).")
-        print(
-            _MANUAL_DOWNLOAD_HELP.format(
-                portal=SJR_PORTAL_URL, url=url, cache=cache_dir,
-                attribution=SJR_ATTRIBUTION,
-            )
-        )
-        return None
-
-    # save produced nothing usable
-    print(
-        _MANUAL_DOWNLOAD_HELP.format(
-            portal=SJR_PORTAL_URL, url=url, cache=cache_dir,
-            attribution=SJR_ATTRIBUTION,
-        )
-    )
-    return None
+# (kept as a module constant so callers/tests that reference the guidance text
+#  keep working after the Playwright `download()` function was removed.)
 
 
 # ---------------------------------------------------------------------------
@@ -553,9 +495,9 @@ def _main_cli() -> int:
     )
     sub = parser.add_subparsers(dest="command")
 
-    p_dl = sub.add_parser("download", help="Best-effort browser-context CSV download.")
-    p_dl.add_argument("--year", type=int, default=2024, help="SJR snapshot year (default 2024).")
-    p_dl.add_argument("--cache-dir", type=Path, default=None, help="Cache dir (default ~/.paper-search-pro/sjr).")
+    # NOTE: the Playwright `download` subcommand was REMOVED in v2.2 A-1. Fetch
+    # SJR data via `python3 -m scripts.journal_rank fetch --platform sjr` (mirror
+    # over plain HTTP — no browser, no extra dependency).
 
     p_look = sub.add_parser("lookup", help="Look up one ISSN's quartile/impact.")
     p_look.add_argument("issn", help="ISSN (hyphenated or not).")
@@ -568,10 +510,6 @@ def _main_cli() -> int:
     p_info.add_argument("--cache-dir", type=Path, default=None)
 
     args = parser.parse_args()
-
-    if args.command == "download":
-        path = download(year=args.year, cache_dir=args.cache_dir)
-        return 0 if path else 1
 
     if args.command == "info":
         lookup = load(csv_path=args.csv, cache_dir=args.cache_dir)

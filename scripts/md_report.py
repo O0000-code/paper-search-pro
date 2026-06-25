@@ -183,6 +183,15 @@ def _kg_from_json(payload) -> Dict[str, UnifiedPaperEntity]:
     """Decode kg.json into Dict[str, UnifiedPaperEntity]."""
     from .types import Author
 
+    # Reuse the materialization decoders so the --kg path carries the same
+    # additive journal fields as the materialized-dir path (Feature A, Wave A-3).
+    # Both return None when the field is absent, so a pre-Feature-A kg.json decodes
+    # byte-identically (R-19).
+    from .data_materialization import (
+        _journal_metric_from_json,
+        _journal_rank_from_json,
+    )
+
     def _paper(d: Dict) -> UnifiedPaperEntity:
         authors = [
             Author(name=a.get("name", "")) if isinstance(a, dict) else Author(name=str(a))
@@ -198,6 +207,8 @@ def _kg_from_json(payload) -> Dict[str, UnifiedPaperEntity]:
             venue=d.get("venue"),
             citation_count=int(d.get("citation_count") or 0),
             tldr=d.get("tldr"),
+            journal_metric=_journal_metric_from_json(d),
+            journal_rank=_journal_rank_from_json(d),
             rcs=d.get("rcs"),
             rcs_reasoning=d.get("rcs_reasoning"),
             sources=list(d.get("sources") or []),

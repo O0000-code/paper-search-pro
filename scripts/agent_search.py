@@ -81,6 +81,12 @@ from .types import Config, UnifiedPaperEntity
 from . import openalex_helper, ss_helper, quota_guard, crossref_helper
 from .federated_kg_resolver import federated_dedup, kg_to_list
 
+# Feature A (v2.2 Wave A-2): multi-platform journal-rank intent + annotate/filter.
+# journal_rank is the data layer (A-1); rank_intent parses NL queries; rank_filter
+# annotates + filters the candidate pool. All additive / opt-in (R-19).
+from . import journal_rank, rank_filter
+from .rank_intent import parse_rank_intent
+
 SCHEMA_VERSION = "1.0"
 
 # Current UTC-ish "now" year for recency scoring. Kept as a module constant so a
@@ -466,6 +472,146 @@ def _dedup_with_yield(
     kg = federated_dedup(*strategy_results)
     unique = kg_to_list(kg, sort_by="citation_count")
     return unique, per_strategy_new, retrieved_raw
+
+
+# ===========================================================================
+# Journal-rank intent resolution (Feature A, Wave A-2)
+# ===========================================================================
+#
+# Resolution precedence (spec §7 — explicit flags win, then NL intent, then the
+# config default which only LABELS, never FILTERS):
+#   1. explicit flags (--rank-platform / --keep-tiers) — caller meant exactly this.
+#   2. NL intent parsed from the query ("中科院一区" -> cas tier 1) — the bug fix.
+#   3. config rank.default_platform (factory jcr) — label every paper with this
+#      platform's slot but DO NOT filter (no tier was requested).
+# A bare "Q1" with no platform stays ambiguous: we DO NOT pick a platform; the
+# envelope flags it so the calling agent asks the user (spec §7, CLI is non-
+# interactive).
+
+
+@dataclass
+class _RankPlan:
+    """The resolved journal-rank intent for one run (post precedence-merge)."""
+
+    platform: Optional[str] = None  # cas | jcr | sjr | None
+    tiers: Optional[List[int]] = None  # CAS 区 numbers
+    quartiles: Optional[List[str]] = None  # JCR/SJR quartiles
+    top: bool = False
+    category: Optional[str] = None  # pin a sub-category (CAS 小类 / SJR/JCR category)
+    ambiguous: bool = False  # quartile/tier stated but no platform resolvable
+    candidate_platforms: List[str] = None  # for an ambiguous bare quartile
+    cleaned_query: str = ""  # query with rank phrasing stripped (the bug fix)
+    source: str = "none"  # flags | intent | default | none — how we resolved
+    applied_filter: bool = False  # whether a tier/quartile/top filter is active
+    intent_matched: List[str] = None  # raw phrases the parser stripped
+
+
+def _resolve_rank_plan(
+    query: str,
+    config: Config,
+    *,
+    rank_platform: Optional[str],
+    keep_tiers: Optional[List],
+    rank_category: Optional[str],
+) -> _RankPlan:
+    """Merge explicit flags + NL intent + config default into one _RankPlan.
+
+    The cleaned_query is ALWAYS the intent parser's stripped topic so the rank
+    phrasing never reaches the search engine (the "中科院一区 被当检索词" fix), even
+    when the platform itself came from an explicit flag."""
+    intent = parse_rank_intent(query)
+    plan = _RankPlan(
+        cleaned_query=intent.cleaned_query or query,
+        candidate_platforms=[],
+        intent_matched=list(intent.matched),
+    )
+
+    # ---- 1. explicit flags take precedence ----
+    if rank_platform:
+        plan.platform = rank_platform.lower()
+        plan.source = "flags"
+        tiers, quarts = rank_filter.normalize_keep_tiers(plan.platform, keep_tiers or [])
+        if plan.platform == "cas":
+            plan.tiers = tiers or None
+        else:
+            plan.quartiles = quarts or None
+        plan.category = rank_category
+        plan.applied_filter = bool(plan.tiers or plan.quartiles)
+        return plan
+
+    # A keep-tiers flag with no platform flag: still ambiguous unless intent or
+    # default resolves a platform. Stash it and fall through.
+    flag_keep = keep_tiers or []
+
+    # ---- 2. NL intent ----
+    if intent.platform:
+        plan.platform = intent.platform
+        plan.source = "intent"
+        plan.tiers = intent.tiers
+        plan.quartiles = intent.quartiles
+        plan.top = intent.top
+        plan.category = rank_category
+        # A keep-tiers flag refines/overrides the intent's tier list on the same
+        # platform (explicit flag detail beats parsed phrasing).
+        if flag_keep:
+            tiers, quarts = rank_filter.normalize_keep_tiers(plan.platform, flag_keep)
+            if plan.platform == "cas":
+                plan.tiers = tiers or plan.tiers
+            else:
+                plan.quartiles = quarts or plan.quartiles
+        plan.applied_filter = bool(plan.tiers or plan.quartiles or plan.top)
+        return plan
+
+    # Intent expressed a tier/quartile/top but no platform -> ambiguous.
+    if intent.has_filter and intent.ambiguous:
+        plan.ambiguous = True
+        plan.quartiles = intent.quartiles
+        plan.top = intent.top
+        plan.source = "intent"
+        plan.candidate_platforms = ["jcr", "sjr"]  # bare Qn could be either
+        # Do NOT apply a filter without a resolved platform; only label on default.
+
+    # ---- 3. config default platform (labels only, never filters) ----
+    default_platform = "jcr"
+    rank_cfg = getattr(config, "rank", None)
+    if isinstance(rank_cfg, dict) and rank_cfg.get("default_platform"):
+        default_platform = str(rank_cfg["default_platform"]).lower()
+    if default_platform not in journal_rank.PLATFORMS:
+        default_platform = "jcr"
+    plan.platform = default_platform
+    if plan.source == "none":
+        plan.source = "default"
+    plan.category = rank_category
+    # The default platform NEVER auto-filters (spec §7: 不提分区 → 不过滤). A bare
+    # keep-tiers flag against the default platform DOES filter, though (the user
+    # asked for tiers, just didn't name a platform — apply to the default).
+    if flag_keep and not plan.ambiguous:
+        tiers, quarts = rank_filter.normalize_keep_tiers(plan.platform, flag_keep)
+        if plan.platform == "cas":
+            plan.tiers = tiers or None
+        else:
+            plan.quartiles = quarts or None
+        plan.applied_filter = bool(plan.tiers or plan.quartiles)
+        plan.source = "flags"
+    return plan
+
+
+def _rank_cache_dir(config: Config):
+    """Resolve the journal_rank cache dir from config (else built-in default)."""
+    rank_cfg = getattr(config, "rank", None)
+    if isinstance(rank_cfg, dict) and rank_cfg.get("cache_dir"):
+        from pathlib import Path
+
+        return Path(str(rank_cfg["cache_dir"])).expanduser()
+    return None
+
+
+def _rank_sources(config: Config):
+    """Resolve the journal_rank mirror sources from config (else None=built-ins)."""
+    rank_cfg = getattr(config, "rank", None)
+    if isinstance(rank_cfg, dict) and isinstance(rank_cfg.get("sources"), dict):
+        return rank_cfg["sources"]
+    return None
 
 
 # ===========================================================================
@@ -953,6 +1099,11 @@ def run_agent_search(
     sjr_csv: Optional[str] = None,
     enrich_journal: bool = True,
     issn_backfill: bool = True,
+    rank_platform: Optional[str] = None,
+    keep_tiers: Optional[List] = None,
+    rank_category: Optional[str] = None,
+    deepen_target: Optional[int] = None,
+    max_deepen_rounds: int = 3,
     now_year: int = _CURRENT_YEAR,
 ) -> Dict:
     """Run the full deterministic agent pipeline and return the envelope dict.
@@ -976,6 +1127,27 @@ def run_agent_search(
     lookups on large SS result sets — papers then stay unjoinable and the gap stays
     visible (``journal_metric.issn_backfill_needed``). No effect on the OpenAlex
     path or the human path.
+
+    Feature A multi-platform journal RANK (v2.2 Wave A-2 — the CAS/JCR/SJR 分区
+    layer, distinct from the older SJR-only ``journal_metric`` above):
+    - ``rank_platform`` ("cas"|"jcr"|"sjr"): the platform to FILTER on this run.
+      When None, the platform is taken from the query's NL intent ("中科院一区" ->
+      cas) and otherwise from config ``rank.default_platform`` (factory jcr, which
+      only LABELS — never filters).
+    - ``keep_tiers``: tiers/quartiles to KEEP (ints/["1","2"]/["Q1","Q2"]), mapped
+      onto the chosen platform's taxonomy. Opt-in: with none given every paper is
+      labelled with all three platforms but nothing is filtered.
+    - ``rank_category``: pin a sub-category for the quartile/区 (CAS 小类 etc).
+    - NL intent is ALWAYS parsed so the rank phrasing is stripped from the topic
+      before search (the "中科院一区 被当检索词" bug fix), regardless of flags.
+    - When a tier filter is active and survivors fall short of ``deepen_target``
+      (default = ``limit`` or 10), the search ADAPTIVELY DEEPENS: it re-retrieves
+      at greater depth and re-filters the same annotated pool until the target is
+      met or the pool saturates (spec §6). Switching platform/tier later is just a
+      re-filter of the annotated pool — no re-search (spec §7).
+    - A bare quartile with no platform ("Q1") is AMBIGUOUS: the envelope flags it
+      (``meta.rank.ambiguous``) for the calling agent to ask the user; the CLI
+      itself never guesses a platform.
     """
     warnings: List[str] = []
 
@@ -984,7 +1156,18 @@ def run_agent_search(
             AgentError("E_CONFIG", "query is empty", retryable=False)
         )
 
-    terms = _tokenize_query(query)
+    # ---- Journal-rank intent: resolve platform/tiers + strip rank phrasing -----
+    # ALWAYS parse intent so the rank phrasing never reaches the search engine
+    # (the bug fix). When the query carries no rank phrasing, cleaned_query ==
+    # query and the platform falls to the config default (label-only, no filter),
+    # so the default path is byte-identical to before (R-19).
+    rank_plan = _resolve_rank_plan(
+        query, config,
+        rank_platform=rank_platform, keep_tiers=keep_tiers, rank_category=rank_category,
+    )
+    search_query = rank_plan.cleaned_query or query
+
+    terms = _tokenize_query(search_query)
 
     # ---- Source routing (+ auto-mode quota fallback) ----
     try:
@@ -1019,9 +1202,15 @@ def run_agent_search(
     except Exception as exc:
         ratelimit = {"ok": False, "error": str(exc), "switched_source": switched}
 
-    # ---- Retrieve ----
+    # ---- Retrieve (on the CLEANED query so rank phrasing never reaches search) --
+    # ``search_query`` == ``query`` when no rank phrasing was present (R-19). When a
+    # tier filter is active and survivors fall short, the deepening loop below
+    # re-retrieves at greater depth — but the FIRST pass is identical to the
+    # non-rank path, so the default behaviour is unchanged.
+    cur_per_strategy = per_strategy
     strategy_results, retr_warnings = _retrieve(
-        query, source_used, year_min=year_min, year_max=year_max, per_strategy=per_strategy
+        search_query, source_used, year_min=year_min, year_max=year_max,
+        per_strategy=cur_per_strategy,
     )
     warnings.extend(retr_warnings)
 
@@ -1032,6 +1221,7 @@ def run_agent_search(
         meta = {
             "query": {
                 "topic": query,
+                "search_query": search_query,
                 "year_min": year_min,
                 "year_max": year_max,
                 "per_strategy": per_strategy,
@@ -1057,14 +1247,95 @@ def run_agent_search(
             meta=meta,
         )
 
+    # ---- Journal-rank load (Feature A, Wave A-2; cache-first, no network) -------
+    # Load the unified CAS/JCR/SJR table from the local cache (NEVER fetched here —
+    # fetch is an explicit user/init action). None => graceful degradation: papers
+    # keep the legacy journal_metric (OpenAlex impact) but get no 分区 labels, and a
+    # tier filter cannot be honoured (reported in meta.rank).
+    rank_lookup = None
+    rank_load_note = None
+    if enrich_journal:
+        try:
+            rank_lookup = journal_rank.load(cache_dir=_rank_cache_dir(config))
+        except Exception as exc:  # never let a bad cache crash the search
+            rank_lookup = None
+            rank_load_note = f"journal_rank load failed: {exc}"
+        if rank_lookup is None and rank_load_note is None:
+            rank_load_note = (
+                "no journal-rank data cached — 分区 labels unavailable (OpenAlex "
+                "open-impact still attached). Run `python3 -m scripts.journal_rank "
+                "fetch` to enable CAS/JCR/SJR partitions."
+            )
+
+    # ---- Adaptive deepening (spec §6) — only when a tier/quartile filter is on --
+    # The cheap deterministic rank filter runs BEFORE expensive scoring. If the
+    # annotated pool yields fewer survivors than the target, re-retrieve at greater
+    # depth and re-filter the SAME pool until the target is met or the search
+    # saturates (a deepen round that adds no new papers). High 区 ↔ high citations
+    # (r≈0.96), so the citation-sorted strategy floats survivors up fast; we keep
+    # the existing multi-strategy retrieval and just grow the depth.
+    deepen_rounds = 0
+    deepen_saturated = False
+    rank_filter_active = (
+        rank_plan.applied_filter and rank_lookup is not None and not rank_plan.ambiguous
+    )
+    if rank_filter_active:
+        target = deepen_target if deepen_target is not None else (limit or 10)
+        # Annotate the current pool and count survivors of the rank filter.
+        rank_filter.annotate_papers(unique, rank_lookup)
+        kept_now, _dropped, _nodata = rank_filter.filter_by_rank(
+            unique, rank_plan.platform,
+            tiers=rank_plan.tiers, quartiles=rank_plan.quartiles, top=rank_plan.top,
+            category=rank_plan.category,
+        )
+        while (
+            len(kept_now) < target
+            and deepen_rounds < max_deepen_rounds
+            and source_used == "openalex"  # SS search() has no depth knob (one shot)
+        ):
+            prev_unique = len(unique)
+            cur_per_strategy *= 2  # grow retrieval depth one level
+            deepen_rounds += 1
+            more_results, more_warn = _retrieve(
+                search_query, source_used, year_min=year_min, year_max=year_max,
+                per_strategy=cur_per_strategy,
+            )
+            warnings.extend(more_warn)
+            # Re-dedup the deeper superset (deterministic sorts => stable superset).
+            new_unique, new_psn, new_raw = _dedup_with_yield(more_results)
+            unique, per_strategy_new, retrieved_raw = new_unique, new_psn, new_raw
+            if len(unique) <= prev_unique:
+                deepen_saturated = True  # deeper crawl added nothing new
+                break
+            rank_filter.annotate_papers(unique, rank_lookup)
+            kept_now, _dropped, _nodata = rank_filter.filter_by_rank(
+                unique, rank_plan.platform,
+                tiers=rank_plan.tiers, quartiles=rank_plan.quartiles, top=rank_plan.top,
+                category=rank_plan.category,
+            )
+        if len(kept_now) < target and not deepen_saturated:
+            deepen_saturated = deepen_rounds >= max_deepen_rounds
+    elif rank_lookup is not None and enrich_journal:
+        # No filter, but data is loaded: still LABEL the whole pool (spec §7:
+        # 不提分区 → 不过滤, only label). Annotation is network-free + idempotent.
+        rank_filter.annotate_papers(unique, rank_lookup)
+
     # ---- Score (ALWAYS, B-2) + reserve journal_metric slot + optional verify ----
     scored: List[Tuple[UnifiedPaperEntity, Dict]] = []
     for p in unique:
         rel = compute_relevance(p, terms, now_year=now_year)
         scored.append((p, rel))
 
-    # Sort by heuristic relevance (desc), tie-break on citation_count (desc).
-    scored.sort(key=lambda pr: (pr[1]["score"], pr[0].citation_count or 0), reverse=True)
+    # Sort. Default: heuristic relevance (desc), tie-break on citation_count.
+    # With a tier/quartile filter active (spec §6) prefer CITATION order — high 区
+    # ↔ high citations (r≈0.96), so citation-first surfaces high-partition papers
+    # fastest with the least over-fetching; relevance is the tie-break there.
+    if rank_filter_active:
+        scored.sort(
+            key=lambda pr: (pr[0].citation_count or 0, pr[1]["score"]), reverse=True
+        )
+    else:
+        scored.sort(key=lambda pr: (pr[1]["score"], pr[0].citation_count or 0), reverse=True)
 
     # Filter by min_relevance (signal-as-knob: filtering is opt-in, scoring is not).
     kept = [(p, rel) for (p, rel) in scored if rel["score"] >= min_relevance]
@@ -1088,7 +1359,8 @@ def run_agent_search(
         if sjr_lookup is None:
             warnings.append(
                 "no SJR CSV cached — quartiles unavailable (impact still attached "
-                "where reachable). Run `python3 -m scripts.sjr_helper --download`."
+                "where reachable). Run `python3 -m scripts.journal_rank fetch "
+                "--platform sjr`."
             )
         # OpenAlex open-impact lookup (CC0) only meaningful on the OpenAlex path
         # and when OA is initialised; SS-primary runs skip it to avoid extra calls.
@@ -1162,6 +1434,32 @@ def run_agent_search(
         kept = [(p, rel) for (p, rel) in kept if _passes_journal_filter(metric_by_id.get(id(p)))]
     after_journal_filter = len(kept)
 
+    # ---- Multi-platform journal RANK: annotate + opt-in tier/quartile filter ----
+    # (Feature A, Wave A-2 — the CAS/JCR/SJR 分区 layer.) Annotation is network-free;
+    # we (re)annotate the relevance-survivors here so any SS-primary ISSN backfilled
+    # above is now joinable. Filtering is a pure re-filter of the annotated pool:
+    # switching platform/tier later == calling this again, NO re-search (spec §7).
+    rank_kept_count = None
+    rank_filtered_count = None
+    rank_nodata_count = None
+    if enrich_journal and rank_lookup is not None:
+        rank_filter.annotate_papers([p for (p, _r) in kept], rank_lookup)
+        if rank_filter_active:
+            survivors, dropped, nodata = rank_filter.filter_by_rank(
+                [p for (p, _r) in kept], rank_plan.platform,
+                tiers=rank_plan.tiers, quartiles=rank_plan.quartiles, top=rank_plan.top,
+                category=rank_plan.category,
+            )
+            survivor_ids = {id(p) for p in survivors}
+            rank_kept_count = len(survivors)
+            rank_filtered_count = len(dropped)
+            rank_nodata_count = len(nodata)
+            # No-platform-data papers are EXCLUDED from a tier filter but COUNTED
+            # (spec §2: 无该平台分区数据的论文单独标记，不静默丢).
+            kept = [(p, rel) for (p, rel) in kept if id(p) in survivor_ids]
+
+    after_rank_filter = len(kept)
+
     after_filter = after_relevance_filter  # back-compat name (relevance stage)
     if limit is not None and limit >= 0:
         kept = kept[:limit]
@@ -1176,6 +1474,10 @@ def run_agent_search(
         # (byte-identical to the pre-3d None for unjoinable papers).
         metric = metric_by_id.get(id(p))
         d["journal_metric"] = _journal_metric_to_dict(metric) if metric is not None else None
+        # Multi-platform rank slot (Wave A-2): the unified three-platform dict
+        # (spec §3), or None when the journal joined no platform. Additive — the
+        # legacy journal_metric above is untouched.
+        d["journal_rank"] = rank_filter.rank_metric_dict(getattr(p, "journal_rank", None))
         if verify:
             v = _verify_paper(p)
             d["verify"] = v
@@ -1185,9 +1487,53 @@ def run_agent_search(
     all_scores = [rel["score"] for (_p, rel) in scored]
     saturation = _saturation_signal(per_strategy_new, len(unique), all_scores)
 
+    # ---- Build the meta.rank block (Feature A, Wave A-2) -----------------------
+    rank_attribution = None
+    switchable = []
+    if rank_lookup is not None:
+        switchable = list(rank_lookup.loaded_platforms)
+        if rank_plan.platform in journal_rank.ATTRIBUTION:
+            rank_attribution = journal_rank.ATTRIBUTION.get(rank_plan.platform)
+    rank_meta = {
+        "platform": rank_plan.platform,
+        "platform_source": rank_plan.source,  # flags | intent | default | none
+        "keep_tiers": rank_plan.tiers,
+        "keep_quartiles": rank_plan.quartiles,
+        "top_only": rank_plan.top,
+        "category": rank_plan.category,
+        "applied_filter": rank_filter_active,
+        "ambiguous": rank_plan.ambiguous,
+        # When ambiguous (bare "Q1"), the calling agent should ASK the user which
+        # platform (CLI is non-interactive; spec §7). Until then nothing is filtered.
+        "candidate_platforms": list(rank_plan.candidate_platforms or []) if rank_plan.ambiguous else [],
+        "kept": rank_kept_count,
+        "filtered": rank_filtered_count,
+        "no_platform_data": rank_nodata_count,
+        "data_loaded": rank_lookup is not None,
+        "loaded_platforms": list(rank_lookup.loaded_platforms) if rank_lookup is not None else [],
+        # Switching standard/tier is a RE-FILTER of the already-annotated pool —
+        # no re-search needed (spec §7). These platforms are ready to switch to now.
+        "switchable_platforms": switchable,
+        "switch_is_refilter_not_research": True,
+        "stripped_phrases": rank_plan.intent_matched,
+        "deepen": {
+            "active": rank_filter_active,
+            "rounds": deepen_rounds,
+            "saturated": deepen_saturated,
+            "final_per_strategy": cur_per_strategy if rank_filter_active else per_strategy,
+        },
+        "attribution": rank_attribution,
+        "note": rank_load_note,
+        "naming": (
+            "CAS 区 & SJR best_quartile are PARTITIONS; only JCR impact_factor is a "
+            "real Impact Factor (R-04/R-09). 切换标准/档位 = 重筛已标注的候选池，不重搜。"
+        ),
+    }
+
     meta: Dict = {
         "query": {
             "topic": query,
+            "search_query": search_query,
             "year_min": year_min,
             "year_max": year_max,
             "per_strategy": per_strategy,
@@ -1198,8 +1544,10 @@ def run_agent_search(
             "after_dedup": len(unique),
             "after_relevance_filter": after_filter,
             "after_journal_filter": after_journal_filter,
+            "after_rank_filter": after_rank_filter,
             "returned": len(data),
         },
+        "rank": rank_meta,
         "journal_metric": {
             "enriched": bool(enrich_journal),
             "sjr_loaded": sjr_lookup is not None,
@@ -1335,6 +1683,39 @@ def _main_cli() -> int:
         help="Skip journal_metric enrichment entirely (slots stay None).",
     )
     parser.add_argument(
+        "--rank-platform",
+        choices=list(journal_rank.PLATFORMS),
+        default=None,
+        help="Multi-platform journal RANK to FILTER on: cas (中科院 区) | jcr | sjr. "
+        "Omit to take the platform from the query's NL intent ('中科院一区' -> cas) "
+        "or, failing that, config rank.default_platform (which only LABELS, never "
+        "filters). CAS 区 & SJR quartile are PARTITIONS; only JCR is a real IF (R-04).",
+    )
+    parser.add_argument(
+        "--keep-tiers",
+        default=None,
+        help="Comma-separated tiers/quartiles to KEEP, mapped onto the chosen "
+        "platform: CAS uses 区 numbers ('1,2'); JCR/SJR use quartiles ('Q1,Q2'). "
+        "OPT-IN: with none given every paper is labelled with all three platforms "
+        "but nothing is filtered. With a tier filter the search ADAPTIVELY DEEPENS "
+        "to meet the target count (spec §6).",
+    )
+    parser.add_argument(
+        "--rank-category",
+        default=None,
+        help="Pin the partition/quartile to a specific sub-category (CAS 小类 / "
+        "JCR/SJR category) instead of the journal's best.",
+    )
+    parser.add_argument(
+        "--deepen-target",
+        type=int,
+        default=None,
+        help="Target survivor count that adaptive deepening aims for when a tier "
+        "filter is active (default: --limit, or 10). Deepening re-retrieves at "
+        "greater depth and RE-FILTERS the same annotated pool — switching "
+        "platform/tier afterwards is a re-filter, not a re-search (spec §7).",
+    )
+    parser.add_argument(
         "--no-issn-backfill",
         action="store_true",
         help="On the SS-primary path, do NOT recover missing ISSNs via free "
@@ -1401,6 +1782,11 @@ def _main_cli() -> int:
         if args.quartile
         else None
     )
+    keep_tiers = (
+        [t.strip() for t in args.keep_tiers.split(",") if t.strip()]
+        if args.keep_tiers
+        else None
+    )
 
     try:
         envelope = run_agent_search(
@@ -1418,6 +1804,10 @@ def _main_cli() -> int:
             sjr_csv=args.sjr_csv,
             enrich_journal=not args.no_journal_metric,
             issn_backfill=not args.no_issn_backfill,
+            rank_platform=args.rank_platform,
+            keep_tiers=keep_tiers,
+            rank_category=args.rank_category,
+            deepen_target=args.deepen_target,
         )
     except Exception as exc:  # absolute backstop — never leak a traceback to stdout
         envelope = _error_envelope(

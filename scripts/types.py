@@ -50,7 +50,9 @@ class JournalMetric:
     Naming is deliberate (R-04 / R-09): this is **SJR分区 / 期刊影响力**, never a
     JCR Impact Factor.
     - sjr_quartile               : "Q1".."Q4" or None — SCImago Best Quartile
-      (or the chosen category's quartile). CC BY-NC; attribution required.
+      (or the chosen category's quartile). Data © SCImago (scimagojr.com),
+      non-commercial cited use — SCImago custom terms, NOT a Creative Commons /
+      CC BY-NC licence; attribution required.
     - sjr_category_quartiles     : {category: "Qn"} — per-category SJR quartiles.
     - openalex_2yr_mean_citedness: OpenAlex source summary_stats — an OPEN
       journal-impact figure. R-09: this is NOT the official JIF (e.g. JPSP reads
@@ -71,6 +73,90 @@ class JournalMetric:
     cwts_snip: Optional[float] = None
     sjr_attribution: Optional[str] = None
     issn_backfill_needed: bool = False
+
+
+@dataclass
+class CASRank:
+    """CAS (中科院文献情报中心) journal partition for one venue (v2.2 Feature A).
+
+    Additive / optional — defaults keep serialization byte-compatible. 区 1-4 is a
+    PARTITION (大类分区), NOT an Impact Factor (R-04). 勿公开传播 (personal use).
+    - tier        : 大类分区 区号 1-4 (1 = top).
+    - rank         : within-大类 rank string, e.g. "168/495".
+    - top          : CAS Top 期刊 flag.
+    - minor        : up to six 小类 (sub-category) partitions
+                     [{category, tier, rank}].
+    - source_year  : the CAS table year (e.g. 2025).
+    """
+    tier: Optional[int] = None
+    rank: Optional[str] = None
+    top: bool = False
+    minor: List[Dict] = field(default_factory=list)
+    source_year: Optional[int] = None
+
+
+@dataclass
+class JCRRank:
+    """JCR (Clarivate) journal record for one venue (v2.2 Feature A).
+
+    Additive / optional. This is the ONLY source of a real **Impact Factor**
+    (R-04 / R-09): ``impact_factor`` here is the genuine JCR IF(2024); OpenAlex
+    2yr-mean-citedness elsewhere is NOT this.
+    - quartile     : "Q1".."Q4" (best across categories).
+    - impact_factor: the real JCR IF(2024). © Clarivate.
+    - rank         : category rank, e.g. "1/326".
+    - category     : raw JCR Category string (may carry multiple, ``;``-joined).
+    - source_year  : the JCR table year (e.g. 2024).
+    """
+    quartile: Optional[str] = None
+    impact_factor: Optional[float] = None
+    rank: Optional[str] = None
+    category: Optional[str] = None
+    source_year: Optional[int] = None
+
+
+@dataclass
+class SJRRank:
+    """SJR (SCImago) journal record for one venue (v2.2 Feature A).
+
+    Additive / optional. SJR quartile is a PARTITION/quartile, NOT an IF (R-04).
+    Data © SCImago (scimagojr.com), non-commercial cited use — NOT CC BY-NC.
+    - best_quartile: "Q1".."Q4" (best across categories).
+    - sjr           : the SJR indicator value.
+    - per_category  : per-category quartiles [{category, quartile}].
+    - source_year   : the SJR table year (e.g. 2024).
+    """
+    best_quartile: Optional[str] = None
+    sjr: Optional[float] = None
+    per_category: List[Dict] = field(default_factory=list)
+    source_year: Optional[int] = None
+
+
+@dataclass
+class JournalRank:
+    """Unified multi-platform journal rank for one venue (v2.2 Feature A).
+
+    Additive / optional: ``UnifiedPaperEntity.journal_rank`` defaults to None so
+    existing serialization / behavior is byte-compatible. Each platform slot is
+    independently optional (a journal found on only one platform still yields a
+    valid record). Populated by journal_rank.py when ranking CSVs are cached.
+
+    NOTE this is the v2.2 A-line *multi-platform* schema (CAS + JCR + SJR), and is
+    distinct from the older SJR-only ``JournalMetric`` above (kept for backward
+    compatibility until Wave A-2 migrates consumers).
+    - title             : journal title (from whichever platform supplied it).
+    - issns             : normalised "XXXX-XXXX" keys (print + electronic).
+    - cas / jcr / sjr   : per-platform sub-records (None when not on that platform).
+    - matched_issn      : the ISSN a lookup hit on.
+    - matched_platforms : which platforms contributed (["cas","jcr","sjr"] subset).
+    """
+    title: Optional[str] = None
+    issns: List[str] = field(default_factory=list)
+    cas: Optional["CASRank"] = None
+    jcr: Optional["JCRRank"] = None
+    sjr: Optional["SJRRank"] = None
+    matched_issn: Optional[str] = None
+    matched_platforms: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -144,6 +230,12 @@ class UnifiedPaperEntity:
     # OpenAlex source stats when available; None means "not looked up".
     journal_metric: Optional["JournalMetric"] = None
 
+    # Multi-platform journal rank (v2.2 Feature A-line, additive — default None so
+    # existing serialization is byte-compatible). Populated by journal_rank.py
+    # (CAS + JCR + SJR) when ranking CSVs are cached; None means "not looked up".
+    # Wave A-2 wires this into agent_search; until then it is reserved.
+    journal_rank: Optional["JournalRank"] = None
+
     # Skill-internal (set by main Claude Code agent or scripts)
     rcs: Optional[int] = None                # 0-10, set during classification
     rcs_reasoning: Optional[str] = None
@@ -208,6 +300,12 @@ class Config:
     # USD budget remaining (per OpenAlex X-RateLimit-Remaining-USD) at or below
     # which "auto" mode switches to SS for the remainder of the run.
     quota_fallback_threshold_usd: float = 0.05
+
+    # ---- Journal rank (v2.2 Feature A — additive; default None = built-ins) ----
+    # Nested dict from config ``rank:`` (default_platform / cache_dir / sources).
+    # None means "use journal_rank.py built-in defaults". Multi-platform partition
+    # / quartile (CAS / JCR / SJR); data fetched at runtime, never bundled.
+    rank: Optional[Dict] = None
 
     # ---- HTML rendering ----
     # (No size cap or alternative renderer as of 2026-05-23. The Skill

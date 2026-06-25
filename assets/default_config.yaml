@@ -69,6 +69,30 @@ quota_fallback_threshold_usd: 0.05
 
 
 # ============================================================================
+# Journal rank (v2.2 Feature A — additive; omit entirely for v2.1 behavior)
+# ============================================================================
+# Multi-platform journal partition / quartile (CAS 中科院 / JCR / SJR). Data is
+# fetched at runtime from public mirrors into cache_dir — NEVER bundled in-repo.
+# CAS 区 & SJR quartile are PARTITIONS; only JCR IF(2024) is a real Impact Factor.
+rank:
+  # Factory default reporting standard. The skill labels every paper with all
+  # three platforms but FILTERS only on this one unless a request overrides it.
+  # Override per-request ("中科院一区" -> cas) is transient; this is the persistent
+  # default the user can set ("以后都用 X").  jcr | cas | sjr
+  default_platform: jcr
+  # Where fetched ranking CSVs are cached (never the repo).
+  cache_dir: ~/.paper-search-pro/ranks
+  # Mirror URLs (swap to another mirror if one moves). All GitHub-raw -> plain
+  # HTTP works (no Cloudflare). Leave unset to use the built-in defaults.
+  sources:
+    cas: "https://raw.githubusercontent.com/hitfyd/ShowJCR/master/%E4%B8%AD%E7%A7%91%E9%99%A2%E5%88%86%E5%8C%BA%E8%A1%A8%E5%8F%8AJCR%E5%8E%9F%E5%A7%8B%E6%95%B0%E6%8D%AE%E6%96%87%E4%BB%B6/FQBJCR2025-UTF8.csv"
+    jcr: "https://raw.githubusercontent.com/hitfyd/ShowJCR/master/%E4%B8%AD%E7%A7%91%E9%99%A2%E5%88%86%E5%8C%BA%E8%A1%A8%E5%8F%8AJCR%E5%8E%9F%E5%A7%8B%E6%95%B0%E6%8D%AE%E6%96%87%E4%BB%B6/JCR2024-UTF8.csv"
+    sjr: "https://raw.githubusercontent.com/saramabrouk173/zotero-sjr-ranker/main/scimagojr%202024.csv"
+  # NOTE: no persistent tier default — tier filtering is per-request / per-explicit
+  # default only (never auto-persisted from a single request).
+
+
+# ============================================================================
 # HTML rendering
 # ============================================================================
 # (No config keys here as of 2026-05-23. The Skill always uses the

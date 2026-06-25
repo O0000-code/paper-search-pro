@@ -276,6 +276,10 @@ def _oa_targets(results_by_sort):
         (agent_search.openalex_helper, "search_top_n_pages", fake_search_top_n_pages),
         (agent_search.openalex_helper, "init_pyalex", lambda cfg: None),
         (agent_search.quota_guard, "evaluate", lambda config, mode="probe", **kw: _FakeQuota()),
+        # Pin journal_rank.load to None so the multi-platform rank layer is inert
+        # here regardless of machine cache state (these tests pre-date Wave A-2;
+        # dedicated rank tests live below + in test_rank_intent / test_rank_filter).
+        (agent_search.journal_rank, "load", lambda **kw: None),
     ]
 
 
@@ -432,6 +436,7 @@ def _ss_primary_targets(ss_papers, *, get_work=None):
         (agent_search.ss_helper, "search", lambda q, **kw: list(ss_papers)),
         (agent_search.openalex_helper, "init_pyalex", lambda cfg: None),
         (agent_search.openalex_helper, "get_source_impact", lambda issn: None),
+        (agent_search.journal_rank, "load", lambda **kw: None),
     ]
     if get_work is not None:
         targets.append((agent_search.openalex_helper, "get_work", get_work))

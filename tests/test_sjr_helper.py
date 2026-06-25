@@ -293,6 +293,9 @@ def _oa_search_targets(papers):
         (openalex_helper, "init_pyalex", lambda c: None),
         (openalex_helper, "get_source_impact", _fake_impact),
         (quota_guard, "evaluate", lambda c, mode="probe": _FakeQuota()),
+        # These legacy journal_metric tests must be inert to the Wave A-2 rank
+        # layer regardless of machine cache state.
+        (agent_search.journal_rank, "load", lambda **kw: None),
     ]
 
 
@@ -445,6 +448,7 @@ def _ss_primary_targets(ss_papers, oa_get_work):
         (openalex_helper, "init_pyalex", lambda c: None),
         (openalex_helper, "get_work", oa_get_work),
         (openalex_helper, "get_source_impact", _fake_impact),
+        (agent_search.journal_rank, "load", lambda **kw: None),
     ]
 
 

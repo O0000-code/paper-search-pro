@@ -436,6 +436,51 @@ def _journal_metric_render(p: UnifiedPaperEntity) -> Optional[Dict[str, Any]]:
     }
 
 
+def _journal_rank_render(p: UnifiedPaperEntity) -> Optional[Dict[str, Any]]:
+    """Additively serialise a paper's multi-platform ``journal_rank`` for display
+    (v2.2 Feature A, Wave A-3).
+
+    This is the *new* three-platform record (CAS 区 / JCR Q·IF / SJR Q) populated
+    by ``rank_filter.annotate_papers`` from ``journal_rank.py`` data. It is wholly
+    independent of the older SJR-only ``journal_metric`` above — both slots render
+    side by side, neither clobbers the other.
+
+    Returns None when the paper has no ``journal_rank`` OR it carries no real
+    platform data — so the rendered output is byte-identical to the pre-A-3
+    behavior for every paper that lacks rank data (R-19). Never raises. The
+    serialisation goes through ``rank_filter.rank_metric_dict``, the single SSOT
+    for the spec §3 schema, so R-04 naming (only JCR has an ``impact_factor``) is
+    enforced in exactly one place and the display can never drift from agent mode."""
+    rank = getattr(p, "journal_rank", None)
+    if rank is None:
+        return None
+    try:
+        from .rank_filter import rank_metric_dict  # lazy: keeps imports lean
+
+        return rank_metric_dict(rank)
+    except Exception:
+        # If rank_filter is unavailable for any reason, degrade to no rank line
+        # (display still succeeds; R-19 byte-identical fallback to "no rank data").
+        return None
+
+
+def _rank_attribution_for(metric: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Best per-paper attribution string for a rendered journal_rank dict.
+
+    Picks the attribution of whichever platforms actually carry data, joined so
+    every surfaced source is credited (R-01..05). Returns None when the dict is
+    empty or attribution constants cannot be loaded. Never raises."""
+    if not metric:
+        return None
+    try:
+        from .journal_rank import ATTRIBUTION  # lazy
+    except Exception:
+        return None
+    present = [plat for plat in ("cas", "jcr", "sjr") if metric.get(plat)]
+    parts = [ATTRIBUTION[plat] for plat in present if plat in ATTRIBUTION]
+    return "  ".join(parts) if parts else None
+
+
 def _render_paper(p: UnifiedPaperEntity) -> Dict[str, Any]:
     rendered: Dict[str, Any] = {
         "paper_id": p.paper_id,
@@ -462,6 +507,16 @@ def _render_paper(p: UnifiedPaperEntity) -> Dict[str, Any]:
     jm = _journal_metric_render(p)
     if jm is not None:
         rendered["journal_metric"] = jm
+    # Additive (R-19): the new multi-platform journal_rank renders the SAME way —
+    # the key only appears when CAS/JCR/SJR data was actually joined onto this
+    # paper. A run that never annotated ranks (no cached CSVs) yields a paper_list
+    # byte-identical to the pre-A-3 output, exactly like journal_metric above.
+    jr = _journal_rank_render(p)
+    if jr is not None:
+        rendered["journal_rank"] = jr
+        attr = _rank_attribution_for(jr)
+        if attr:
+            rendered["journal_rank_attribution"] = attr
     return rendered
 
 
@@ -535,6 +590,51 @@ def _journal_metric_from_json(d: Dict):
     )
 
 
+def _journal_rank_from_json(d: Dict):
+    """Reconstruct a JournalRank from a kg.json paper dict (additive, A-3).
+
+    Accepts the unified three-platform ``journal_rank`` dict (spec §3 shape, as
+    written by agent mode / annotate). Returns None when absent (the common case)
+    so a kg.json written before Feature A — or one without cached rank data —
+    decodes byte-identically (R-19). Never raises."""
+    raw = d.get("journal_rank")
+    if not isinstance(raw, dict):
+        return None
+    try:
+        from .types import CASRank, JCRRank, JournalRank, SJRRank
+    except Exception:
+        return None
+    cas = raw.get("cas")
+    jcr = raw.get("jcr")
+    sjr = raw.get("sjr")
+    return JournalRank(
+        title=raw.get("title"),
+        issns=list(raw.get("issns") or []),
+        cas=CASRank(
+            tier=cas.get("tier"),
+            rank=cas.get("rank"),
+            top=bool(cas.get("top", False)),
+            minor=[dict(m) for m in (cas.get("minor") or [])],
+            source_year=cas.get("source_year"),
+        ) if isinstance(cas, dict) else None,
+        jcr=JCRRank(
+            quartile=jcr.get("quartile"),
+            impact_factor=jcr.get("impact_factor"),
+            rank=jcr.get("rank"),
+            category=jcr.get("category"),
+            source_year=jcr.get("source_year"),
+        ) if isinstance(jcr, dict) else None,
+        sjr=SJRRank(
+            best_quartile=sjr.get("best_quartile"),
+            sjr=sjr.get("sjr"),
+            per_category=[dict(c) for c in (sjr.get("per_category") or [])],
+            source_year=sjr.get("source_year"),
+        ) if isinstance(sjr, dict) else None,
+        matched_issn=raw.get("matched_issn"),
+        matched_platforms=list(raw.get("matched_platforms") or []),
+    )
+
+
 def _kg_from_json(payload) -> Dict[str, UnifiedPaperEntity]:
     """Decode kg.json into Dict[str, UnifiedPaperEntity]."""
     from .types import Author
@@ -572,6 +672,7 @@ def _kg_from_json(payload) -> Dict[str, UnifiedPaperEntity]:
             tldr=d.get("tldr"),
             doi_url=d.get("doi_url"),
             journal_metric=_journal_metric_from_json(d),
+            journal_rank=_journal_rank_from_json(d),
             rcs=d.get("rcs"),
             rcs_reasoning=d.get("rcs_reasoning"),
             rcs_flag=d.get("rcs_flag"),

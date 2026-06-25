@@ -232,6 +232,25 @@ Apply PICO / SPIDER / PEO depending on domain:
 - Scoping → PEO (Population/Exposure/Outcome)
 - Open-ended → just extract 2-4 concept blocks + 2-5 synonyms each
 
+**Journal-rank intent recognition (additive — only acts when the query mentions a partition).** Before you extract concept blocks, check whether the user's query carries a journal-rank/partition phrase — "中科院一区", "Q1", "JCR Q1", "SJR Q2", "顶刊 / top journal". If so, that phrase is a **filter condition, not a search term**, and it MUST be **stripped from the topic** before retrieval. This roots out the failure that motivated the whole feature: "中科院一区 情绪调节" used to send "中科院一区" to the search engine as a topic word, so it searched for papers *about* 中科院一区 instead of papers *on* 情绪调节 *filtered to* CAS tier 1. The deterministic parser does both jobs (extract + strip) for you:
+
+```bash
+PYTHONPATH=$PSP_HOME python3 -c "
+from scripts.rank_intent import parse_rank_intent
+i = parse_rank_intent('''<original user query>''')
+import json; print(json.dumps({
+  'platform': i.platform, 'tiers': i.tiers, 'quartiles': i.quartiles,
+  'top': i.top, 'ambiguous': i.ambiguous, 'cleaned_query': i.cleaned_query,
+  'stripped': i.matched}, ensure_ascii=False))
+"
+```
+
+Then act on the parse:
+- **`cleaned_query`** is the real topic — use it (NOT the raw query) for STEP 3 retrieval and the query plan. When the query had no rank phrasing, `cleaned_query == query` and nothing changes (R-19 default path is untouched).
+- **`platform` + `tiers`/`quartiles`/`top`** are the filter you will apply in STEP 10/11 — remember them; do not filter here.
+- **`ambiguous == True`** (a bare "Q1"/"Q2" with no platform word — the recogniser never guesses a platform): **ask the user one short question inline** before going further — *"按 JCR 还是 SJR 的 Q1 筛?顺便要不要设为以后的默认?"* The CLI/headless path cannot ask, so this inline question is specifically the human path's job.
+- If the query mentions no partition at all, skip this entirely — STEP 1 proceeds exactly as before.
+
 Even Quick tier needs a lightweight version of this step — never skip silently. Output: 1-3 search strategies (concept blocks + year range + work type filter). Write to `"$SEARCH_DIR/query_plan.json"` so PRISMA-S logger can pick it up later (STEP 13).
 
 ### STEP 2 — Detect source routing
@@ -450,10 +469,47 @@ you can attach a per-paper **SJR quartile** (Q1–Q4) + **OpenAlex open impact**
 (2yr mean citedness, h-index). This is opt-in and **off by default — the report is
 byte-for-byte unchanged when you skip it.** It needs a one-time SJR CSV in the
 user's local cache (`~/.paper-search-pro/sjr/`). 📖 Read `references/journal_metrics.md`
-first — it covers acquisition, the mandatory CC BY-NC attribution, the ISSN join,
-and the **R-04 naming rule** (these are "SJR分区 / 期刊影响力", **never** "影响因子 /
-JCR / 中科院分区"; those are external-link-only). When metrics are present they
-render as an extra line per paper in the MD report; when absent, nothing changes.
+first — it covers acquisition, the mandatory SCImago attribution (non-commercial
+cited use — **not** "CC BY-NC"), the ISSN join, and the **R-04 naming rule** (these
+are "SJR分区 / 期刊影响力", **never** "影响因子"; the real Impact Factor lives in the
+JCR slot of the multi-platform layer below). When metrics are present they render
+as an extra line per paper in the MD report; when absent, nothing changes.
+
+**Optional (additive) — multi-platform journal partitions (中科院 / JCR / SJR).**
+This is the newer, richer partition layer (it supersedes the SJR-only block above
+for any case where the user thinks in 区 / quartiles). It labels every paper with
+**all three** platforms and, when a tier was requested, filters on **one**. Like
+everything else in this step it is **opt-in and off by default — skip it and the
+report is byte-for-byte unchanged** (R-19). 📖 Read `references/journal_metrics.md`
+first (it is the SSOT for sources, the ISSN join, attribution, and R-04 naming).
+
+- **First use needs a one-time fetch** (init-once; data is pulled at runtime into
+  `~/.paper-search-pro/ranks/` and **never bundled in the repo**). If you have not
+  fetched before, run it once (and tell the user it is a one-time step):
+  ```bash
+  PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank fetch          # all three
+  # or a single platform: ... journal_rank fetch --platform cas
+  PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank info           # what's cached
+  ```
+- **Annotate (label all three platforms — do this once per result set):**
+  ```bash
+  PYTHONPATH=$PSP_HOME python3 -c "
+  from scripts import journal_rank, rank_filter
+  # ... load your papers as UnifiedPaperEntity list, then:
+  lk = journal_rank.load()                         # RankLookup | None (None → graceful degrade)
+  n  = rank_filter.annotate_papers(papers, lk)     # fills paper.journal_rank (三家全标)
+  "
+  ```
+  `journal_rank.load()` returns **None** when nothing is cached — then this layer
+  silently degrades (no partitions; the OpenAlex open-impact figure from the block
+  above is still the influence placeholder) and you tell the user they can
+  `journal_rank fetch` to enable partitions.
+- **Filter (only when a tier was requested — see STEP 11 for the full flow):** call
+  `rank_filter.filter_by_rank(papers, platform, tiers=…, quartiles=…, top=…)`. It
+  returns `(kept, filtered_out, no_platform_data)` — the third bucket (journals not
+  on the chosen platform) is **reported, never silently dropped**.
+- **R-04 naming** is enforced for you in the serialised dict: only JCR exposes an
+  `impact_factor` (the real IF); 中科院"区" and SJR quartile are **分区/quartile**.
 
 ### STEP 11 — Write the executive summary
 
@@ -467,6 +523,17 @@ Write a ~300-word executive summary in your own words based on the classified pa
 - *(Optional)* journal tier of the leading papers, **if** you attached SJR metrics in STEP 10 — phrase as "SJR分区 / 期刊影响力", never "影响因子 / JCR" (R-04). Skip this bullet entirely when no metrics were attached.
 
 Save to `"$SEARCH_DIR/summary.md"`.
+
+**Partition default / ask / filter / report / switch flow (additive — only when partitions are in play).** When you annotated the multi-platform journal_rank in STEP 10, follow this flow; it is entirely opt-in and changes nothing on the default no-partition path (R-19):
+
+- **Factory default standard = JCR.** The persistent default lives in config `rank.default_platform` (out of the box: `jcr`; the user can set it to `cas`/`sjr`). The default platform only **labels** every paper — it does **not** filter unless the user actually asked for a tier.
+- **No partition mentioned → do not filter.** Just show all three platforms' labels per paper (STEP 10 annotate already did this) and let the user read / refine. Never invent a tier filter the user didn't ask for.
+- **A tier was requested (from STEP 1 intent or the user this round) → filter this once.** Use the STEP 1 parse: `platform` + `tiers`/`quartiles`/`top`. A per-request tier filter is **transient — never auto-persist it** to config. The persistent default is only ever changed when the user explicitly says "以后都用 X".
+- **Ambiguous bare "Q1" with no platform and no persistent default → ask one short question** (you should already have asked in STEP 1; if not, ask now): *"按 JCR 还是 SJR?顺带设默认吗?"* Small confirmations are welcome, but do not over-ask.
+- **Always report what this run did.** After filtering, tell the user in one line: *"本次按 {platform} 筛(留 N / 滤 M",* plus a light offer: *"可换中科院/JCR/SJR 或换档位、可设为以后的默认。"* Include the per-platform attribution (`journal_rank.ATTRIBUTION[platform]`).
+- **Switching standard or tier = RE-FILTER the already-annotated pool, NOT a re-search.** When the user then says "换成中科院二区" or "看看 SJR Q1", do **not** re-run the search. `annotate_papers` already stamped all three platforms onto the same candidate pool, so a switch is a pure in-memory re-filter — call `rank_filter.filter_by_rank(papers, new_platform, tiers=new_tiers, …)` again and it returns instantly. **Only when the re-filter leaves too few survivors** do you go back to STEP 3 and deepen the search (retrieve more, re-annotate, re-filter). This "切换=重筛不重搜" rule is what makes partition exploration cheap.
+- **Persisting the default** (only on an explicit "以后都用 X"): set `rank.default_platform` in `~/.paper-search-pro/config.yaml`. Tier档位 is never persisted — only the platform default is.
+- **R-04 naming in the summary bullet too:** 中科院"区" and SJR quartile are **分区 / quartile**; only JCR IF(2024) is an **影响因子 / Impact Factor**. The OpenAlex 2yr-mean-citedness figure is "期刊影响力" (open), never a JIF.
 
 ### STEP 12 — Render the report
 
@@ -620,7 +687,7 @@ $(pwd)/paper-search-results/<search_id>/
 | `prisma_s_checklist.md` | STEP 13 |
 | `error_handling.md` | Anytime an unexpected error surfaces |
 | `agent_mode.md` | When called by another agent / headless — `agent_search` envelope + flags (SSOT) |
-| `journal_metrics.md` | STEP 10/11 optional journal metrics — SJR quartile + open impact + R-04 naming (SSOT) |
+| `journal_metrics.md` | STEP 1 + STEP 10/11 optional journal partitions — 中科院 / JCR / SJR (`journal_rank fetch`) + SJR-only legacy metrics + ISSN join + attribution + R-04 naming (SSOT) |
 
 ---
 

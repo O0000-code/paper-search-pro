@@ -31,8 +31,18 @@
 
 > **Authors:** {{ p.authors_short or 'unknown' }}{% if p.year %} · **Year:** {{ p.year }}{% endif %}{% if p.venue %} · **Venue:** {{ p.venue }}{% endif %}{% if p.citation_count %} · **Citations:** {{ p.citation_count }}{% endif %}
 > {% if p.rcs is not none %}**RCS:** {{ p.rcs }}{% if p.rcs >= 7 %} (highly relevant){% elif p.rcs >= 5 %} (closely related){% endif %}{% endif %}{% if p.doi %} · **DOI:** [{{ p.doi }}]({{ p.doi_url }}){% endif %}{% if p.discovery_path %} · _via {{ p.discovery_path }}_{% endif %}
+{#- The new multi-platform journal_rank (below) supersedes the old SJR-only
+    journal_metric's SJR line — when journal_rank carries SJR data we DROP the old
+    "SJR 分区" here so a paper never shows two SJR quartiles (the new line already
+    renders SJR). We still keep OpenAlex 期刊影响力 / H-index, which the new layer
+    does NOT carry. When there is no journal_rank (the legacy path), show_old_sjr is
+    True and this block renders byte-identically to before (R-19). -#}
+{%- set show_old_sjr = p.journal_metric and p.journal_metric.sjr_quartile and not (p.journal_rank and p.journal_rank.sjr) %}
 {%- if p.journal_metric %}
-> {% if p.journal_metric.sjr_quartile %}**SJR 分区:** {{ p.journal_metric.sjr_quartile }}{% endif %}{% if p.journal_metric.openalex_2yr_mean_citedness is not none %}{% if p.journal_metric.sjr_quartile %} · {% endif %}**期刊影响力 (OpenAlex 2yr mean citedness):** {{ '%.2f'|format(p.journal_metric.openalex_2yr_mean_citedness) }}{% endif %}{% if p.journal_metric.h_index is not none %} · **H-index:** {{ p.journal_metric.h_index }}{% endif %}
+> {% if show_old_sjr %}**SJR 分区:** {{ p.journal_metric.sjr_quartile }}{% endif %}{% if p.journal_metric.openalex_2yr_mean_citedness is not none %}{% if show_old_sjr %} · {% endif %}**期刊影响力 (OpenAlex 2yr mean citedness):** {{ '%.2f'|format(p.journal_metric.openalex_2yr_mean_citedness) }}{% endif %}{% if p.journal_metric.h_index is not none %} · **H-index:** {{ p.journal_metric.h_index }}{% endif %}
+{%- endif %}
+{%- if p.journal_rank %}
+> **期刊分区:** {% if p.journal_rank.cas %}中科院{% if p.journal_rank.cas.tier %} {{ p.journal_rank.cas.tier }}区{% endif %}{% if p.journal_rank.cas.top %} · Top{% endif %}{% endif %}{% if p.journal_rank.jcr %}{% if p.journal_rank.cas %} · {% endif %}JCR{% if p.journal_rank.jcr.quartile %} {{ p.journal_rank.jcr.quartile }}{% endif %}{% if p.journal_rank.jcr.impact_factor is not none %} · IF {{ '%.1f'|format(p.journal_rank.jcr.impact_factor) }}{% endif %}{% endif %}{% if p.journal_rank.sjr %}{% if p.journal_rank.cas or p.journal_rank.jcr %} · {% endif %}SJR{% if p.journal_rank.sjr.best_quartile %} {{ p.journal_rank.sjr.best_quartile }}{% endif %}{% endif %}
 {%- endif %}
 
 {% if p.tldr %}**TLDR.** {{ p.tldr }}
@@ -62,4 +72,10 @@ Coverage is an LLM-estimated saturation heuristic, not a PRISMA-validated recall
 {%- if ns.has_sjr %}
 
 Journal quartiles: {{ ns.attribution }}. SJR is NOT the Clarivate JCR Impact Factor; the "期刊影响力" figure is OpenAlex 2-year mean citedness (open, for relative ranking only).
+{%- endif %}
+{%- set rk = namespace(seen=[], attribution='') %}
+{%- for p in paper_list %}{% if p.journal_rank_attribution %}{% set rk.attribution = p.journal_rank_attribution %}{% endif %}{% endfor %}
+{%- if rk.attribution %}
+
+期刊分区数据于运行时从公开镜像拉取，不随本工具分发。{{ rk.attribution }} 中科院"区"与 SJR quartile 是分区/quartile，唯有 JCR IF(2024) 是真正的影响因子 (Impact Factor)；R-04 命名铁律。
 {%- endif %}
