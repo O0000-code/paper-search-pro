@@ -18,10 +18,17 @@ from pathlib import Path
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SKILL_ROOT))
 
+import json  # noqa: E402
+import os  # noqa: E402
+import subprocess  # noqa: E402
+
 from scripts.config import load_config  # noqa: E402
 from scripts.openalex_helper import (  # noqa: E402
     JOURNAL_PRESETS,
     _PER_PAGE,
+    _AGENT_SEARCH_NUDGE,
+    _ENVELOPE_SCHEMA_VERSION,
+    _wrap_envelope,
     _strip_doi_prefix,
     _strip_oa_prefix,
     _to_entity,
@@ -135,6 +142,168 @@ def test_per_page_constraint():
     """SA-Z1 constraint: per_page must be <= 20 to avoid 25k token blowup."""
     assert _PER_PAGE <= 20, f"per_page is {_PER_PAGE} but must be <=20 (SA-Z1)"
     return f"per_page={_PER_PAGE}"
+
+
+# =============================================================================
+# v2.2 --json-envelope (R-14) — pure-Python wrapper + subprocess CLI behavior
+# =============================================================================
+
+
+def test_wrap_envelope_list_carries_count():
+    """A list payload must be wrapped with ok/schema_version/data/meta + count."""
+    env = _wrap_envelope([{"a": 1}, {"a": 2}], command="search", count=2)
+    assert env["ok"] is True
+    assert env["schema_version"] == _ENVELOPE_SCHEMA_VERSION
+    assert env["data"] == [{"a": 1}, {"a": 2}]
+    assert env["meta"] == {"command": "search", "source": "openalex", "count": 2}
+    json.dumps(env)  # must be JSON-safe
+    return "list envelope carries count + source"
+
+
+def test_wrap_envelope_dict_omits_count():
+    """A dict payload (get/author/trends) has no count key in meta."""
+    env = _wrap_envelope({"id": "W1"}, command="get")
+    assert env["data"] == {"id": "W1"}
+    assert "count" not in env["meta"]
+    assert env["meta"]["command"] == "get"
+    return "dict envelope omits count"
+
+
+def _run_oa_cli(args):
+    """Invoke the openalex_helper CLI as a subprocess; capture stdout+stderr
+    separately so we can assert the stderr nudge never leaks into stdout."""
+    skill_root = str(SKILL_ROOT)
+    return subprocess.run(
+        ["python3", "-m", "scripts.openalex_helper", *args],
+        capture_output=True,
+        text=True,
+        cwd=skill_root,
+        env={**os.environ, "PYTHONPATH": skill_root},
+        timeout=60,
+    )
+
+
+def test_cli_presets_default_is_bare_list_no_envelope():
+    """Without --json-envelope, `presets` stdout is the bare dict (no envelope
+    keys) and NO stderr nudge — proving default behavior is unchanged (R-11)."""
+    res = _run_oa_cli(["presets"])
+    assert res.returncode == 0, res.stderr
+    out = json.loads(res.stdout)
+    # Bare payload: top-level keys are preset names, not ok/schema_version/data.
+    assert "UTD24" in out and "ok" not in out and "data" not in out
+    assert _AGENT_SEARCH_NUDGE not in res.stderr
+    return "default presets path unchanged (no envelope, no nudge)"
+
+
+def test_cli_presets_json_envelope_wraps_and_nudges_stderr():
+    """With --json-envelope, stdout is the envelope; the agent-search nudge is on
+    STDERR only (never in stdout)."""
+    res = _run_oa_cli(["--json-envelope", "presets"])
+    assert res.returncode == 0, res.stderr
+    out = json.loads(res.stdout)  # stdout must be a single clean JSON doc
+    assert out["ok"] is True
+    assert out["schema_version"] == _ENVELOPE_SCHEMA_VERSION
+    assert out["data"].get("UTD24") == 24
+    assert out["meta"]["command"] == "presets"
+    # Nudge in stderr, NOT in stdout.
+    assert "agent_search" in res.stderr
+    assert "agent_search" not in res.stdout
+    return "json-envelope wraps stdout + nudges via stderr only"
+
+
+# -----------------------------------------------------------------------------
+# v2.2 open item #1 (R-14): the discoverability nudge must print on the
+# search-INITIATION subcommands (`search` / `double-sort`) even WITHOUT
+# --json-envelope, but must NOT print on mid-pipeline subcommands
+# (citation-network / get / ...). These run `_main_cli` in-process with the
+# OpenAlex backend + init stubbed, so no network is touched; stdout/stderr are
+# captured separately to prove the nudge stays on stderr and stdout is unchanged.
+# -----------------------------------------------------------------------------
+
+
+def _run_main_cli_offline(argv, stubs):
+    """Invoke openalex_helper._main_cli() in-process with stubbed network funcs.
+
+    ``argv`` is the arg list AFTER the program name. ``stubs`` maps attr name on
+    the openalex_helper module to a fake callable. Returns (stdout, stderr).
+    All stubs and sys.argv are restored on exit (no global leakage).
+    """
+    import contextlib
+    import io
+
+    import scripts.openalex_helper as oah
+
+    saved = {name: getattr(oah, name) for name in stubs}
+    saved_argv = sys.argv
+    # init_pyalex is always stubbed so load_config()/network never runs.
+    all_stubs = {"init_pyalex": (lambda cfg: None), **stubs}
+    out, err = io.StringIO(), io.StringIO()
+    try:
+        for name, fn in all_stubs.items():
+            setattr(oah, name, fn)
+        sys.argv = ["openalex_helper", *argv]
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            oah._main_cli()
+    finally:
+        for name, fn in saved.items():
+            setattr(oah, name, fn)
+        # restore init_pyalex even though it was force-stubbed
+        setattr(oah, "init_pyalex", saved.get("init_pyalex", oah.init_pyalex))
+        sys.argv = saved_argv
+    return out.getvalue(), err.getvalue()
+
+
+def test_cli_search_nudges_stderr_without_envelope():
+    """`search` (a search-initiation entry) prints the agent_search nudge on
+    stderr even without --json-envelope; stdout stays the bare JSON list."""
+    fake = UnifiedPaperEntity(title="t", doi="10.1/x", citation_count=1)
+    out, err = _run_main_cli_offline(
+        ["search", "prospect theory", "--limit", "1"],
+        {"search_works": lambda *a, **k: [fake]},
+    )
+    parsed = json.loads(out)  # bare list, NOT an envelope
+    assert isinstance(parsed, list) and "ok" not in out[:5]
+    assert _AGENT_SEARCH_NUDGE in err
+    assert "agent_search" not in out
+    return "search nudges stderr (bare stdout) without --json-envelope"
+
+
+def test_cli_double_sort_nudges_stderr_without_envelope():
+    """`double-sort` (the other search-initiation entry) also nudges on stderr."""
+    fake = UnifiedPaperEntity(title="t", doi="10.1/y", citation_count=1)
+    out, err = _run_main_cli_offline(
+        ["double-sort", "prospect theory", "--n", "1"],
+        {"double_sort_search": lambda *a, **k: [fake]},
+    )
+    json.loads(out)  # bare list
+    assert _AGENT_SEARCH_NUDGE in err
+    assert "agent_search" not in out
+    return "double-sort nudges stderr without --json-envelope"
+
+
+def test_cli_citation_network_does_not_nudge():
+    """`citation-network` is a STEP 9 mid-pipeline call; it must NOT print the
+    nudge (would spam once per seed). stdout unchanged, stderr nudge-free."""
+    out, err = _run_main_cli_offline(
+        ["citation-network", "W123"],
+        {"get_citation_network": lambda *a, **k: {"references": [], "cited_by": []}},
+    )
+    json.loads(out)
+    assert "agent_search" not in err
+    assert "agent_search" not in out
+    return "citation-network does NOT nudge (no STEP 9 spam)"
+
+
+def test_cli_get_does_not_nudge():
+    """`get` (single-paper lookup) is not a search-initiation entry → no nudge."""
+    fake = UnifiedPaperEntity(title="t", doi="10.1/z", citation_count=1)
+    out, err = _run_main_cli_offline(
+        ["get", "10.1/z"],
+        {"get_work": lambda *a, **k: fake},
+    )
+    json.loads(out)
+    assert "agent_search" not in err
+    return "get does NOT nudge"
 
 
 # =============================================================================
@@ -379,6 +548,16 @@ def main():
         ("test_strip_helpers", test_strip_helpers),
         ("test_to_entity_minimal", test_to_entity_minimal),
         ("test_per_page_constraint", test_per_page_constraint),
+        # v2.2 --json-envelope (R-14) — pure + subprocess CLI (no live network)
+        ("test_wrap_envelope_list_carries_count", test_wrap_envelope_list_carries_count),
+        ("test_wrap_envelope_dict_omits_count", test_wrap_envelope_dict_omits_count),
+        ("test_cli_presets_default_is_bare_list_no_envelope", test_cli_presets_default_is_bare_list_no_envelope),
+        ("test_cli_presets_json_envelope_wraps_and_nudges_stderr", test_cli_presets_json_envelope_wraps_and_nudges_stderr),
+        # v2.2 open item #1 (R-14) — nudge on search-initiation, not mid-pipeline
+        ("test_cli_search_nudges_stderr_without_envelope", test_cli_search_nudges_stderr_without_envelope),
+        ("test_cli_double_sort_nudges_stderr_without_envelope", test_cli_double_sort_nudges_stderr_without_envelope),
+        ("test_cli_citation_network_does_not_nudge", test_cli_citation_network_does_not_nudge),
+        ("test_cli_get_does_not_nudge", test_cli_get_does_not_nudge),
         # Network tests
         ("test_init_and_search_kt", test_init_and_search_kt),
         ("test_abstract_reconstruction_kt", test_abstract_reconstruction_kt),

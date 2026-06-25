@@ -237,6 +237,220 @@ def test_sources_list_dedup():
 
 
 # ---------------------------------------------------------------------------
+# v2.2 independent search — mostly deterministic (fake bulk session), plus the
+# record->entity mapping which is pure. No reliance on live SS for the core
+# contract, so these stay green offline / when SS is flaky.
+# ---------------------------------------------------------------------------
+
+
+class _FakeResp:
+    def __init__(self, payload, status_code=200):
+        self._payload = payload
+        self.status_code = status_code
+
+    def json(self):
+        return self._payload
+
+
+class _FakeBulkSession:
+    """Returns one preset page per (sort) strategy, keyed by the `sort` param so
+    we can give different strategies different results and exercise the
+    cross-strategy boost. No continuation token (single page each)."""
+
+    def __init__(self, pages_by_sort, status_code=200):
+        self.pages_by_sort = pages_by_sort
+        self.status_code = status_code
+        self.calls = []
+
+    def get(self, url, params=None, headers=None, timeout=None, **kw):
+        self.calls.append({"url": url, "params": dict(params or {}), "headers": dict(headers or {})})
+        sort = (params or {}).get("sort")  # None for the default-order strategy
+        payload = {"data": self.pages_by_sort.get(sort, []), "token": None}
+        return _FakeResp(payload, self.status_code)
+
+
+def _ss_record(
+    doi=None, paper_id="abc123", title="X", year=2020, cites=10, icit=2,
+    issn=None, venue_name=None, arxiv=None, pmid=None, abstract=None, pdf=None,
+):
+    ext = {}
+    if doi:
+        ext["DOI"] = doi
+    if arxiv:
+        ext["ArXiv"] = arxiv
+    if pmid:
+        ext["PubMed"] = pmid
+    pv = None
+    if issn or venue_name:
+        pv = {"name": venue_name, "issn": issn}
+    rec = {
+        "paperId": paper_id,
+        "externalIds": ext,
+        "title": title,
+        "year": year,
+        "citationCount": cites,
+        "influentialCitationCount": icit,
+        "publicationVenue": pv,
+        "authors": [{"name": "A. One"}, {"name": "B. Two"}],
+    }
+    if abstract is not None:
+        rec["abstract"] = abstract
+    if pdf is not None:
+        rec["openAccessPdf"] = {"url": pdf}
+    return rec
+
+
+def test_ss_record_to_entity_mapping():
+    """Pure: a fully-populated bulk record maps to a UnifiedPaperEntity with the
+    OpenAlex-compatible field shape, including issn from publicationVenue (R-08)."""
+    rec = _ss_record(
+        doi="10.1234/Foo", paper_id="HEX", title="Mapped Paper", year=2019,
+        cites=123, icit=7, issn="1234-5678", venue_name="Journal of Things",
+        abstract="An abstract.", pdf="https://x/y.pdf",
+    )
+    e = ss_helper._ss_record_to_entity(rec)
+    assert e.doi == "10.1234/foo"  # normalised lowercase, no prefix
+    assert e.ss_paper_id == "HEX"
+    assert e.title == "Mapped Paper"
+    assert e.year == 2019
+    assert e.citation_count == 123
+    assert e.influential_citation_count == 7
+    assert e.issn == "1234-5678"
+    assert e.venue == "Journal of Things"
+    assert e.abstract == "An abstract."
+    assert e.is_oa is True and e.pdf_url == "https://x/y.pdf"
+    assert e.doi_url == "https://doi.org/10.1234/foo"
+    assert [a.name for a in e.authors] == ["A. One", "B. Two"]
+    assert e.sources == ["semantic_scholar"]
+    print("OK  ss_record_to_entity_mapping (issn + OA-compatible shape)")
+
+
+def test_ss_record_to_entity_missing_venue_issn_is_none():
+    """~1/3 of SS records have no publicationVenue -> issn must be None, not crash
+    (R-08). Falls back to flat `venue` string when present."""
+    rec = _ss_record(doi="10.1/x", issn=None, venue_name=None)
+    rec["venue"] = "Flat Venue Name"  # the bulk endpoint's flat field
+    e = ss_helper._ss_record_to_entity(rec)
+    assert e.issn is None
+    assert e.venue == "Flat Venue Name"
+    print("OK  ss_record_to_entity_missing_venue_issn_is_none")
+
+
+def test_ss_record_to_entity_arxiv_and_pmid():
+    rec = _ss_record(doi=None, arxiv="1706.03762v5", pmid="123456")
+    e = ss_helper._ss_record_to_entity(rec)
+    assert e.arxiv_id == "1706.03762"  # version suffix stripped
+    assert e.pmid == "123456"
+    print("OK  ss_record_to_entity_arxiv_and_pmid")
+
+
+def test_search_double_sort_merge_and_boost():
+    """A paper appearing in >=2 strategies must rank above a single-strategy
+    paper with HIGHER citations (appearance count is the primary sort key,
+    mirroring openalex double_sort_search)."""
+    shared = _ss_record(doi="10.1/shared", paper_id="SH", title="Shared", cites=50)
+    only_cited = _ss_record(doi="10.1/cited", paper_id="CT", title="HighCite", cites=9999)
+    only_recent = _ss_record(doi="10.1/recent", paper_id="RC", title="Recent", cites=5)
+    pages = {
+        "citationCount:desc": [only_cited, shared],
+        "publicationDate:desc": [only_recent, shared],
+        None: [shared],
+    }
+    sess = _FakeBulkSession(pages)
+    results = ss_helper.search("q", total_per_strategy=10, session=sess)
+    ids = [p.paper_id for p in results]
+    # Shared appears in all 3 strategies -> must be first despite lower cites.
+    assert ids[0] == "10.1/shared", ids
+    # All three unique papers present.
+    assert set(ids) == {"10.1/shared", "10.1/cited", "10.1/recent"}
+    # Among single-appearance papers, higher citation_count ranks first.
+    assert ids.index("10.1/cited") < ids.index("10.1/recent")
+    print("OK  search_double_sort_merge_and_boost")
+
+
+def test_search_passes_year_filter_param():
+    """year_min/year_max must be sent to SS as a single `year=lo-hi` param."""
+    rec = _ss_record(doi="10.1/y", paper_id="Y")
+    sess = _FakeBulkSession({"citationCount:desc": [rec], "publicationDate:desc": [], None: []})
+    ss_helper.search("q", year_min=2015, year_max=2020, total_per_strategy=5, session=sess)
+    # Every call should carry the year range.
+    assert sess.calls, "no HTTP calls made"
+    assert all(c["params"].get("year") == "2015-2020" for c in sess.calls), [
+        c["params"].get("year") for c in sess.calls
+    ]
+    print("OK  search_passes_year_filter_param")
+
+
+def test_search_no_key_returns_empty_on_429():
+    """No key -> SS 429s on the shared pool (R-06). search() must degrade to []
+    rather than raise."""
+    sess = _FakeBulkSession({}, status_code=429)
+    results = ss_helper.search("q", total_per_strategy=5, session=sess)
+    assert results == []
+    print("OK  search_no_key_returns_empty_on_429")
+
+
+def test_search_network_error_degrades_to_empty():
+    """A raising session must not crash search()."""
+
+    class _Boom:
+        def get(self, *a, **kw):
+            raise RuntimeError("network down")
+
+    results = ss_helper.search("q", total_per_strategy=5, session=_Boom())
+    assert results == []
+    print("OK  search_network_error_degrades_to_empty")
+
+
+def test_search_entity_to_dict_is_full_and_json_safe():
+    """The search serialiser must emit the broad OpenAlex-compatible field set
+    (incl. issn + authors flattened) so federated_kg_resolver can ingest it."""
+    import json
+
+    e = ss_helper._ss_record_to_entity(
+        _ss_record(doi="10.1/z", issn="9999-0000", venue_name="V")
+    )
+    d = ss_helper._search_entity_to_dict(e)
+    json.dumps(d)  # must not raise
+    assert d["issn"] == "9999-0000"
+    assert d["sources"] == ["semantic_scholar"]
+    assert isinstance(d["authors"], list) and d["authors"][0]["name"] == "A. One"
+    # Broad field set present (not the narrow enrich serialiser).
+    assert "venue" in d and "is_oa" in d and "keywords" in d
+    print("OK  search_entity_to_dict_is_full_and_json_safe")
+
+
+def test_search_live_smoke():
+    """Optional live smoke: real SS bulk search for a high-signal query.
+
+    Tolerant: if SS is unreachable / rate-limited / no key (-> []), we skip the
+    content assertions so the suite stays green offline. When results DO come
+    back, K&T 1979 (the canonical top-cited prospect-theory paper) should be
+    present with a large citation count."""
+    ss_helper.init(load_config())
+    try:
+        results = ss_helper.search("prospect theory", total_per_strategy=10)
+    except Exception as exc:  # never let a live flake fail the gate
+        print(f"SKIP search_live_smoke (live error: {type(exc).__name__})")
+        return
+    if not results:
+        print("SKIP search_live_smoke (no results — likely no SS key / rate-limited)")
+        return
+    # Shape checks on whatever came back.
+    top = results[0]
+    assert top.title, "top result has no title"
+    assert top.citation_count >= 0
+    assert "semantic_scholar" in top.sources
+    # The corpus should contain the canonical K&T 1979 with huge citations.
+    big = [p for p in results if (p.citation_count or 0) > 10000]
+    assert big, f"expected >=1 highly-cited paper; got max cites {max((p.citation_count or 0) for p in results)}"
+    print(
+        f"OK  search_live_smoke — {len(results)} papers, top='{top.title[:40]}' "
+        f"cites={top.citation_count}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -255,6 +469,16 @@ def main() -> int:
         test_cross_validate_citation_detects_conflict,
         test_empty_inputs_are_safe,
         test_sources_list_dedup,
+        # v2.2 search
+        test_ss_record_to_entity_mapping,
+        test_ss_record_to_entity_missing_venue_issn_is_none,
+        test_ss_record_to_entity_arxiv_and_pmid,
+        test_search_double_sort_merge_and_boost,
+        test_search_passes_year_filter_param,
+        test_search_no_key_returns_empty_on_429,
+        test_search_network_error_degrades_to_empty,
+        test_search_entity_to_dict_is_full_and_json_safe,
+        test_search_live_smoke,
     ]
     failed = []
     t_start = time.time()

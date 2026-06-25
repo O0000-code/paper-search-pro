@@ -15,6 +15,57 @@
 
 After deciding, **say one sentence to the user**: *"I detected [medical signal: 'RCT' + 'metformin'] — also searching PubMed. Override with `--no-pubmed` if you want OpenAlex only."*
 
+## Primary source selection & quota fallback
+
+*(v2.2, additive. **Default behaviour is unchanged: OpenAlex is the primary source and STEP 3 runs exactly as written above.** This section only applies when the user has set `primary_source` in `~/.paper-search-pro/config.yaml`, or has asked for quota-driven fallback. It governs the **human 14-STEP path**; the headless `agent_search` path consumes the same config automatically — see `references/agent_mode.md`.)*
+
+`config.primary_source` (in `~/.paper-search-pro/config.yaml`) selects which source serves the **primary retrieval** in STEP 3:
+
+| Value | Behaviour |
+|---|---|
+| `openalex` *(default)* | STEP 3 runs OpenAlex exactly as written. Nothing below changes. |
+| `semantic_scholar` | STEP 3 retrieves from Semantic Scholar instead. **Requires `semantic_scholar_api_key`** (SS 429s instantly on the shared pool without a key — R-06). |
+| `auto` | STEP 3 normally uses OpenAlex, but if the OpenAlex daily USD budget is low, this run stickily falls back to SS (needs the SS key + `quota_fallback: true`). |
+
+### When to run the pre-STEP-3 quota check
+
+Run a quota check **before STEP 3** only when `primary_source: auto` **or** the user explicitly asks for quota-aware fallback. (For plain `primary_source: openalex` or `semantic_scholar`, skip it.)
+
+```bash
+PYTHONPATH=$PSP_HOME \
+  python3 -m scripts.quota_guard --mode run
+```
+
+`--mode run` reads OpenAlex's `X-RateLimit-Remaining-USD` header and emits a sticky verdict: `should_switch: true` when remaining USD is at/below `quota_fallback_threshold_usd` (default `0.05`). **A failed probe (`ok: false`) means "stay on OpenAlex" — absence of evidence is not exhaustion; never switch on a failed probe.**
+
+### If switching to Semantic Scholar for this run
+
+When `primary_source: semantic_scholar`, or `auto` resolved to a switch, run STEP 3 against SS instead of OpenAlex:
+
+```bash
+PYTHONPATH=$PSP_HOME \
+  python3 -m scripts.ss_helper --search "<query>" \
+    --year-min 2018 --n 50 \
+    > "$SEARCH_DIR/raw/openalex.json"
+```
+
+`ss_helper --search` emits the same `UnifiedPaperEntity[]` shape as `openalex_helper`, so STEP 4-13 are unchanged (write it to the same `raw/*.json` you would have written OpenAlex to and federate as usual).
+
+### Backfill OpenAlex-only fields after switching to SS (do NOT lose capability)
+
+SS records lack several fields OpenAlex provides (`institution` / `funder` / `topics` / `fwci` / journal ISSN for the SJR join / `openalex_2yr_mean_citedness`). After an SS-primary run, recover them with **free single-paper OpenAlex lookups** — one cheap `get` per paper that has a DOI:
+
+```bash
+PYTHONPATH=$PSP_HOME \
+  python3 -m scripts.openalex_helper get "<doi>"   # free single-work lookup, repeat per DOI
+```
+
+This keeps the switch capability-neutral: SS provides the primary result set, OpenAlex single-lookups refill the OA-only fields (institution / funder / topics / fwci / ISSN→SJR join / open impact). Papers with no DOI stay un-backfilled — that gap is expected and visible, not silently joined. (R-08: the missing-ISSN backfill is exactly what `agent_search` automates on its own path; on the human path you do the same `get`-per-DOI recovery.)
+
+### Naming / compliance reminder
+
+The OpenAlex open impact figure (`openalex_2yr_mean_citedness`) is **NOT** the JCR Impact Factor and SJR quartiles are **NOT** JCR/中科院 (R-04/R-09). See `references/journal_metrics.md`.
+
 ## PubMed enable rules
 
 ### Strong signals (always enable PubMed if any present)

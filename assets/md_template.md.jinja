@@ -31,6 +31,9 @@
 
 > **Authors:** {{ p.authors_short or 'unknown' }}{% if p.year %} · **Year:** {{ p.year }}{% endif %}{% if p.venue %} · **Venue:** {{ p.venue }}{% endif %}{% if p.citation_count %} · **Citations:** {{ p.citation_count }}{% endif %}
 > {% if p.rcs is not none %}**RCS:** {{ p.rcs }}{% if p.rcs >= 7 %} (highly relevant){% elif p.rcs >= 5 %} (closely related){% endif %}{% endif %}{% if p.doi %} · **DOI:** [{{ p.doi }}]({{ p.doi_url }}){% endif %}{% if p.discovery_path %} · _via {{ p.discovery_path }}_{% endif %}
+{%- if p.journal_metric %}
+> {% if p.journal_metric.sjr_quartile %}**SJR 分区:** {{ p.journal_metric.sjr_quartile }}{% endif %}{% if p.journal_metric.openalex_2yr_mean_citedness is not none %}{% if p.journal_metric.sjr_quartile %} · {% endif %}**期刊影响力 (OpenAlex 2yr mean citedness):** {{ '%.2f'|format(p.journal_metric.openalex_2yr_mean_citedness) }}{% endif %}{% if p.journal_metric.h_index is not none %} · **H-index:** {{ p.journal_metric.h_index }}{% endif %}
+{%- endif %}
 
 {% if p.tldr %}**TLDR.** {{ p.tldr }}
 {% endif %}
@@ -54,3 +57,9 @@
 Search executed by paper-search-pro using OpenAlex (primary) and Semantic Scholar (supplement). See `execution_log.json` for the PRISMA-S 16-item checklist and full discovery curve snapshots.
 
 Coverage is an LLM-estimated saturation heuristic, not a PRISMA-validated recall figure. Treat the result set as a candidate corpus for downstream screening.
+{%- set ns = namespace(has_sjr=false, attribution='') %}
+{%- for p in paper_list %}{% if p.journal_metric and p.journal_metric.sjr_attribution %}{% set ns.has_sjr = true %}{% set ns.attribution = p.journal_metric.sjr_attribution %}{% endif %}{% endfor %}
+{%- if ns.has_sjr %}
+
+Journal quartiles: {{ ns.attribution }}. SJR is NOT the Clarivate JCR Impact Factor; the "期刊影响力" figure is OpenAlex 2-year mean citedness (open, for relative ranking only).
+{%- endif %}

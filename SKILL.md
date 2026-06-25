@@ -31,6 +31,31 @@ Multi-source literature search with adjustable depth. Four tiers, five data sour
 
 ---
 
+## 🤖 Called by another agent / headless mode
+
+**If you are an agent driving this Skill for your own reasoning (not for a human
+who wants an HTML report)**, do NOT hand-run the 14-STEP recipe below. There is a
+single structured-data channel built for you:
+
+```bash
+PYTHONPATH=$PSP_HOME python3 -m scripts.agent_search "<query>" > result.json
+```
+
+One command runs the whole deterministic core — multi-strategy retrieve → dedup →
+heuristic relevance score (computed for every paper) → saturation signal → quota
+snapshot → per-paper journal metric — and prints **one JSON envelope** (no HTML,
+no PRISMA, no LLM classification SubAgent). The human path below is unaffected.
+
+📖 **Read `references/agent_mode.md`** for the full envelope schema, every flag
+(`--verify`, `--min-relevance`, `--quartile`, `--min-impact`, …), the relevance
+formula, error codes / exit codes, and source selection. This is the SSOT for
+agent callers — everything else in this section is just the pointer to it.
+
+Everything from here down is the **human-facing 14-STEP recipe** (HTML report +
+exports). Use it when the consumer is a person.
+
+---
+
 ## 🔥 Execution discipline (read this BEFORE running anything)
 
 These four rules govern every step below. Violating them is the dominant failure mode observed in real sessions — re-read them whenever you feel rushed.
@@ -225,7 +250,7 @@ Tell the user what you decided ("I detected medical + CS signals — also search
 
 📖 BEFORE THIS STEP, read: `references/openalex_helper_cheatsheet.md`.
 
-Always run OpenAlex first. For Standard+ tiers, use multi-strategy deep crawl:
+Always run OpenAlex first. (OpenAlex is the default primary source; only if `primary_source` is set in `config.yaml` or the OpenAlex quota is exhausted, see *Primary source selection & quota fallback* in `references/source_routing.md` for the additive SS-fallback flow — default behavior is unchanged.) For Standard+ tiers, use multi-strategy deep crawl:
 
 ```bash
 PYTHONPATH=$PSP_HOME \
@@ -420,6 +445,16 @@ PYTHONPATH=$PSP_HOME \
 
 This adds ~135-170s for 100 papers — only do it on top-N, not the full set.
 
+**Optional (additive) — journal metrics.** If the user cares about journal tier,
+you can attach a per-paper **SJR quartile** (Q1–Q4) + **OpenAlex open impact**
+(2yr mean citedness, h-index). This is opt-in and **off by default — the report is
+byte-for-byte unchanged when you skip it.** It needs a one-time SJR CSV in the
+user's local cache (`~/.paper-search-pro/sjr/`). 📖 Read `references/journal_metrics.md`
+first — it covers acquisition, the mandatory CC BY-NC attribution, the ISSN join,
+and the **R-04 naming rule** (these are "SJR分区 / 期刊影响力", **never** "影响因子 /
+JCR / 中科院分区"; those are external-link-only). When metrics are present they
+render as an extra line per paper in the MD report; when absent, nothing changes.
+
 ### STEP 11 — Write the executive summary
 
 📖 BEFORE THIS STEP, read: `references/summary_writer.md`.
@@ -429,6 +464,7 @@ Write a ~300-word executive summary in your own words based on the classified pa
 - Key methods / theoretical frameworks
 - Notable disagreements or open questions
 - Top 3-5 most influential papers (by `influential_citation_count` when available)
+- *(Optional)* journal tier of the leading papers, **if** you attached SJR metrics in STEP 10 — phrase as "SJR分区 / 期刊影响力", never "影响因子 / JCR" (R-04). Skip this bullet entirely when no metrics were attached.
 
 Save to `"$SEARCH_DIR/summary.md"`.
 
@@ -583,6 +619,8 @@ $(pwd)/paper-search-results/<search_id>/
 | `output_files.md` | STEP 12 — output directory layout (PWD-relative) |
 | `prisma_s_checklist.md` | STEP 13 |
 | `error_handling.md` | Anytime an unexpected error surfaces |
+| `agent_mode.md` | When called by another agent / headless — `agent_search` envelope + flags (SSOT) |
+| `journal_metrics.md` | STEP 10/11 optional journal metrics — SJR quartile + open impact + R-04 naming (SSOT) |
 
 ---
 

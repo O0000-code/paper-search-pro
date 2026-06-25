@@ -402,8 +402,42 @@ def _authors_short(p: UnifiedPaperEntity) -> str:
     return f"{names[0]} et al."
 
 
-def _render_paper(p: UnifiedPaperEntity) -> Dict[str, Any]:
+def _journal_metric_render(p: UnifiedPaperEntity) -> Optional[Dict[str, Any]]:
+    """Additively serialise a paper's journal_metric for display (v2.2 Feature A).
+
+    Returns None when the paper has no journal_metric OR the metric carries no
+    real data — so the rendered output is byte-identical to the pre-3d behavior
+    for every paper that lacks journal data (R-19). Never raises."""
+    metric = getattr(p, "journal_metric", None)
+    if metric is None:
+        return None
+    try:
+        from .sjr_helper import metric_is_empty  # lazy: keeps imports lean
+
+        if metric_is_empty(metric):
+            return None
+    except Exception:
+        # If sjr_helper is unavailable for any reason, fall back to a direct
+        # emptiness check so display still degrades gracefully.
+        if (
+            not getattr(metric, "sjr_quartile", None)
+            and not getattr(metric, "sjr_category_quartiles", None)
+            and getattr(metric, "openalex_2yr_mean_citedness", None) is None
+            and getattr(metric, "h_index", None) is None
+        ):
+            return None
     return {
+        "sjr_quartile": metric.sjr_quartile,
+        "sjr_category_quartiles": dict(metric.sjr_category_quartiles or {}),
+        "openalex_2yr_mean_citedness": metric.openalex_2yr_mean_citedness,
+        "h_index": metric.h_index,
+        "cwts_snip": metric.cwts_snip,
+        "sjr_attribution": metric.sjr_attribution,
+    }
+
+
+def _render_paper(p: UnifiedPaperEntity) -> Dict[str, Any]:
+    rendered: Dict[str, Any] = {
         "paper_id": p.paper_id,
         "title": p.title or "(untitled)",
         "authors_short": _authors_short(p),
@@ -423,6 +457,12 @@ def _render_paper(p: UnifiedPaperEntity) -> Dict[str, Any]:
         "sources": p.sources,
         "is_oa": p.is_oa,
     }
+    # Additive (R-19): only emit the key when real journal data exists, so a run
+    # without journal enrichment produces a paper_list byte-identical to before.
+    jm = _journal_metric_render(p)
+    if jm is not None:
+        rendered["journal_metric"] = jm
+    return rendered
 
 
 def _sorted_for_display(papers: List[UnifiedPaperEntity]) -> List[UnifiedPaperEntity]:
@@ -474,6 +514,27 @@ def _build_metadata(
 
 # ---------- CLI ----------
 
+def _journal_metric_from_json(d: Dict):
+    """Reconstruct a JournalMetric from a kg.json paper dict (additive).
+
+    Returns None when absent (the common case), so a kg.json written before
+    Feature A decodes identically. Never raises."""
+    raw = d.get("journal_metric")
+    if not isinstance(raw, dict):
+        return None
+    from .types import JournalMetric
+
+    return JournalMetric(
+        sjr_quartile=raw.get("sjr_quartile"),
+        sjr_category_quartiles=dict(raw.get("sjr_category_quartiles") or {}),
+        openalex_2yr_mean_citedness=raw.get("openalex_2yr_mean_citedness"),
+        h_index=raw.get("h_index"),
+        cwts_snip=raw.get("cwts_snip"),
+        sjr_attribution=raw.get("sjr_attribution"),
+        issn_backfill_needed=bool(raw.get("issn_backfill_needed", False)),
+    )
+
+
 def _kg_from_json(payload) -> Dict[str, UnifiedPaperEntity]:
     """Decode kg.json into Dict[str, UnifiedPaperEntity]."""
     from .types import Author
@@ -501,6 +562,7 @@ def _kg_from_json(payload) -> Dict[str, UnifiedPaperEntity]:
             authors=authors,
             year=d.get("year"),
             venue=d.get("venue"),
+            issn=d.get("issn"),
             type=d.get("type"),
             citation_count=int(d.get("citation_count") or 0),
             fwci=d.get("fwci"),
@@ -509,6 +571,7 @@ def _kg_from_json(payload) -> Dict[str, UnifiedPaperEntity]:
             influential_citation_count=d.get("influential_citation_count"),
             tldr=d.get("tldr"),
             doi_url=d.get("doi_url"),
+            journal_metric=_journal_metric_from_json(d),
             rcs=d.get("rcs"),
             rcs_reasoning=d.get("rcs_reasoning"),
             rcs_flag=d.get("rcs_flag"),

@@ -40,6 +40,40 @@ class Author:
 
 
 @dataclass
+class JournalMetric:
+    """Journal influence / quartile for one paper's venue (v2.2 Feature A).
+
+    Additive, opt-in: ``UnifiedPaperEntity.journal_metric`` defaults to None so
+    existing serialization / behavior is unchanged. Populated only when the SJR
+    lookup and/or OpenAlex source stats are available.
+
+    Naming is deliberate (R-04 / R-09): this is **SJR分区 / 期刊影响力**, never a
+    JCR Impact Factor.
+    - sjr_quartile               : "Q1".."Q4" or None — SCImago Best Quartile
+      (or the chosen category's quartile). CC BY-NC; attribution required.
+    - sjr_category_quartiles     : {category: "Qn"} — per-category SJR quartiles.
+    - openalex_2yr_mean_citedness: OpenAlex source summary_stats — an OPEN
+      journal-impact figure. R-09: this is NOT the official JIF (e.g. JPSP reads
+      ~2.7 here vs ~7-8 official); use for relative ranking/filtering only.
+    - h_index                    : OpenAlex source h-index (CC0).
+    - cwts_snip                  : optional cross-field-normalised SNIP (reserved).
+    - sjr_attribution            : the mandatory SJR citation string (R-03) when
+      any SJR field is present; None when no SJR data was joined.
+    - issn_backfill_needed       : True when the paper has no ISSN to join on
+      (SS-primary records frequently lack publicationVenue.issn — R-08). Marks the
+      gap so an OpenAlex DOI-lookup backfill can be wired in as an integration
+      point.
+    """
+    sjr_quartile: Optional[str] = None
+    sjr_category_quartiles: Dict[str, str] = field(default_factory=dict)
+    openalex_2yr_mean_citedness: Optional[float] = None
+    h_index: Optional[int] = None
+    cwts_snip: Optional[float] = None
+    sjr_attribution: Optional[str] = None
+    issn_backfill_needed: bool = False
+
+
+@dataclass
 class UnifiedPaperEntity:
     """Cross-source unified paper representation. DOI is Primary Key.
 
@@ -67,6 +101,7 @@ class UnifiedPaperEntity:
     authors: List[Author] = field(default_factory=list)
     year: Optional[int] = None
     venue: Optional[str] = None
+    issn: Optional[str] = None             # journal ISSN (e.g. SS publicationVenue.issn / OA source.issn) — used downstream for SJR join
     type: Optional[str] = None             # article / preprint / review / book / dataset
 
     # Citations
@@ -103,6 +138,11 @@ class UnifiedPaperEntity:
     openalex_url: Optional[str] = None
     pdf_url: Optional[str] = None
     pmc_url: Optional[str] = None
+
+    # Journal influence / quartile (v2.2 Feature A, additive — default None so
+    # existing serialization is byte-compatible). Populated by sjr_helper +
+    # OpenAlex source stats when available; None means "not looked up".
+    journal_metric: Optional["JournalMetric"] = None
 
     # Skill-internal (set by main Claude Code agent or scripts)
     rcs: Optional[int] = None                # 0-10, set during classification
@@ -156,6 +196,18 @@ class Config:
     output_dir: str = "./paper-search-results"
     default_tier: Tier = "standard"
     language: str = "en"
+
+    # ---- Source routing (v2.2, additive — defaults preserve v2.0/2.1 behavior) ----
+    # Which source the search entry-point treats as primary. "openalex" = current
+    # behavior unchanged. "semantic_scholar" = use SS bulk search as primary.
+    # "auto" = start on OpenAlex but let quota_guard (run mode) stickily fall
+    # back to SS for the rest of a run when OpenAlex USD budget runs low.
+    primary_source: str = "openalex"          # openalex | semantic_scholar | auto
+    # When primary_source == "auto", whether the quota-driven fallback is allowed.
+    quota_fallback: bool = True
+    # USD budget remaining (per OpenAlex X-RateLimit-Remaining-USD) at or below
+    # which "auto" mode switches to SS for the remainder of the run.
+    quota_fallback_threshold_usd: float = 0.05
 
     # ---- HTML rendering ----
     # (No size cap or alternative renderer as of 2026-05-23. The Skill

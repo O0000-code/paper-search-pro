@@ -274,6 +274,15 @@ def _to_entity(w: dict) -> UnifiedPaperEntity:
     source = primary_loc.get("source") or {}
     venue = source.get("display_name")
 
+    # ISSN (v2.2 Feature A, additive — used downstream for the SJR quartile join).
+    # OpenAlex source carries issn_l (linking ISSN, most stable) + issn[] (all).
+    # Prefer issn_l; fall back to the first of issn[]. None for sources w/o ISSN.
+    issn = source.get("issn_l")
+    if not issn:
+        issn_list = source.get("issn") or []
+        if isinstance(issn_list, list) and issn_list:
+            issn = issn_list[0]
+
     # Citations percentile (nested dict, take max)
     cbpy = w.get("cited_by_percentile_year") or {}
     cbpy_max = cbpy.get("max") if isinstance(cbpy, dict) else None
@@ -311,6 +320,7 @@ def _to_entity(w: dict) -> UnifiedPaperEntity:
         authors=authors,
         year=w.get("publication_year"),
         venue=venue,
+        issn=issn,
         type=w.get("type"),
         citation_count=w.get("cited_by_count", 0) or 0,
         referenced_works_count=w.get("referenced_works_count"),
@@ -529,6 +539,37 @@ def _resolve_source_ids(journal_names: List[str], max_per_name: int = 1) -> List
     return ids
 
 
+def get_source_impact(issn: str) -> Optional[Dict[str, Optional[float]]]:
+    """Look up a journal's OPEN impact figures from its OpenAlex source (v2.2).
+
+    Returns ``{"two_year_mean_citedness": float|None, "h_index": int|None,
+    "i10_index": int|None, "openalex_source_id": str|None}`` for the journal with
+    the given ISSN, or None when no source is found / lookup fails.
+
+    Data is OpenAlex ``summary_stats`` (CC0, zero-dependency). R-09: the
+    ``two_year_mean_citedness`` is an OPEN journal-impact figure, NOT the official
+    Clarivate JIF — callers must label it as such and use it for relative
+    ranking/filtering only. Never raises (a flaky lookup just degrades to None)."""
+    if not issn:
+        return None
+    try:
+        # OpenAlex Sources can be filtered by issn (accepts hyphenated form).
+        results = Sources().filter(issn=issn).get(per_page=1)
+    except Exception:
+        return None
+    if not results:
+        return None
+    src = results[0]
+    src = dict(src) if hasattr(src, "items") else src
+    stats = src.get("summary_stats") or {}
+    return {
+        "two_year_mean_citedness": stats.get("2yr_mean_citedness"),
+        "h_index": stats.get("h_index"),
+        "i10_index": stats.get("i10_index"),
+        "openalex_source_id": _strip_oa_prefix(src.get("id")),
+    }
+
+
 def search_in_journal_list(
     query: str, preset_name: str = "UTD24", limit: int = 25
 ) -> List[UnifiedPaperEntity]:
@@ -711,6 +752,64 @@ def _entity_list_to_json(entities: List[UnifiedPaperEntity]) -> List[dict]:
     return [_to_dict(e) for e in entities]
 
 
+# =============================================================================
+# v2.2 additive: --json-envelope + stderr discoverability nudge (R-14)
+# =============================================================================
+# R-14: forensics showed agents drive THIS helper directly (even when told to
+# load the Skill), so the agent path must be discoverable from here, not only
+# from the new agent_search entry point. Two purely-additive hooks:
+#
+#   1. --json-envelope wraps the SAME command output in the ai-native-cli-spec
+#      envelope (ok/schema_version/data/meta) so an agent gets a structured,
+#      self-describing payload. Without the flag, stdout is byte-for-byte
+#      unchanged (R-11/R-19).
+#   2. a one-line stderr nudge pointing at `python3 -m scripts.agent_search`
+#      (the full agent pipeline). stderr ONLY — stdout is never touched, so it
+#      cannot alter any existing output or break a stdout-capturing test.
+#
+# The envelope here is deliberately THIN: it wraps whatever the chosen subcommand
+# already produces (a list, or get/author/trends/etc.). It does NOT add the
+# dedup/relevance/saturation discipline — that is agent_search's job. The nudge
+# tells the agent where to get the full pipeline.
+
+_ENVELOPE_SCHEMA_VERSION = "1.0"
+
+_AGENT_SEARCH_NUDGE = (
+    "[paper-search-pro] tip: for the full agent pipeline (multi-strategy retrieve "
+    "+ dedup + heuristic relevance score + saturation + quota), run "
+    "`python3 -m scripts.agent_search \"<query>\"` (one JSON envelope, no HTML)."
+)
+
+# Subcommands that are SEARCH-INITIATION entry points — the moment an agent
+# starts a topic search is exactly when it should learn about the full
+# agent_search pipeline (R-14: agents drive this helper directly even when told
+# to load the Skill, and the bare `search` / `double-sort` calls are where they
+# begin). The nudge prints once on stderr for these, regardless of
+# --json-envelope. It is deliberately NOT printed for citation-network / get /
+# author / trends / seminal / reviews / journal-list / deep / presets — those
+# are mid-pipeline or lookup calls (e.g. STEP 9 citation-network would spam the
+# nudge on every seed). stderr ONLY — stdout is never touched (R-11/R-19).
+_NUDGE_ON_SUBCOMMANDS = {"search", "double-sort"}
+
+
+def _wrap_envelope(data, *, command: str, count: Optional[int] = None) -> dict:
+    """Wrap any command result in the ai-native-cli-spec success envelope.
+
+    ``data`` is passed through as-is (a list for search-like commands, a dict for
+    get/author/trends). ``meta`` carries the command name and a count when the
+    result is a list, so an agent can tell how much it got without re-counting.
+    """
+    meta = {"command": command, "source": "openalex"}
+    if count is not None:
+        meta["count"] = count
+    return {
+        "ok": True,
+        "schema_version": _ENVELOPE_SCHEMA_VERSION,
+        "data": data,
+        "meta": meta,
+    }
+
+
 def _main_cli() -> None:
     import argparse
     import json
@@ -725,6 +824,14 @@ def _main_cli() -> None:
     parser = argparse.ArgumentParser(
         prog="openalex_helper",
         description="OpenAlex SDK helper CLI (paper-search-pro Skill).",
+    )
+    # v2.2 additive (R-14): wrap output in the ai-native-cli-spec envelope for
+    # agent callers. Default OFF -> stdout byte-for-byte unchanged (R-11/R-19).
+    parser.add_argument(
+        "--json-envelope",
+        action="store_true",
+        help="Wrap output in {ok, schema_version, data, meta} for agent callers. "
+        "Without this flag the raw output is byte-for-byte unchanged.",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -797,6 +904,12 @@ def _main_cli() -> None:
     args = parser.parse_args()
     init_pyalex(load_config())
 
+    # Compute the command result as `payload` (+ `count` for list-like results).
+    # We serialise ONCE at the end so the --json-envelope branch is the only
+    # difference; the default (no-flag) path is byte-for-byte identical to before.
+    payload = None
+    count: Optional[int] = None
+
     if args.cmd == "search":
         results = search_works(
             args.query,
@@ -805,51 +918,66 @@ def _main_cli() -> None:
             limit=args.limit,
             work_type=args.work_type,
         )
-        json.dump(_entity_list_to_json(results), sys.stdout, default=str, indent=2)
+        payload = _entity_list_to_json(results)
+        count = len(results)
     elif args.cmd == "get":
-        result = get_work(args.id)
-        json.dump(_to_dict(result), sys.stdout, default=str, indent=2)
+        payload = _to_dict(get_work(args.id))
     elif args.cmd == "deep":
         results = search_top_n_pages(
             args.query, total_papers=args.n, sort=args.sort, year_min=args.year_min
         )
-        json.dump(_entity_list_to_json(results), sys.stdout, default=str, indent=2)
+        payload = _entity_list_to_json(results)
+        count = len(results)
     elif args.cmd == "double-sort":
         results = double_sort_search(
             args.query, year_min=args.year_min, total_per_strategy=args.total_per_strategy
         )
-        json.dump(_entity_list_to_json(results), sys.stdout, default=str, indent=2)
+        payload = _entity_list_to_json(results)
+        count = len(results)
     elif args.cmd == "seminal":
         results = find_seminal_papers(args.topic, year_max=args.year_max, limit=args.limit)
-        json.dump(_entity_list_to_json(results), sys.stdout, default=str, indent=2)
+        payload = _entity_list_to_json(results)
+        count = len(results)
     elif args.cmd == "reviews":
         results = find_review_articles(args.topic, limit=args.limit, year_min=args.year_min)
-        json.dump(_entity_list_to_json(results), sys.stdout, default=str, indent=2)
+        payload = _entity_list_to_json(results)
+        count = len(results)
     elif args.cmd == "journal-list":
         results = search_in_journal_list(args.query, preset_name=args.preset, limit=args.limit)
-        json.dump(_entity_list_to_json(results), sys.stdout, default=str, indent=2)
+        payload = _entity_list_to_json(results)
+        count = len(results)
     elif args.cmd == "citation-network":
         result = get_citation_network(
             args.openalex_id, refs_limit=args.refs_limit, cited_by_limit=args.cited_by_limit
         )
-        out = {
+        payload = {
             "references": _entity_list_to_json(result["references"]),
             "cited_by": _entity_list_to_json(result["cited_by"]),
         }
-        json.dump(out, sys.stdout, default=str, indent=2)
     elif args.cmd == "author":
-        result = get_author_profile(args.author)
-        json.dump(result, sys.stdout, default=str, indent=2)
+        payload = get_author_profile(args.author)
     elif args.cmd == "trends":
-        result = analyze_topic_trends(args.topic, year_range=(args.year_min, args.year_max))
-        json.dump(result, sys.stdout, default=str, indent=2)
+        payload = analyze_topic_trends(args.topic, year_range=(args.year_min, args.year_max))
     elif args.cmd == "presets":
-        json.dump(
-            {name: len(journals) for name, journals in JOURNAL_PRESETS.items()},
-            sys.stdout,
-            indent=2,
-        )
+        payload = {name: len(journals) for name, journals in JOURNAL_PRESETS.items()}
+
+    if getattr(args, "json_envelope", False):
+        # Agent path: wrap in the structured envelope. stdout stays a single JSON doc.
+        envelope = _wrap_envelope(payload, command=args.cmd, count=count)
+        json.dump(envelope, sys.stdout, default=str, indent=2)
+    else:
+        # Default path: byte-for-byte identical to pre-v2.2 output.
+        json.dump(payload, sys.stdout, default=str, indent=2)
     sys.stdout.write("\n")
+
+    # Discoverability nudge (R-14): print ONCE on stderr when the invocation is a
+    # search-initiation subcommand (`search` / `double-sort`) OR when the agent
+    # opted into the structured envelope. stderr ONLY — stdout above is already
+    # flushed unchanged, so this can never alter output or break a stdout test.
+    # Not printed for mid-pipeline subcommands (citation-network, get, ...) so
+    # human STEP 9 citation expansion does not get spammed.
+    if getattr(args, "json_envelope", False) or args.cmd in _NUDGE_ON_SUBCOMMANDS:
+        print(_AGENT_SEARCH_NUDGE, file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -48,6 +48,27 @@ language: "en"                  # en | zh — affects helper script messages, no
 
 
 # ============================================================================
+# Source routing (v2.2 — additive; leave at defaults for v2.0/2.1 behavior)
+# ============================================================================
+# These control which source the search entry-point treats as primary. The
+# defaults below reproduce the existing OpenAlex-first behavior exactly; omit
+# them entirely and nothing changes.
+
+# openalex          -> current behavior (OpenAlex primary, SS enriches)  [default]
+# semantic_scholar  -> SS bulk search is primary (needs semantic_scholar_api_key)
+# auto              -> start on OpenAlex; if its daily USD budget runs low,
+#                      stickily fall back to SS for the rest of the run
+primary_source: "openalex"
+
+# Only relevant when primary_source == "auto". Allows the quota-driven switch.
+quota_fallback: true
+
+# USD remaining (OpenAlex X-RateLimit-Remaining-USD) at/below which "auto" mode
+# switches to Semantic Scholar for the remainder of the run.
+quota_fallback_threshold_usd: 0.05
+
+
+# ============================================================================
 # HTML rendering
 # ============================================================================
 # (No config keys here as of 2026-05-23. The Skill always uses the
