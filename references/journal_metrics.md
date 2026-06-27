@@ -1,10 +1,11 @@
 # Journal partitions & metrics (SSOT — platforms, fetch, ISSN join, naming)
 
 Single source of truth for everything paper-search-pro reports about a paper's
-**journal**: the multi-platform partitions (中科院 CAS / JCR / SJR), the legacy
-SJR-only quartile + OpenAlex open impact, the ISSN join, attribution, and the
-naming rules. Read this before showing or filtering on any journal-level number,
-in either the human path (STEP 1 + STEP 10/11) or agent mode.
+**journal**: the multi-platform partitions (中科院 CAS / JCR / SJR) plus the OpenAlex
+open-impact slot — all in one unified `journal_rank` record (v2.2 single-layer
+collapse) — the ISSN join, attribution, and the naming rules. Read this before
+showing or filtering on any journal-level number, in either the human path
+(STEP 1 + STEP 10/11) or agent mode.
 
 > **What changed in v2.2 (A-line).** The previous version of this file said JCR
 > and 中科院分区 were "external-link only" and that SJR needed a Cloudflare-busting
@@ -177,37 +178,49 @@ Partitions are joined to a paper by its journal **ISSN**:
   electronic ISSN both index to one record, so an eISSN also joins.
 - **OpenAlex path** — `source.issn_l` (preferred) else the first of `source.issn[]`.
 - **Semantic Scholar path** — ISSN from `publicationVenue.issn`, present only ~2/3 of
-  the time (R-08). Agent mode backfills the rest via a free OpenAlex single-paper
-  DOI lookup so the join is not silently lost; the human path reuses the same
-  backfilled ISSN before annotating.
+  the time (R-08). Agent mode **best-effort** backfills the missing ones via a free
+  OpenAlex single-paper DOI lookup so the join is not silently lost (measured: 16 of
+  21 recovered on one SS run); the human path reuses the same backfilled ISSN before
+  annotating. Backfill is **not guaranteed**: a record with no DOI — or whose
+  OpenAlex DOI record itself carries no ISSN, as happens with some old classics (e.g.
+  Kahneman & Tversky 1979) — stays unjoinable. The residual gap stays visible via
+  the `meta.enrichment.issn_backfill_*` audit (agent mode).
 
 ---
 
-## Legacy SJR-only `journal_metric` (still supported, back-compat)
+## The OpenAlex open journal-impact slot (`journal_rank.openalex`)
 
-Before the A-line multi-platform layer, the Skill had a **single-platform**
-SJR-only `journal_metric` (SJR quartile + OpenAlex open impact). It is **still in
-place** — the human display layer and the agent `--quartile` / `--min-impact`
-flags use it, and it renders its own line in the MD report. It coexists with the
-new `journal_rank` slot; neither clobbers the other.
+Alongside the three partition platforms, the unified `journal_rank` record carries
+an `openalex` open-impact slot drawn from OpenAlex `summary_stats` (CC0). In v2.2
+this **replaced** the old single-platform SJR-only `journal_metric`: the SJR quartile
+now lives in `journal_rank.sjr.best_quartile`, and the open-impact figures live in
+`journal_rank.openalex`. There is **no separate per-paper `journal_metric` key** in
+the agent envelope any more, and the human display renders the unified record.
 
-| Metric | Status | Notes |
+| Figure | Where it lives now | Notes |
 |---|---|---|
-| **SJR quartile** (Q1–Q4) | ✅ legacy `journal_metric.sjr_quartile` | From a cached SCImago CSV; attribution mandatory. |
-| **OpenAlex 2yr mean citedness** | ✅ `journal_metric.openalex_2yr_mean_citedness` | CC0. An OPEN impact figure, **NOT** a JIF (R-09). |
-| **OpenAlex journal h-index** | ✅ `journal_metric.h_index` | Same source, open. |
-| **CWTS SNIP** | reserved (`cwts_snip`), not populated | future optional cross-field check. |
+| **SJR quartile** (Q1–Q4) | `journal_rank.sjr.best_quartile` | From the SJR mirror CSV; attribution mandatory. |
+| **OpenAlex 2yr mean citedness** | `journal_rank.openalex.mean_citedness_2yr` | CC0. An OPEN impact figure, **NOT** a JIF (R-09). |
+| **OpenAlex journal h-index** | `journal_rank.openalex.h_index` | Same source, open. |
 
-R-09 is load-bearing: `2yr_mean_citedness` ≠ the Clarivate JIF (measured: JPSP ≈
+R-09 is load-bearing: `mean_citedness_2yr` ≠ the Clarivate JIF (measured: JPSP ≈
 2.72 here vs a JCR JIF of ~7–8 — different corpus, different window). Use it for
 relative ranking within your result set, never as an absolute IF threshold, and
 never label it "Impact Factor".
 
-**Filtering contract (signal-as-knob, both layers):** the metric/partition is
-always computed and attached to every paper; filtering is opt-in and only decides
-what is **returned / kept**. With no filter and no cached data, every paper is
-returned exactly as before — journal data is a pure additive layer (R-19).
-`meta.counts.after_journal_filter` (legacy) and `meta.counts.after_rank_filter`
-(multi-platform) keep the counts auditable.
+The agent `--quartile` / `--min-impact` flags filter on this unified record
+(`journal_rank.sjr.best_quartile` and `journal_rank.openalex.mean_citedness_2yr`
+respectively) — they no longer read the retired SJR-only path. (The legacy
+`sjr_helper` module and a dormant MD-display block survive in the tree only for
+backward-compat with old cached `kg.json` files; nothing in the live envelope or
+the filters depends on them.)
+
+**Filtering contract (signal-as-knob):** the partition / impact is always computed
+and attached to every paper; filtering is opt-in and only decides what is
+**returned / kept**. With no filter and no cached data, every paper is returned
+exactly as before — journal data is a pure additive layer (R-19).
+`meta.counts.after_journal_filter` (survivors after `--quartile` / `--min-impact`)
+and `meta.counts.after_rank_filter` (survivors after the `--rank-platform` tier
+filter) keep the counts auditable.
 
 For agent-mode flags and the full envelope shape, see `references/agent_mode.md`.

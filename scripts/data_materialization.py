@@ -607,9 +607,11 @@ def _journal_rank_from_json(d: Dict):
     cas = raw.get("cas")
     jcr = raw.get("jcr")
     sjr = raw.get("sjr")
+    oa = raw.get("openalex")
     return JournalRank(
         title=raw.get("title"),
         issns=list(raw.get("issns") or []),
+        openalex=dict(oa) if isinstance(oa, dict) else None,
         cas=CASRank(
             tier=cas.get("tier"),
             rank=cas.get("rank"),

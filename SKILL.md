@@ -1,11 +1,11 @@
 ---
 name: paper-search-pro
-description: "Find academic papers across 5 sources (OpenAlex / Semantic Scholar / CrossRef / PubMed / arXiv) with adjustable depth — Quick scan (5 min) to Audit prep (3 hr). Use when the user wants to find papers, run a literature search, gather references, or scope a research topic. Triggers on: search verbs ('find papers', 'literature search', 'papers about X'), review types ('scoping review', 'systematic review', 'SR prep', 'literature review', 'lit review', 'help me write a lit review'), Chinese ('找文献', '找论文', '论文搜索', '学术检索', '文献检索', '文献综述', '综述前期', '求文献'). Outputs Shadcn HTML report + BibTeX/RIS/CSV + PRISMA-S log. Do NOT use for: concept explanations ('what is X' / 'X 是什么'), writing requests ('help me write a paragraph' / '帮我写'), single-paper interpretation or PDF download with full bibliographic metadata (use paper-downloader-portable), or when the user already has a literature set ready (use literature-set-review)."
+description: "Find academic papers across 5 sources (OpenAlex / Semantic Scholar / CrossRef / PubMed / arXiv) with adjustable depth — Quick scan (5 min) to Audit prep (3 hr). Use when the user wants to find papers, run a literature search, gather references, scope a research topic, or filter results by journal tier (中科院分区/一区/几区, Q1, JCR/SJR quartile, 影响因子/impact factor, 期刊分区, 顶刊/top journal, '按分区筛'). Triggers on search verbs ('find papers', 'literature search', 'papers about X'), review types ('scoping review', 'systematic review', 'SR prep', 'literature review', 'lit review', 'help me write a lit review'), Chinese ('找文献', '找论文', '论文搜索', '学术检索', '文献检索', '文献综述', '综述前期', '求文献'). Outputs Shadcn HTML report + BibTeX/RIS/CSV + PRISMA-S log. Do NOT use for: concept explanations ('what is X' / 'X 是什么', e.g. '影响因子怎么算'), writing ('帮我写' / 'help me write a paragraph'), single-paper interpretation or PDF download with metadata (use paper-downloader-portable), or when the user already has a literature set (use literature-set-review)."
 license: Apache-2.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task
 metadata:
   author: Bo
-  version: 2.1.2
+  version: 2.2.0
   vendored-from: futurehouse/paper-qa (Apache 2.0)
 ---
 
@@ -56,41 +56,14 @@ exports). Use it when the consumer is a person.
 
 ---
 
-## 🔥 Execution discipline (read this BEFORE running anything)
+## 🔥 Execution discipline (read before running anything)
 
-These four rules govern every step below. Violating them is the dominant failure mode observed in real sessions — re-read them whenever you feel rushed.
+Four invariants govern every step — ignoring them is the dominant failure mode in real sessions:
 
-### Rule A — NEVER `cd` into the Skill directory
-
-**Reason**: `cd $PSP_HOME` rebinds `./` to the Skill asset directory. Every `./paper-search-results/...` after that lands inside the Skill folder, not where the user is working. Re-installing the Skill overwrites history; the user can't find outputs in their own working directory.
-
-**Correct pattern** — execute helpers from the user's working directory using `PYTHONPATH`:
-
-```bash
-PYTHONPATH=$PSP_HOME \
-  python3 -m scripts.openalex_helper search "<query>" --limit 30 \
-  > "$SEARCH_DIR/raw/openalex.json"
-```
-
-Where `$PSP_HOME` is the Skill install directory (resolved in STEP 0) and `$SEARCH_DIR` is an **absolute path under the user's PWD** (also from STEP 0). Shell `cwd` remains the user's PWD; `./` paths resolve to where the user expects.
-
-### Rule B — Parallelism is MANDATORY for SubAgent dispatch
-
-When you launch classifier SubAgents (STEP 6), you **must** put up to 5 `Task` tool_use blocks **inside one assistant message**. Serial dispatch (one Task per message, waiting for each result) makes Standard tier take ~17 min instead of ~10. See STEP 6 worked example.
-
-### Rule C — Tell the user every time you skip a step
-
-If you deliberately skip any STEP (because tier budget is exhausted, data is empty, or user preference), state it explicitly:
-- **What** you skipped (e.g. "STEP 10 L3 enrichment")
-- **Why** (tier? data? user choice?)
-- **What's lost** (e.g. "no influentialCitationCount, no funder/license fields")
-- **How to recover** (e.g. "re-run at `--tier deep` to include this")
-
-Never skip silently. Skipping is fine; surprising the user is not.
-
-### Rule D — Read the cited references/ file BEFORE the step
-
-Each STEP names a `references/<file>.md`. Read it before running the step's commands — the cheatsheets contain edge cases that are not duplicated in SKILL.md. Average must-read coverage across recent sessions was 5/17 — drive it higher.
+- **A — NEVER `cd` into the Skill directory.** `cd $PSP_HOME` rebinds `./` to the Skill asset folder, so `./paper-search-results/...` lands inside the Skill instead of the user's workspace (and a re-install wipes it). Run every helper from the user's PWD: `PYTHONPATH=$PSP_HOME python3 -m scripts.<name> … > "$SEARCH_DIR/..."`. `$PSP_HOME` (STEP 0) is the install dir; `$SEARCH_DIR` (STEP 0) is an absolute path under the user's PWD.
+- **B — Dispatch classifier SubAgents in parallel.** STEP 6 puts up to 5 `Task` blocks in one assistant message; serial dispatch inflates Standard tier from ~10 to ~17 min. The worked example lives in STEP 6 — it is not repeated elsewhere.
+- **C — Announce every skip.** If you skip a STEP (budget / empty data / user choice), say *what* you skipped, *why*, *what's lost*, and *how to recover* (e.g. "re-run at `--tier deep`"). Skipping is fine; surprising the user is not.
+- **D — Read a step's cited reference when that step is non-trivial for this case.** Each STEP names a `references/<file>.md` carrying edge cases not duplicated here. You won't read all of them every run, nor should you — but skipping the reference for a step you are *actually about to run* is where boundary knowledge (dict-vs-list shapes, enrich-not-search, DOI casing) gets lost. Read the one in front of you.
 
 ---
 
@@ -133,41 +106,19 @@ For every literature search, follow these steps in order. Each step references a
 
 📖 BEFORE THIS STEP, read: `references/setup.md`.
 
-**Resolve the Skill install path into `$PSP_HOME`** — every later step uses `PYTHONPATH=$PSP_HOME`. The Skill ships as a SKILL.md package; different Agents install it at different paths (`~/.claude/skills/`, `~/.codex/skills/`, `~/.agents/skills/`, `~/.config/opencode/skills/`, project-local `.claude/skills/`, etc.). Resolve `$PSP_HOME` once via a three-layer chain — explicit injection first, env var second, filesystem fallback third — and reuse it in every helper invocation.
+**Resolve the Skill install path into `$PSP_HOME`** (every later step uses `PYTHONPATH=$PSP_HOME`). Prefer explicit injection / agent env var; otherwise scan the known cross-agent install locations. If your harness already exposes this SKILL.md's absolute path, just `export PSP_HOME="<that dir>"` and skip the scan. 📖 Full rationale, why this can't be a script, and the complete path list: `references/runtime_bootstrap.md`.
 
 ```bash
-# Layer 1: explicit injection. If you (the agent) already know where this
-#          SKILL.md lives — because your harness exposed its absolute path —
-#          substitute it here and skip Layers 2-3:
-#   export PSP_HOME="<absolute directory containing this SKILL.md>"
-#
-# Layer 2: agent-injected env var (Claude Code / CodeBuddy populate these).
-# Layer 3: walk the known cross-agent install locations.
-
-PSP_HOME="${PSP_HOME:-${CLAUDE_SKILL_DIR:-${CODEBUDDY_SKILL_DIR:-}}}"
-if [ -z "$PSP_HOME" ]; then
-  for d in \
-    "$HOME/.claude/skills/paper-search-pro" \
-    "$HOME/.codex/skills/paper-search-pro" \
-    "$HOME/.agents/skills/paper-search-pro" \
-    "$HOME/.config/opencode/skills/paper-search-pro" \
-    "$HOME/.codeium/windsurf/skills/paper-search-pro" \
-    "$HOME/.config/goose/skills/paper-search-pro" \
-    "$HOME/.cline/skills/paper-search-pro" \
-    "$HOME/.roo/skills/paper-search-pro" \
-    "$HOME/.copilot/skills/paper-search-pro" \
-    "./.claude/skills/paper-search-pro" \
-    "./.codex/skills/paper-search-pro" \
-    "./.agents/skills/paper-search-pro" \
-    "./.cursor/skills/paper-search-pro" \
-    "./.opencode/skills/paper-search-pro" \
-    "./.windsurf/skills/paper-search-pro"; do
-    [ -f "$d/SKILL.md" ] && PSP_HOME="$d" && break
+PSP_HOME="${PSP_HOME:-${CLAUDE_SKILL_DIR:-${CODEBUDDY_SKILL_DIR:-}}}"   # explicit / agent-injected
+if [ -z "$PSP_HOME" ]; then                                            # else scan known installs
+  for base in "$HOME/.claude" "$HOME/.codex" "$HOME/.agents" "$HOME/.config/opencode" \
+              "$HOME/.codeium/windsurf" "$HOME/.config/goose" "$HOME/.cline" "$HOME/.roo" \
+              "$HOME/.copilot" ./.claude ./.codex ./.agents ./.cursor ./.opencode ./.windsurf; do
+    [ -f "$base/skills/paper-search-pro/SKILL.md" ] && PSP_HOME="$base/skills/paper-search-pro" && break
   done
 fi
-[ -z "$PSP_HOME" ] && { echo "ERROR: paper-search-pro install not found. Set PSP_HOME to the directory containing SKILL.md."; exit 1; }
-export PSP_HOME
-echo "Using Skill install: $PSP_HOME"
+[ -z "$PSP_HOME" ] && { echo "ERROR: paper-search-pro install not found. Set PSP_HOME to the dir containing SKILL.md."; exit 1; }
+export PSP_HOME; echo "Using Skill install: $PSP_HOME"
 ```
 
 **Verify config keys** (executed from any cwd, never `cd` into the Skill dir):
@@ -194,37 +145,13 @@ echo "Outputs will land in: $SEARCH_DIR"
 
 📖 BEFORE THIS STEP, read: `references/query_planner.md`.
 
-**Detect query language first**: if the user's query contains any Chinese character (Unicode range U+4E00–U+9FFF, CJK Unified Ideographs), set `UI_LANG=zh`; otherwise `UI_LANG=en`. This single boolean controls which UI language the final HTML report renders in (paper titles / abstracts / authors / venues are NEVER translated — only the report's UI chrome). Pass `--language $UI_LANG` to STEP 12b.
-
-The bundle ships with only English and Chinese dictionaries. Non-Chinese queries (including Japanese / Korean / European languages) all route to **English**, which is the international academic default — a Korean researcher reading an English UI is friendlier than the same researcher confronting a Chinese UI they cannot parse. Routing Japanese / Korean to Chinese was the previous heuristic; it was changed because the assumption "CJK readers can read Chinese UI" does not hold.
+**Detect the report UI language** — `UI_LANG` (`zh` for Chinese queries, `en` for everything else) selects which UI language the final HTML report renders in. Paper titles / abstracts / authors / venues are NEVER translated — only the report's UI chrome. Pass `--language $UI_LANG` to STEP 12b.
 
 ```bash
-# Heuristic: bash regex on the raw query, applied in order — first match wins.
-#
-# Japanese kanji share Unicode U+4E00–U+9FFF with Chinese Han characters,
-# so a kanji-containing Japanese query like "東京大学の最新研究" would
-# look identical to a Chinese query at the codepoint level. To route such
-# queries to EN, check for hiragana (U+3041–U+309F) or katakana
-# (U+30A0–U+30FF) FIRST; real Japanese text almost always contains one or
-# the other, so this signal is reliable in practice.
-#
-# Order matters:
-#   1. hiragana/katakana present → Japanese → EN
-#   2. else CJK Unified Ideograph present → Chinese → ZH
-#   3. else → EN (default international)
-#
-# `ぁ-ヿ` covers U+3041–U+30FF (hiragana + katakana full range).
-# `一-鿿` covers U+4E00–U+9FFF (CJK Unified Ideographs, full range —
-#   `一-龯` would stop at U+9FAF and miss 55 rare chars).
-# Hangul (Korean) is not matched: those queries fall through to EN.
-if [[ "$USER_QUERY" =~ [ぁ-ヿ] ]]; then
-  UI_LANG=en  # Japanese → EN
-elif [[ "$USER_QUERY" =~ [一-鿿] ]]; then
-  UI_LANG=zh  # Chinese (no hiragana/katakana) → ZH
-else
-  UI_LANG=en  # everything else → EN
-fi
+UI_LANG=$(PYTHONPATH=$PSP_HOME python3 -m scripts.detect_language "$USER_QUERY")
 ```
+
+The detector routes Japanese / Korean / European queries to **English** (the bundle ships only EN + ZH dictionaries; English is the international academic default). 📖 The exact Unicode rule and why kana is checked before Han live in `references/runtime_bootstrap.md`.
 
 Apply PICO / SPIDER / PEO depending on domain:
 - Medical/clinical → PICO (Population/Intervention/Comparator/Outcome)
@@ -287,15 +214,7 @@ PYTHONPATH=$PSP_HOME \
     > "$SEARCH_DIR/raw/openalex.json"
 ```
 
-Subcommand parameter reference (verified against argparse):
-- `search` → `--limit`, `--year-min`, `--year-max`, `--type` (positional `query`)
-- `double-sort` → `--n` (per-strategy), `--year-min` (positional `query`)
-- `seminal` → `--year-max`, `--limit` (positional `topic`) — for classic high-cited
-- `reviews` → `--limit`, `--year-min` (positional `topic`)
-- `journal-list` → `--preset Cochrane|UTD24|nature_science|medical_top`, `--limit` (positional `query`)
-- `citation-network` → `--refs-limit`, `--cited-by-limit` (positional `openalex_id`) — used in STEP 9
-
-For Deep+Audit, also call topic-specific subcommands (e.g. `seminal`, `reviews`, `journal-list`). Append outputs to `$SEARCH_DIR/raw/openalex_*.json` and federate them all together in STEP 5.
+The full subcommand + flag reference (`search` / `double-sort` / `seminal` / `reviews` / `journal-list` / `citation-network`, all verified against argparse) is in `references/openalex_helper_cheatsheet.md` — read it before reaching for anything beyond the two commands above. For Deep+Audit, also call topic-specific subcommands (e.g. `seminal`, `reviews`, `journal-list`), append outputs to `$SEARCH_DIR/raw/openalex_*.json`, and federate them all together in STEP 5.
 
 ### STEP 4 — Run L2 boosters (if enabled by STEP 2)
 
@@ -464,20 +383,8 @@ PYTHONPATH=$PSP_HOME \
 
 This adds ~135-170s for 100 papers — only do it on top-N, not the full set.
 
-**Optional (additive) — journal metrics.** If the user cares about journal tier,
-you can attach a per-paper **SJR quartile** (Q1–Q4) + **OpenAlex open impact**
-(2yr mean citedness, h-index). This is opt-in and **off by default — the report is
-byte-for-byte unchanged when you skip it.** It needs a one-time SJR CSV in the
-user's local cache (`~/.paper-search-pro/sjr/`). 📖 Read `references/journal_metrics.md`
-first — it covers acquisition, the mandatory SCImago attribution (non-commercial
-cited use — **not** "CC BY-NC"), the ISSN join, and the **R-04 naming rule** (these
-are "SJR分区 / 期刊影响力", **never** "影响因子"; the real Impact Factor lives in the
-JCR slot of the multi-platform layer below). When metrics are present they render
-as an extra line per paper in the MD report; when absent, nothing changes.
-
-**Optional (additive) — multi-platform journal partitions (中科院 / JCR / SJR).**
-This is the newer, richer partition layer (it supersedes the SJR-only block above
-for any case where the user thinks in 区 / quartiles). It labels every paper with
+**Optional (additive) — journal partitions (中科院 / JCR / SJR).**
+The multi-platform partition layer labels every paper with
 **all three** platforms and, when a tier was requested, filters on **one**. Like
 everything else in this step it is **opt-in and off by default — skip it and the
 report is byte-for-byte unchanged** (R-19). 📖 Read `references/journal_metrics.md`
@@ -617,8 +524,6 @@ Use `open` on macOS by default. If it fails (rare — only bare Linux containers
 - Top findings (3-5 sentences from your executive summary)
 - Any caveats — including any steps you skipped per Rule C (e.g. "PubMed wasn't queried because no medical signals were detected", "Skipped STEP 10 L3 enrichment because Quick tier; re-run at standard to include funder/license fields")
 
-Done.
-
 ---
 
 ## Output convention
@@ -665,29 +570,30 @@ $(pwd)/paper-search-results/<search_id>/
 
 ---
 
-## References (load on demand — Rule D)
+## References (progressive disclosure — read the one for the step you're on)
 
-| File | When to read |
-|------|---------|
-| `setup.md` | STEP 0 — config + 5-key acquisition |
-| `tier_decision.md` | Tier picking (before STEP 0) |
-| `source_routing.md` | STEP 2 + STEP 5 field-priority |
-| `query_planner.md` | STEP 1 — PICO / SPIDER / PEO frameworks |
-| `openalex_helper_cheatsheet.md` | STEP 3 + STEP 9 |
-| `pubmed_helper_cheatsheet.md` | STEP 4 (mandatory if PubMed enabled) |
-| `arxiv_helper_cheatsheet.md` | STEP 4 (mandatory if arXiv enabled) |
-| `classifier_subagent_prompt.md` | STEP 6 — SubAgent prompt template |
-| `rcs_rubric.md` | STEP 6 — RCS 0-10 classification rubric |
-| `stop_decision.md` | STEP 7 + STEP 8 |
-| `citation_chasing.md` | STEP 9 — 1-hop / 2-hop expansion |
-| `ss_helper_cheatsheet.md` | STEP 10 |
-| `crossref_helper_cheatsheet.md` | STEP 10 |
-| `summary_writer.md` | STEP 11 |
-| `output_files.md` | STEP 12 — output directory layout (PWD-relative) |
-| `prisma_s_checklist.md` | STEP 13 |
-| `error_handling.md` | Anytime an unexpected error surfaces |
-| `agent_mode.md` | When called by another agent / headless — `agent_search` envelope + flags (SSOT) |
-| `journal_metrics.md` | STEP 1 + STEP 10/11 optional journal partitions — 中科院 / JCR / SJR (`journal_rank fetch`) + SJR-only legacy metrics + ISSN join + attribution + R-04 naming (SSOT) |
+You won't read all of these every run, and shouldn't. Read a step's reference when you reach that step and it's non-trivial for the case (Rule D). **core** = read for its step; **cond** = only when its trigger fires.
+
+| File | Load | Read when |
+|------|------|---------|
+| `tier_decision.md` | core | choosing the tier (before STEP 0) |
+| `setup.md` | core | STEP 0 — config + 5-key acquisition |
+| `runtime_bootstrap.md` | cond | STEP 0/1 — only if `$PSP_HOME` env injection failed, or you need the full install-path list / language-routing rationale |
+| `query_planner.md` | core | STEP 1 — PICO / SPIDER / PEO frameworks |
+| `source_routing.md` | core | STEP 2 routing + STEP 5 field-priority merge |
+| `openalex_helper_cheatsheet.md` | core | STEP 3 + STEP 9 — subcommands, params, gotchas |
+| `pubmed_helper_cheatsheet.md` | cond | STEP 4 — only if PubMed enabled |
+| `arxiv_helper_cheatsheet.md` | cond | STEP 4 — only if arXiv enabled |
+| `classifier_subagent_prompt.md`, `rcs_rubric.md` | core | STEP 6 — SubAgent prompt + RCS 0-10 rubric |
+| `stop_decision.md` | core | STEP 7 + STEP 8 |
+| `citation_chasing.md` | cond | STEP 9 — only if expanding citations |
+| `ss_helper_cheatsheet.md`, `crossref_helper_cheatsheet.md` | cond | STEP 10 — only if enriching top-N |
+| `summary_writer.md` | core | STEP 11 |
+| `journal_metrics.md` (SSOT) | cond | STEP 1 / STEP 10-11 — only if the user wants journal partitions (中科院 / JCR / SJR) or SJR metrics; ISSN join, attribution, R-04 naming |
+| `output_files.md` | core | STEP 12 — output dir layout (PWD-relative) |
+| `prisma_s_checklist.md` | core | STEP 13 |
+| `agent_mode.md` (SSOT) | cond | only when another agent / headless calls this Skill — `agent_search` envelope + flags |
+| `error_handling.md` | cond | any unexpected error |
 
 ---
 

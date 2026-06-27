@@ -49,3 +49,15 @@ htmlcov/
 # removes confusing "what is this for?" surface area for end users.
 tests/
 evals/
+
+# --- Repo-level README (added 2026-06-27, v2.2-evolution) ---
+# Anthropic's skill spec is explicit: "Don't include README.md inside your skill
+# folder." README.md / README.zh.md exist only for human visitors browsing the
+# GitHub repo (per the Distribution chapter, which keeps the repo README separate
+# from the skill package). They are EXCLUDED from the skill bundle here but stay
+# git-tracked — that is why .gitignore intentionally does NOT mirror this line.
+# Nested attribution/build READMEs (scripts/vendored/README-vendored.md,
+# assets/.../paper-report/README.md) are deliberately kept: they document vendored
+# code provenance + build steps and ship harmlessly with their directories.
+/README.md
+/README.zh.md

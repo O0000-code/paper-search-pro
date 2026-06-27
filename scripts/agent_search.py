@@ -53,8 +53,11 @@ Each ``<paper>`` carries:
   — the built-in, always-computed, deterministic signal (B-2). It is a SIGNAL,
   not a gate: every returned paper carries it; the agent may self-judge on top,
   but it never gets data without a score.
-- ``journal_metric`` : reserved slot for Wave 3d (SJR quartile / OpenAlex
-  impact). Always present, value ``None`` here — 3d fills it in.
+- ``journal_rank`` : the SINGLE journal layer (v2.2 collapse) — CAS 区 / JCR Q·IF
+  / SJR Q + an ``openalex`` open-impact sub-slot ({mean_citedness_2yr, h_index}),
+  or ``None`` when nothing joined. The legacy per-paper ``journal_metric`` key is
+  retired (its data lives in journal_rank now). Enrichment audit is in
+  ``meta.enrichment``; the partition-filter decision is in ``meta.rank``.
 - when ``--verify`` is on, a ``verify`` block (existence + abstract +
   cross-source consistency markers).
 
@@ -568,7 +571,7 @@ def _resolve_rank_plan(
         plan.quartiles = intent.quartiles
         plan.top = intent.top
         plan.source = "intent"
-        plan.candidate_platforms = ["jcr", "sjr"]  # bare Qn could be either
+        plan.candidate_platforms = getattr(intent, "candidate_platforms", None) or ["jcr", "sjr"]
         # Do NOT apply a filter without a resolved platform; only label on default.
 
     # ---- 3. config default platform (labels only, never filters) ----
@@ -1037,45 +1040,23 @@ def _load_refs_file(path: str) -> List[Dict]:
 
 def _paper_to_dict(p: UnifiedPaperEntity) -> Dict:
     """Full entity serialisation (same broad field set as openalex_helper._to_dict),
-    flattening Author objects. The relevance/journal_metric/verify blocks are
+    flattening Author objects. The relevance / journal_rank / verify blocks are
     attached by the caller after scoring.
 
-    NOTE: the entity's own ``journal_metric`` field (a dataclass or None) is
-    dropped here — the caller re-attaches a fully-serialised journal_metric dict
-    into the reserved slot, so the value is always a plain dict/None in output."""
+    NOTE: the entity's ``journal_rank`` dataclass and the legacy ``journal_metric``
+    field are dropped here. The caller re-attaches a fully-serialised ``journal_rank``
+    dict (the single multi-platform layer); the legacy ``journal_metric`` slot is no
+    longer emitted (v2.2 single-layer collapse — its SJR quartile + OpenAlex impact
+    now live inside ``journal_rank``)."""
     d: Dict = {}
     for f, v in p.__dict__.items():
         if f == "authors":
             d[f] = [a.__dict__ for a in v]
-        elif f == "journal_metric":
-            continue  # re-attached as a dict by the caller (reserved slot)
+        elif f in ("journal_metric", "journal_rank"):
+            continue  # journal_metric: retired; journal_rank: re-attached as a dict
         else:
             d[f] = v
     return d
-
-
-def _journal_metric_to_dict(metric) -> Optional[Dict]:
-    """Serialise a JournalMetric dataclass to a JSON-safe dict, or None when the
-    metric carries no real data (so the slot stays None — byte-identical to the
-    pre-3d behavior for papers with no journal data)."""
-    from . import sjr_helper
-
-    if sjr_helper.metric_is_empty(metric):
-        return None
-    return {
-        "sjr_quartile": metric.sjr_quartile,
-        "sjr_category_quartiles": dict(metric.sjr_category_quartiles),
-        "openalex_2yr_mean_citedness": metric.openalex_2yr_mean_citedness,
-        "h_index": metric.h_index,
-        "cwts_snip": metric.cwts_snip,
-        "sjr_attribution": metric.sjr_attribution,
-        "issn_backfill_needed": metric.issn_backfill_needed,
-    }
-
-
-# Quartile ordering for filtering: a paper passes ``--quartile Q1,Q2`` when its
-# SJR quartile is in the requested set.
-_QUARTILE_ORDER = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
 
 
 # ===========================================================================
@@ -1112,24 +1093,34 @@ def run_agent_search(
     score is ALWAYS computed for every returned paper (B-2) — ``min_relevance``
     only filters which papers are returned, it does not disable scoring.
 
-    Feature A (journal metric, v2.2 Wave 3d): when ``enrich_journal`` is True
-    (default) each paper's reserved ``journal_metric`` slot is filled with its SJR
-    quartile (from a cached SJR CSV, if any) + OpenAlex open impact. This is a
-    pure additive enrichment — with no CSV cached and no impact reachable the slot
-    stays None, exactly as before. ``quartiles`` (e.g. ["Q1","Q2"]) and
-    ``min_impact`` are OPT-IN filters: like ``min_relevance``, the metric is
-    always computed; these only filter *which* papers are returned.
+    Feature A journal RANK (v2.2, SINGLE layer): when ``enrich_journal`` is True
+    (default) and journal-rank CSVs are cached, each paper's ``journal_rank`` slot
+    is filled with the unified multi-platform record — CAS 区 / JCR Q·IF / SJR Q
+    plus an ``openalex`` OPEN-impact sub-slot ({mean_citedness_2yr, h_index}). This
+    is the ONE journal layer; the legacy SJR-only ``journal_metric`` slot is no
+    longer populated or emitted (its SJR quartile + OpenAlex impact now live inside
+    journal_rank). Pure additive — with no CSVs cached and no impact reachable the
+    slot stays None, exactly as before.
+
+    - ``quartiles`` (e.g. ["Q1","Q2"], the --quartile flag) and ``min_impact``
+      (--min-impact) are OPT-IN filters, BOTH sourced from journal_rank now:
+      ``quartiles`` matches ``journal_rank.sjr.best_quartile`` and ``min_impact``
+      gates ``journal_rank.openalex.mean_citedness_2yr`` (an OPEN impact figure,
+      NOT a JCR Impact Factor — R-09). Like ``min_relevance`` they only filter
+      *which* papers are returned; the record is always attached.
+    - ``sjr_csv`` is DEPRECATED (the legacy sjr_helper SJR-only path is retired);
+      it is accepted but ignored. Use ``journal_rank fetch`` to cache SJR data into
+      ~/.paper-search-pro/ranks/.
 
     ``issn_backfill`` (default True) only affects the SEMANTIC-SCHOLAR-primary
     path: SS records often lack an ISSN, so by default each relevance-survivor
     that has a DOI but no ISSN gets a free single-paper OpenAlex lookup to recover
-    it (so the SJR join is not silently lost). Set it False to skip those per-paper
-    lookups on large SS result sets — papers then stay unjoinable and the gap stays
-    visible (``journal_metric.issn_backfill_needed``). No effect on the OpenAlex
-    path or the human path.
+    it (so the journal_rank join is not silently lost). Set it False to skip those
+    per-paper lookups on large SS result sets — papers then stay unjoinable (the
+    ``meta.enrichment.issn_backfill_*`` audit keeps the gap visible). No effect on
+    the OpenAlex path or the human path.
 
-    Feature A multi-platform journal RANK (v2.2 Wave A-2 — the CAS/JCR/SJR 分区
-    layer, distinct from the older SJR-only ``journal_metric`` above):
+    Multi-platform journal RANK partition filtering:
     - ``rank_platform`` ("cas"|"jcr"|"sjr"): the platform to FILTER on this run.
       When None, the platform is taken from the query's NL intent ("中科院一区" ->
       cas) and otherwise from config ``rank.default_platform`` (factory jcr, which
@@ -1250,8 +1241,20 @@ def run_agent_search(
     # ---- Journal-rank load (Feature A, Wave A-2; cache-first, no network) -------
     # Load the unified CAS/JCR/SJR table from the local cache (NEVER fetched here —
     # fetch is an explicit user/init action). None => graceful degradation: papers
-    # keep the legacy journal_metric (OpenAlex impact) but get no 分区 labels, and a
-    # tier filter cannot be honoured (reported in meta.rank).
+    # get no 分区 labels (the OpenAlex open impact can still attach to an
+    # openalex-only journal_rank) and a tier filter cannot be honoured (reported in
+    # meta.rank).
+    # The "no data cached — run fetch" note is ONLY surfaced when the user actually
+    # asked for partitions (an explicit platform/tier flag, or NL intent like
+    # "中科院一区", or a bare-quartile ambiguity). A plain default search never asked
+    # for 分区, so it must NOT be nagged about fetching them (D3-P1 first-use fix).
+    partition_requested = (
+        rank_plan.source in ("flags", "intent")
+        or rank_plan.applied_filter
+        or rank_plan.ambiguous
+        or bool(quartiles)
+        or (min_impact is not None)
+    )
     rank_lookup = None
     rank_load_note = None
     if enrich_journal:
@@ -1260,11 +1263,12 @@ def run_agent_search(
         except Exception as exc:  # never let a bad cache crash the search
             rank_lookup = None
             rank_load_note = f"journal_rank load failed: {exc}"
-        if rank_lookup is None and rank_load_note is None:
+        if rank_lookup is None and rank_load_note is None and partition_requested:
             rank_load_note = (
-                "no journal-rank data cached — 分区 labels unavailable (OpenAlex "
-                "open-impact still attached). Run `python3 -m scripts.journal_rank "
-                "fetch` to enable CAS/JCR/SJR partitions."
+                "no journal-rank data cached — 分区/quartile labels & filters "
+                "unavailable. Run `python3 -m scripts.journal_rank fetch` "
+                "(one-time, no API key needed; data lands in ~/.paper-search-pro/"
+                "ranks/) to enable CAS/JCR/SJR partitions."
             )
 
     # ---- Adaptive deepening (spec §6) — only when a tier/quartile filter is on --
@@ -1320,7 +1324,7 @@ def run_agent_search(
         # 不提分区 → 不过滤, only label). Annotation is network-free + idempotent.
         rank_filter.annotate_papers(unique, rank_lookup)
 
-    # ---- Score (ALWAYS, B-2) + reserve journal_metric slot + optional verify ----
+    # ---- Score (ALWAYS, B-2) + journal_rank enrichment + optional verify --------
     scored: List[Tuple[UnifiedPaperEntity, Dict]] = []
     for p in unique:
         rel = compute_relevance(p, terms, now_year=now_year)
@@ -1341,39 +1345,28 @@ def run_agent_search(
     kept = [(p, rel) for (p, rel) in scored if rel["score"] >= min_relevance]
     after_relevance_filter = len(kept)
 
-    # ---- Journal metric enrichment (Feature A, additive) + opt-in filtering ----
-    # Enrich the relevance-survivors (not the whole dedup pool) since the impact
-    # lookup is per-ISSN. SJR CSV is cache-first (None when absent → no quartile,
-    # never an error). quartiles / min_impact are OPT-IN gates; the metric itself
-    # is always attached.
-    from . import sjr_helper
+    # ---- Journal-rank enrichment (Feature A, single layer) + opt-in filtering ----
+    # The multi-platform journal_rank record (CAS/JCR/SJR + an OpenAlex open-impact
+    # slot) is the ONE journal layer — the legacy SJR-only journal_metric path is
+    # retired (no sjr_helper load here; no per-paper journal_metric in the envelope).
+    # We enrich the relevance-survivors (not the whole dedup pool) since the OpenAlex
+    # impact lookup is per-ISSN. ``quartiles`` (--quartile) and ``min_impact``
+    # (--min-impact) are OPT-IN filters, now BOTH sourced from journal_rank: SJR
+    # best_quartile and the OpenAlex open impact respectively.
 
-    sjr_lookup = None
+    # OpenAlex open-impact lookup (CC0) is only meaningful on the OpenAlex path (and
+    # after an SS-primary ISSN backfill, below). SS-primary runs otherwise skip it.
     impact_lookup = None
-    if enrich_journal:
-        try:
-            sjr_lookup = sjr_helper.load(csv_path=sjr_csv)
-        except Exception as exc:
-            warnings.append(f"SJR CSV load failed (continuing without quartiles): {exc}")
-            sjr_lookup = None
-        if sjr_lookup is None:
-            warnings.append(
-                "no SJR CSV cached — quartiles unavailable (impact still attached "
-                "where reachable). Run `python3 -m scripts.journal_rank fetch "
-                "--platform sjr`."
-            )
-        # OpenAlex open-impact lookup (CC0) only meaningful on the OpenAlex path
-        # and when OA is initialised; SS-primary runs skip it to avoid extra calls.
-        if source_used == "openalex":
-            impact_lookup = openalex_helper.get_source_impact
+    if enrich_journal and source_used == "openalex":
+        impact_lookup = openalex_helper.get_source_impact
 
-    # ---- SS-primary ISSN backfill (R-08, open item #3) ----
+    # ---- SS-primary ISSN backfill (R-08) ----
     # SS records carry ISSN only in publicationVenue.issn (~2/3 coverage). For the
     # relevance-survivors that lack an ISSN but have a DOI, do a FREE single-paper
-    # OpenAlex lookup to backfill source.issn so the SJR join is not silently lost.
-    # Papers with no DOI remain unjoinable (the metric's issn_backfill_needed flag
-    # keeps that gap visible). Per-paper try/except: a failed lookup never crashes
-    # the search and never forces a switch — it just leaves that paper unjoined.
+    # OpenAlex lookup to backfill source.issn so the journal_rank join is not
+    # silently lost. Papers with no DOI remain unjoinable (the audit counts keep
+    # that gap visible). Per-paper try/except: a failed lookup never crashes the
+    # search and never forces a switch — it just leaves that paper unjoined.
     issn_backfilled = 0
     issn_backfill_attempted = 0
     if enrich_journal and issn_backfill and source_used == "semantic_scholar":
@@ -1398,65 +1391,100 @@ def run_agent_search(
                 if oa_paper is not None and getattr(oa_paper, "issn", None):
                     p.issn = oa_paper.issn
                     issn_backfilled += 1
-            # Any backfilled ISSN means the OpenAlex open-impact figure is now
-            # reachable for those journals; enable the (CC0) impact lookup so SS
-            # papers do not lose impact relative to the OpenAlex path.
+            # A backfilled ISSN makes the OpenAlex open-impact figure reachable for
+            # those journals; enable the (CC0) impact lookup so SS papers do not lose
+            # impact relative to the OpenAlex path.
             if issn_backfilled and impact_lookup is None:
                 impact_lookup = openalex_helper.get_source_impact
 
-    metric_by_id: Dict[int, object] = {}
-    if enrich_journal:
-        for p, _rel in kept:
-            metric = sjr_helper.build_journal_metric(
-                p.issn,
-                sjr=sjr_lookup,
-                category=journal_category,
-                impact_lookup=impact_lookup,
-            )
-            metric_by_id[id(p)] = metric
+    # ---- Annotate the relevance-survivors with platform data (network-free) ----
+    # Re-annotate here so any SS-primary ISSN backfilled above is now joinable.
+    # Switching platform/tier later is a pure re-filter of this annotated pool —
+    # NO re-search (spec §7).
+    if enrich_journal and rank_lookup is not None:
+        rank_filter.annotate_papers([p for (p, _r) in kept], rank_lookup)
 
+    # ---- Attach OpenAlex open impact (CC0) into journal_rank.openalex ----
+    # The open-impact figure now lives INSIDE the single journal_rank record
+    # (replacing the retired journal_metric impact slot). For a paper not joined to
+    # any platform we still create an openalex-only journal_rank so the figure is not
+    # lost. R-04/R-09: ``mean_citedness_2yr`` is an OPEN impact figure, never an IF.
+    impact_attached = 0
+    impact_source = None
+    if enrich_journal and impact_lookup is not None:
+        impact_cache: Dict[str, object] = {}
+        for p, _rel in kept:
+            issn = getattr(p, "issn", None)
+            if not issn:
+                continue
+            if issn not in impact_cache:
+                try:
+                    impact_cache[issn] = impact_lookup(issn)
+                except Exception:
+                    impact_cache[issn] = None
+            imp = impact_cache[issn]
+            if not imp:
+                continue
+            mc = imp.get("two_year_mean_citedness")
+            h = imp.get("h_index")
+            if mc is None and h is None:
+                continue
+            oa_slot = {
+                "mean_citedness_2yr": mc,
+                "h_index": int(h) if isinstance(h, (int, float)) else None,
+            }
+            jr = getattr(p, "journal_rank", None)
+            if jr is None:
+                jr = journal_rank.JournalRank()
+                p.journal_rank = jr
+            jr.openalex = oa_slot
+            impact_attached += 1
+        if impact_attached:
+            impact_source = "openalex_summary_stats"
+
+    # ---- Opt-in --quartile / --min-impact filters (now sourced from journal_rank) -
     want_quartiles = {q.upper() for q in (quartiles or []) if q}
     apply_journal_filter = bool(want_quartiles) or (min_impact is not None)
 
-    def _passes_journal_filter(metric) -> bool:
+    def _passes_journal_filter(p) -> bool:
         if not apply_journal_filter:
             return True
+        jr = getattr(p, "journal_rank", None)
         if want_quartiles:
-            if not metric or metric.sjr_quartile not in want_quartiles:
+            sjr_slot = getattr(jr, "sjr", None) if jr is not None else None
+            q = getattr(sjr_slot, "best_quartile", None) if sjr_slot is not None else None
+            if q not in want_quartiles:
                 return False
         if min_impact is not None:
-            val = metric.openalex_2yr_mean_citedness if metric else None
+            oa = getattr(jr, "openalex", None) if jr is not None else None
+            val = oa.get("mean_citedness_2yr") if isinstance(oa, dict) else None
             if val is None or val < min_impact:
                 return False
         return True
 
     if apply_journal_filter:
-        kept = [(p, rel) for (p, rel) in kept if _passes_journal_filter(metric_by_id.get(id(p)))]
+        kept = [(p, rel) for (p, rel) in kept if _passes_journal_filter(p)]
     after_journal_filter = len(kept)
 
-    # ---- Multi-platform journal RANK: annotate + opt-in tier/quartile filter ----
-    # (Feature A, Wave A-2 — the CAS/JCR/SJR 分区 layer.) Annotation is network-free;
-    # we (re)annotate the relevance-survivors here so any SS-primary ISSN backfilled
-    # above is now joinable. Filtering is a pure re-filter of the annotated pool:
-    # switching platform/tier later == calling this again, NO re-search (spec §7).
+    # ---- Multi-platform journal RANK tier/quartile filter (--rank-platform) ------
+    # (CAS/JCR/SJR 分区 layer.) Pure re-filter of the already-annotated pool:
+    # switching platform/tier == calling this again, NO re-search (spec §7).
     rank_kept_count = None
     rank_filtered_count = None
     rank_nodata_count = None
-    if enrich_journal and rank_lookup is not None:
-        rank_filter.annotate_papers([p for (p, _r) in kept], rank_lookup)
-        if rank_filter_active:
-            survivors, dropped, nodata = rank_filter.filter_by_rank(
-                [p for (p, _r) in kept], rank_plan.platform,
-                tiers=rank_plan.tiers, quartiles=rank_plan.quartiles, top=rank_plan.top,
-                category=rank_plan.category,
-            )
-            survivor_ids = {id(p) for p in survivors}
-            rank_kept_count = len(survivors)
-            rank_filtered_count = len(dropped)
-            rank_nodata_count = len(nodata)
-            # No-platform-data papers are EXCLUDED from a tier filter but COUNTED
-            # (spec §2: 无该平台分区数据的论文单独标记，不静默丢).
-            kept = [(p, rel) for (p, rel) in kept if id(p) in survivor_ids]
+    if enrich_journal and rank_lookup is not None and rank_filter_active:
+        survivors, dropped, nodata = rank_filter.filter_by_rank(
+            [p for (p, _r) in kept], rank_plan.platform,
+            tiers=rank_plan.tiers, quartiles=rank_plan.quartiles, top=rank_plan.top,
+            category=rank_plan.category,
+        )
+        survivor_ids = {id(p) for p in survivors}
+        rank_kept_count = len(survivors)
+        rank_filtered_count = len(dropped)
+        rank_nodata_count = len(nodata)
+        # No-platform-data papers are EXCLUDED from a tier filter but COUNTED
+        # (spec §2: 无该平台分区数据的论文单独标记，不静默丢).
+        kept = [(p, rel) for (p, rel) in kept if id(p) in survivor_ids]
 
     after_rank_filter = len(kept)
 
@@ -1469,15 +1497,11 @@ def run_agent_search(
     for p, rel in kept:
         d = _paper_to_dict(p)
         d["relevance"] = rel
-        # Reserved slot now filled (Wave 3d): SJR quartile + OpenAlex impact.
-        # Serialised to a plain dict, or None when no journal data was joined
-        # (byte-identical to the pre-3d None for unjoinable papers).
-        metric = metric_by_id.get(id(p))
-        d["journal_metric"] = _journal_metric_to_dict(metric) if metric is not None else None
-        # Multi-platform rank slot (Wave A-2): the unified three-platform dict
-        # (spec §3), or None when the journal joined no platform. Additive — the
-        # legacy journal_metric above is untouched.
-        d["journal_rank"] = rank_filter.rank_metric_dict(getattr(p, "journal_rank", None))
+        # SINGLE journal layer (v2.2 collapse): the unified journal_rank dict
+        # (CAS/JCR/SJR + OpenAlex open impact, spec §3) or None when the journal
+        # joined no platform and had no reachable open impact. No separate
+        # journal_metric key is emitted any more (it was a per-paper SJR double).
+        d["journal_rank"] = rank_filter.journal_rank_dict(getattr(p, "journal_rank", None))
         if verify:
             v = _verify_paper(p)
             d["verify"] = v
@@ -1494,6 +1518,25 @@ def run_agent_search(
         switchable = list(rank_lookup.loaded_platforms)
         if rank_plan.platform in journal_rank.ATTRIBUTION:
             rank_attribution = journal_rank.ATTRIBUTION.get(rank_plan.platform)
+    # D2 hint: bare numeric --keep-tiers with no --rank-platform are read as the
+    # DEFAULT platform's quartiles (factory jcr), which surprises users thinking in
+    # 中科院 "区". Surface a clear, deterministic note when that mapping happened.
+    keep_tiers_note = None
+    if (
+        rank_platform is None
+        and keep_tiers
+        and rank_plan.source == "flags"
+        and rank_plan.platform in ("jcr", "sjr")
+        and rank_plan.quartiles
+    ):
+        bare = [str(t).strip() for t in keep_tiers if str(t).strip().isdigit()]
+        if bare:
+            keep_tiers_note = (
+                f"--keep-tiers {','.join(bare)} had no --rank-platform, so the bare "
+                f"numbers were read as {rank_plan.platform.upper()} quartiles "
+                f"{','.join(rank_plan.quartiles)} (the default platform). For 中科院 "
+                f"区 pass --rank-platform cas."
+            )
     rank_meta = {
         "platform": rank_plan.platform,
         "platform_source": rank_plan.source,  # flags | intent | default | none
@@ -1524,6 +1567,7 @@ def run_agent_search(
         },
         "attribution": rank_attribution,
         "note": rank_load_note,
+        "keep_tiers_note": keep_tiers_note,
         "naming": (
             "CAS 区 & SJR best_quartile are PARTITIONS; only JCR impact_factor is a "
             "real Impact Factor (R-04/R-09). 切换标准/档位 = 重筛已标注的候选池，不重搜。"
@@ -1548,25 +1592,32 @@ def run_agent_search(
             "returned": len(data),
         },
         "rank": rank_meta,
-        "journal_metric": {
+        # Journal-enrichment audit for the SINGLE journal_rank layer (the legacy
+        # SJR-only journal_metric block + per-paper key are retired). This reports
+        # what got attached to journal_rank; the partition-filter decision lives in
+        # ``meta.rank``.
+        "enrichment": {
             "enriched": bool(enrich_journal),
-            "sjr_loaded": sjr_lookup is not None,
-            "sjr_source": str(sjr_lookup.source_path) if sjr_lookup is not None else None,
-            "impact_source": "openalex_summary_stats" if impact_lookup is not None else None,
+            # OpenAlex open impact attached into journal_rank.openalex (CC0).
+            "impact_source": impact_source,  # "openalex_summary_stats" | None
+            "impact_attached": impact_attached,
+            # --quartile filters journal_rank.sjr.best_quartile; --min-impact filters
+            # journal_rank.openalex.mean_citedness_2yr (an OPEN impact figure, NOT a
+            # JCR Impact Factor — R-04/R-09).
             "filter_quartiles": sorted(want_quartiles) if want_quartiles else None,
             "filter_min_impact": min_impact,
             "category": journal_category,
-            # SS-primary ISSN backfill audit (R-08, open item #3): whether the
-            # backfill ran, how many SS records lacked an ISSN, and how many were
-            # recovered via a free OA DOI lookup.
+            # SS-primary ISSN backfill audit (R-08): whether the backfill ran, how
+            # many SS records lacked an ISSN, and how many were recovered via a free
+            # OA DOI lookup so the journal_rank join is not silently lost.
             "issn_backfill_enabled": bool(issn_backfill),
             "issn_backfill_attempted": issn_backfill_attempted,
             "issn_backfilled": issn_backfilled,
-            "attribution": (sjr_helper.SJR_ATTRIBUTION if sjr_lookup is not None else None),
             "note": (
-                "SJR分区/期刊影响力 — NOT a JCR Impact Factor (R-04/R-09). "
-                "openalex_2yr_mean_citedness is an OPEN impact figure for relative "
-                "ranking only. Quartiles require a cached SJR CSV."
+                "Single journal_rank layer. Quartile/影响力 data lives in each "
+                "paper's journal_rank (CAS/JCR/SJR + openalex). Partition data is "
+                "cached under ~/.paper-search-pro/ranks/ (run `journal_rank fetch`, "
+                "no API key needed). Only JCR IF(2024) is a real Impact Factor."
             ),
         },
         "relevance": {
@@ -1657,30 +1708,36 @@ def _main_cli() -> int:
     parser.add_argument(
         "--quartile",
         default=None,
-        help="Comma-separated SJR quartiles to KEEP, e.g. 'Q1,Q2'. OPT-IN filter "
-        "(metric is always attached). SJR分区, NOT JCR (R-04). Needs a cached SJR CSV.",
+        help="Comma-separated SJR quartiles to KEEP, e.g. 'Q1,Q2'. OPT-IN filter on "
+        "journal_rank.sjr.best_quartile (the single layer). SJR分区, NOT JCR (R-04). "
+        "Needs cached journal-rank data (run `journal_rank fetch`, lands in "
+        "~/.paper-search-pro/ranks/). For 区/category control use --rank-platform.",
     )
     parser.add_argument(
         "--min-impact",
         type=float,
         default=None,
-        help="Drop papers whose OPEN journal impact (OpenAlex 2yr mean citedness) "
-        "is below this. R-09: this is NOT the JCR Impact Factor; relative use only.",
+        help="Drop papers whose OPEN journal impact (journal_rank.openalex "
+        "mean_citedness_2yr, OpenAlex 2yr mean citedness) is below this. R-09: this "
+        "is NOT the JCR Impact Factor; relative use only.",
     )
     parser.add_argument(
         "--journal-category",
         default=None,
-        help="Pin the SJR quartile to a specific category (else the journal's best).",
+        help="DEPRECATED (legacy SJR-only layer). Use --rank-platform sjr "
+        "--rank-category to pin a per-category quartile in the single layer.",
     )
     parser.add_argument(
         "--sjr-csv",
         default=None,
-        help="Explicit SJR CSV path (else newest in ~/.paper-search-pro/sjr/).",
+        help="DEPRECATED / ignored: the legacy sjr_helper SJR-only path is retired. "
+        "Cache SJR data with `journal_rank fetch --platform sjr` (-> ranks/) instead.",
     )
     parser.add_argument(
         "--no-journal-metric",
         action="store_true",
-        help="Skip journal_metric enrichment entirely (slots stay None).",
+        help="Skip journal-rank enrichment entirely (journal_rank stays None: no "
+        "partition labels, no OpenAlex open impact).",
     )
     parser.add_argument(
         "--rank-platform",
@@ -1719,10 +1776,10 @@ def _main_cli() -> int:
         "--no-issn-backfill",
         action="store_true",
         help="On the SS-primary path, do NOT recover missing ISSNs via free "
-        "OpenAlex DOI lookups. Default is ON (so SJR quartiles are not silently "
-        "lost). Turn off for large SS result sets to save per-paper OA calls; "
-        "papers then stay unjoinable (journal_metric.issn_backfill_needed stays "
-        "visible). No effect on the OpenAlex-primary or human path.",
+        "OpenAlex DOI lookups. Default is ON (so the journal_rank join is not "
+        "silently lost). Turn off for large SS result sets to save per-paper OA "
+        "calls; papers then stay unjoinable (the meta.enrichment.issn_backfill_* "
+        "audit keeps the gap visible). No effect on the OpenAlex-primary or human path.",
     )
     parser.add_argument(
         "--verify-refs",

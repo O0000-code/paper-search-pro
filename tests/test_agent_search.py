@@ -299,11 +299,14 @@ def test_run_agent_search_full_envelope_openalex():
     assert isinstance(env["data"], list) and len(env["data"]) == 2
     # Sorted by relevance: KT (full coverage + cites) ranks first.
     assert env["data"][0]["doi"] == "10.2307/1914185"
-    # Every paper carries the heuristic relevance + reserved journal_metric slot.
+    # Every paper carries the heuristic relevance + the SINGLE journal_rank slot
+    # (None here: no ISSN, no cached rank data). The legacy per-paper journal_metric
+    # key is retired (v2.2 single-layer collapse).
     for p in env["data"]:
         assert p["relevance"]["method"] == "heuristic_v1"
         assert p["relevance"]["is_llm_rcs"] is False
-        assert "journal_metric" in p and p["journal_metric"] is None
+        assert "journal_metric" not in p
+        assert "journal_rank" in p and p["journal_rank"] is None
     m = env["meta"]
     assert m["source_used"] == "openalex"
     assert m["counts"]["retrieved_raw"] == 5
@@ -465,7 +468,7 @@ def test_no_issn_backfill_skips_oa_lookups_on_ss_primary():
         )
     assert env["ok"] is True
     assert env["meta"]["source_used"] == "semantic_scholar"
-    jm = env["meta"]["journal_metric"]
+    jm = env["meta"]["enrichment"]
     assert jm["issn_backfill_enabled"] is False
     assert jm["issn_backfill_attempted"] == 0
     assert jm["issn_backfilled"] == 0
@@ -496,7 +499,7 @@ def test_issn_backfill_default_on_attempts_oa_lookup():
             per_strategy=5, issn_backfill=True, now_year=2026,
         )
     assert env["ok"] is True
-    jm = env["meta"]["journal_metric"]
+    jm = env["meta"]["enrichment"]
     assert jm["issn_backfill_enabled"] is True
     assert jm["issn_backfill_attempted"] == 1
     assert jm["issn_backfilled"] == 1

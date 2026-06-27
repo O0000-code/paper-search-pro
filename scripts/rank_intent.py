@@ -15,12 +15,26 @@ Design boundaries
 - **Pure + deterministic + network-free.** Just regex over the query string.
 - **Both Chinese and English** trigger phrasing is recognised (一区 / 1区 / Q1 /
   top-tier / quartile ...).
-- **Bare "Q1"/"Q2" with no platform word is AMBIGUOUS** — we record the intent
-  (the tiers) but mark ``ambiguous=True`` and do NOT guess a platform. The
-  headless CLI surfaces this in ``meta.rank.ambiguous`` so the *calling agent*
-  asks the user (interactive Q&A is an agent-layer concern, not a CLI one); the
-  human path (Wave A-3) asks inline. Either way the recogniser never silently
-  picks a platform for a bare quartile.
+- **A rank intent with no resolvable platform is AMBIGUOUS** — this covers BOTH a
+  bare "Q1"/"Q2" (no platform word) AND a bare "顶刊"/"top journal" (no platform
+  word). We record the intent (tiers/quartiles/top) but mark ``ambiguous=True``,
+  do NOT guess a platform, and expose ``candidate_platforms`` (the platforms the
+  caller could ask the user about). The headless CLI surfaces this in
+  ``meta.rank.ambiguous`` so the *calling agent* asks the user (interactive Q&A is
+  an agent-layer concern, not a CLI one); the human path (Wave A-3) asks inline.
+  Either way the recogniser never silently picks a platform — and, crucially,
+  never silently *drops* a stated intent (the anti-goal this module exists to kill:
+  a stripped "顶刊" must not vanish without either filtering or asking).
+- **Latin platform keywords only strip in a real partition context.** A bare Latin
+  platform word (wos / web of science / scopus / jcr / sjr / scimago / clarivate /
+  cas) is treated as a journal-rank hint ONLY when it sits next to a tier/quartile
+  (e.g. "JCR Q1"), is followed by "分区", or co-occurs with top-journal intent
+  (e.g. "JCR 顶刊"). When it is a *research topic* — followed by ordinary words like
+  coverage / analysis / comparison / database, or standing as the query subject
+  ("Web of Science coverage analysis", "WoS coverage", "CAS registry number") — it
+  is left untouched: ``cleaned_query == query`` byte-for-byte and no platform is
+  guessed. CJK CAS words (中科院 / 科院分区) keep substring-hint semantics (they never
+  collide with ordinary English topics).
 - Reused by BOTH the headless path (agent_search, now) and the human 14-STEP
   path (SKILL.md STEP 1, Wave A-3) so intent parsing is identical on both.
 
@@ -31,11 +45,16 @@ Output contract (``RankIntent``)
     tiers         : [int, ...] | None               (CAS 区 numbers, e.g. [1] or [1,2])
     quartiles     : ["Q1", ...] | None              (JCR/SJR quartiles)
     top           : bool                            ("顶刊" / "top journal" only)
-    ambiguous     : bool                            (a quartile/tier was stated but
-                                                     no platform could be resolved)
+    ambiguous     : bool                            (a tier/quartile OR a bare "顶刊"/
+                                                     "top journal" was stated but no
+                                                     platform could be resolved)
     cleaned_query : str                             (query with rank phrasing removed)
     matched       : [str, ...]                      (the raw phrases we stripped —
                                                      for transparency / debugging)
+    candidate_platforms : [str, ...]                (when ambiguous: the platforms the
+                                                     caller could ask the user about —
+                                                     [jcr,sjr] for a bare quartile,
+                                                     [cas,jcr,sjr] for a bare top-only)
 
 Platforms map onto their native taxonomy:
     CAS  -> ``tiers`` (区 1-4)         "中科院一区" -> platform=cas, tiers=[1]
@@ -67,6 +86,7 @@ class RankIntent:
     ambiguous: bool = False
     cleaned_query: str = ""
     matched: List[str] = field(default_factory=list)
+    candidate_platforms: List[str] = field(default_factory=list)  # set when ambiguous
 
     @property
     def has_filter(self) -> bool:
@@ -174,8 +194,15 @@ _PLATFORM_QUARTILE_RE = re.compile(
 _BARE_QUARTILE_RE = re.compile(r"\bq\s*([1-4])\b", re.IGNORECASE)
 
 # "top journal" / "顶刊" / "顶级期刊" / "top-tier" / "top tier".
+# A leading Chinese filler ("只要"/"想要"/"只想要" = "I just want …") and a trailing
+# "的" (the nominaliser that glues 顶刊 to the topic, e.g. "只要顶刊的认知") are
+# OPTIONALLY consumed as part of the match so the strip leaves no dangling "只要"/"的"
+# residue ("只要顶刊的认知" -> "认知", not "只要 的认知"). The top phrase itself stays
+# mandatory, so a bare "只要"/"的" with no 顶刊 is never touched.
 _TOP_RE = re.compile(
-    r"(顶刊|顶级期刊|顶尖期刊|top[\s-]*tier|top[\s-]*journals?)",
+    r"(?:只要|想要|只想要)?\s*"
+    r"(顶刊|顶级期刊|顶尖期刊|top[\s-]*tier|top[\s-]*journals?)"
+    r"(?:\s*的)?",
     re.IGNORECASE,
 )
 
@@ -298,32 +325,52 @@ def parse_rank_intent(query: Optional[str]) -> RankIntent:
     work = _CAS_BARE_TIER_RE.sub(" ", work)
 
     # --- 4. standalone platform words with no tier/quartile (hint only) ---------
-    # e.g. "中科院" alone, or "SJR" alone — sets the platform but no tier filter.
-    # Latin keywords are matched as WHOLE tokens (boundary-fenced) so an ordinary
-    # English topic that merely CONTAINS the letters ("broadcast"/"WoS coverage"
-    # vs. the standalone word) is never mistaken for a platform hint and never
-    # corrupted in cleaned_query — the R-19 "no intent -> query unchanged" red line.
+    # e.g. "中科院" alone, or "JCR 顶刊" — sets the platform but no tier filter.
+    #
+    # Latin keywords are matched as WHOLE tokens (boundary-fenced), AND a bare Latin
+    # platform word is only treated as a platform HINT when it is in a *real
+    # partition context*: immediately followed by "分区", or the query also carries
+    # top-journal intent ("JCR 顶刊"). A bare Latin platform word followed by ordinary
+    # research words ("WoS coverage analysis", "Web of Science database") is a
+    # research TOPIC, not a filter — stripping it there both guessed a bogus platform
+    # AND corrupted the search term sent to the engine (review_A_alpha P1-① / review2
+    # P2-2). When it is a topic we leave it untouched: cleaned_query == query and no
+    # platform is guessed — the R-19 "no intent -> query unchanged" red line.
+    # CJK CAS words (中科院 / 科院分区) keep substring-hint semantics (they never collide
+    # with ordinary English topics).
+    top_ctx = bool(_TOP_RE.search(work))  # 顶刊/top is still in `work` (stripped in step 6)
     if platform is None:
         for words, plat in ((_SJR_WORDS, "sjr"), (_JCR_WORDS, "jcr")):
             for w in words:
                 token = _LATIN_BDRY_L + re.escape(w) + _LATIN_BDRY_R
-                if re.search(token, work, re.IGNORECASE):
-                    platform = plat
-                    matched.append(w)
-                    work = re.sub(token, " ", work, flags=re.IGNORECASE)
-                    break
+                mm = re.search(token, work, re.IGNORECASE)
+                if not mm:
+                    continue
+                followed_by_fenqu = re.match(r"\s*分区", work[mm.end():]) is not None
+                if not (followed_by_fenqu or top_ctx):
+                    continue  # research topic, not a filter — leave it untouched
+                platform = plat
+                matched.append(w)
+                strip = token + r"\s*分区" if followed_by_fenqu else token
+                work = re.sub(strip, " ", work, flags=re.IGNORECASE)
+                break
             if platform:
                 break
     if platform is None:
-        # CJK CAS words ("中科院" / "科院分区") match as substrings; the Latin "cas"
-        # form is boundary-fenced (so "broadcast"/"showcase" never set platform=cas).
+        # CJK CAS words ("中科院" / "科院分区") match as substrings and are always a
+        # platform hint. The Latin "cas" word is gated like the others above (so a
+        # topic such as "CAS registry number" is never read as the CAS platform).
         m = _CAS_CJK_WORD_RE.search(work)
-        if m is None:
-            m = _CAS_LATIN_WORD_RE.search(work)
         if m:
             platform = "cas"
             matched.append(m.group(0))
             work = work[: m.start()] + " " + work[m.end() :]
+        else:
+            m = _CAS_LATIN_WORD_RE.search(work)
+            if m and ("分区" in m.group(0) or top_ctx):
+                platform = "cas"
+                matched.append(m.group(0))
+                work = work[: m.start()] + " " + work[m.end() :]
 
     # --- 5. bare quartile with no platform: "Q1" -> ambiguous ------------------
     for m in list(_BARE_QUARTILE_RE.finditer(work)):
@@ -350,9 +397,19 @@ def parse_rank_intent(query: Optional[str]) -> RankIntent:
         quartiles = _quartiles_from_tiers(tiers)
         tiers = []
 
-    # --- ambiguity: a quartile/tier was stated but no platform resolved --------
+    # --- ambiguity: a tier/quartile OR a bare "顶刊"/"top" was stated but no -----
+    # platform could be resolved. Bare quartile and top-only are handled the SAME
+    # way: record the intent, flag it ambiguous, and hand the caller a candidate
+    # list so it can ASK "which platform?" instead of silently dropping the intent
+    # (a stripped "顶刊" that neither filters nor asks is the exact anti-goal — P1).
     stated_filter = bool(tiers or quartiles)
-    intent.ambiguous = stated_filter and platform is None
+    intent.ambiguous = (stated_filter or intent.top) and platform is None
+    if intent.ambiguous:
+        # top applies to all three platforms (cas.top / jcr,sjr Q1); a bare quartile
+        # is a JCR/SJR concept (CAS uses 区 numerals, never Q).
+        intent.candidate_platforms = (
+            ["cas", "jcr", "sjr"] if intent.top else ["jcr", "sjr"]
+        )
 
     intent.platform = platform
     intent.tiers = tiers or None

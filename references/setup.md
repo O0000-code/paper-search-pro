@@ -126,6 +126,31 @@ curl -s -H 'User-Agent: paper-search-pro/2.0 (mailto:YOUR_EMAIL)' \
 
 The arxiv helper enforces this automatically.
 
+## Optional — journal partitions (中科院分区 / JCR / SJR; NO API key)
+
+Only needed if you want to **filter or label results by journal tier** (中科院一区, JCR Q1, SJR quartile, 顶刊, `--quartile`, `--rank-platform`). This is a one-time data fetch — **independent of all five keys above**: it pulls public GitHub-raw mirrors over plain HTTP, so **no OpenAlex / SS / any API key is required**.
+
+| | |
+|---|---|
+| Apply at | (none — no key, no signup) |
+| Cost | Free |
+| One-time fetch | `PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank fetch` |
+| Data lands in | `~/.paper-search-pro/ranks/` (`cas_2025.csv` / `jcr_2024.csv` / `sjr_2024.csv`) |
+| Re-fetch | init-once (a present, fresh file is never re-downloaded); rankings update ~once a year |
+
+```bash
+# One-time: pull all three platforms (CAS / JCR / SJR) into ~/.paper-search-pro/ranks/
+PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank fetch
+# Confirm what cached:
+PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank info
+```
+
+- Data is **never bundled in this repo** — it is fetched at runtime into your local cache, with the source platform's attribution surfaced wherever a partition is shown (CAS 中科院文献情报中心 · 勿公开传播 / JCR © Clarivate / SJR © SCImago, non-commercial cited use — **not** CC BY-NC). Only JCR IF(2024) is a real Impact Factor; CAS 区 and SJR quartile are partitions, and the "期刊影响力" figure is OpenAlex 2-year mean citedness (an open metric, relative use only — R-04/R-09).
+- **`ranks/` is the single source of truth** for journal partitions. A pre-v2.2 legacy `~/.paper-search-pro/sjr/` directory is no longer used by the search pipeline — you can ignore (or delete) it; run the `journal_rank fetch` above to populate `ranks/` instead.
+- Without this fetch, searches still run normally — papers simply carry no partition labels and a partition filter (`--quartile` / `--rank-platform`) cannot be honoured (the run reports this in `meta.rank.note` and continues, never errors). See `references/journal_metrics.md` for the full partition model.
+
+See `references/journal_metrics.md` for the complete journal-rank model (platforms, switching, R-04 naming).
+
 ## Full config.yaml template
 
 After collecting keys, write to `~/.paper-search-pro/config.yaml` (the helper auto-creates this from defaults on first run; you only need to edit it):

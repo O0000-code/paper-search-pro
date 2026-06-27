@@ -9,9 +9,12 @@ top of it — the platform-agnostic functions that BOTH the headless path
 
     annotate_papers(papers, lookup)      -> attach ``paper.journal_rank`` per paper
     filter_by_rank(papers, platform, ...) -> keep the ones in the wanted tiers/top
-    rank_metric_dict(journal_rank)        -> JSON-safe ``journal_metric`` dict per
-                                             spec §3 (the unified three-platform
-                                             schema; R-04 naming enforced)
+    journal_rank_dict(journal_rank)       -> JSON-safe ``journal_rank`` dict per
+                                             spec §3 (the unified multi-platform
+                                             schema CAS/JCR/SJR + OpenAlex open
+                                             impact; R-04 naming enforced).
+                                             ``rank_metric_dict`` is a back-compat
+                                             alias for the same function.
 
 Design invariants
 -----------------
@@ -263,25 +266,35 @@ def filter_by_rank(
 
 
 # ---------------------------------------------------------------------------
-# Serialisation: unified three-platform journal_metric dict (spec §3)
+# Serialisation: unified multi-platform journal_rank dict (spec §3)
 # ---------------------------------------------------------------------------
 
 
-def rank_metric_dict(rank) -> Optional[Dict]:
-    """Serialise a ``JournalRank`` into the unified ``journal_metric`` dict (spec §3).
+def journal_rank_dict(rank) -> Optional[Dict]:
+    """Serialise a ``JournalRank`` into the unified ``journal_rank`` dict (spec §3).
 
-    Returns None when ``rank`` is None or carries no platform data. R-04 / R-09
-    naming is enforced: only the JCR slot exposes ``impact_factor`` (the real IF);
-    CAS exposes ``tier`` (区, a partition), SJR exposes a quartile. Nothing here is
-    named "影响因子" except the genuine JCR IF."""
+    This is the SINGLE serialisation point for the multi-platform record — both the
+    headless agent envelope and the human report render through it, so the schema
+    can never drift between modes. The output carries four slots: CAS 区 / JCR
+    Q·IF / SJR Q + an ``openalex`` open-impact slot ({mean_citedness_2yr, h_index}).
+
+    Returns None when ``rank`` is None or carries no data at all (no platform AND no
+    OpenAlex impact). R-04 / R-09 naming is enforced: only the JCR slot exposes
+    ``impact_factor`` (the real IF); CAS exposes ``tier`` (区, a partition), SJR
+    exposes a quartile, and the OpenAlex slot is ``mean_citedness_2yr`` — never named
+    "影响因子" / "impact_factor"."""
     if rank is None:
         return None
-    if not (rank.cas or rank.jcr or rank.sjr):
+    oa = getattr(rank, "openalex", None)
+    if not (rank.cas or rank.jcr or rank.sjr or oa):
         return None
     out: Dict = {
         "cas": None,
         "jcr": None,
         "sjr": None,
+        # OPEN journal-impact (CC0) — NOT an Impact Factor (R-04/R-09). None unless
+        # the search pipeline attached it from OpenAlex summary_stats.
+        "openalex": dict(oa) if isinstance(oa, dict) else None,
         "matched_issn": rank.matched_issn,
         "matched_platforms": list(rank.matched_platforms or []),
     }
@@ -312,9 +325,15 @@ def rank_metric_dict(rank) -> Optional[Dict]:
     return out
 
 
+#: Back-compat alias. The output was historically called the "journal_metric dict"
+#: (spec §3); it is the journal_rank dict. Existing callers/imports keep working.
+rank_metric_dict = journal_rank_dict
+
+
 __all__ = [
     "annotate_papers",
     "filter_by_rank",
     "normalize_keep_tiers",
+    "journal_rank_dict",
     "rank_metric_dict",
 ]

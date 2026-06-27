@@ -54,10 +54,13 @@ One command runs the full deterministic core, in order, with NONE of it skippabl
    Cannot be silently skipped.
 6. **Saturation signal** — advisory marginal-yield + score-distribution signals.
 7. **Quota probe** — a single OpenAlex rate-limit snapshot.
-8. **Journal metric** — legacy SJR quartile + OpenAlex open impact per paper.
-9. **Journal rank** — multi-platform partition (中科院 / JCR / SJR) per paper, plus
-   NL-intent recognition (`中科院一区` → filter, stripped from the query), optional
-   tier filter, and adaptive deepening when a tier filter runs short (see below).
+8. **Journal rank** (the SINGLE journal layer, v2.2 collapse) — multi-platform
+   partition (中科院 / JCR / SJR) per paper, each as a sub-slot, plus an `openalex`
+   open-impact sub-slot (2yr mean citedness + h-index). Includes NL-intent
+   recognition (`中科院一区` → filter, stripped from the query), optional tier filter,
+   and adaptive deepening when a tier filter runs short (see below). The old SJR-only
+   per-paper `journal_metric` step is retired — its SJR quartile + OpenAlex impact now
+   live inside `journal_rank`.
 
 It **never** renders HTML, **never** writes a PRISMA log, and **never** dispatches
 an LLM classification SubAgent. Those are human-recipe concerns.
@@ -79,18 +82,13 @@ an LLM classification SubAgent. Those are human-recipe concerns.
                                                  "abstract_coverage": 0.0,
                                                  "citation_signal": 0.0,
                                                  "recency_signal": 0.0 } },
-              "journal_metric": { "sjr_quartile": "Q1|Q2|Q3|Q4|null",  /* LEGACY SJR-only layer */
-                                  "sjr_category_quartiles": { "<category>": "Qn" },
-                                  "openalex_2yr_mean_citedness": 0.0,
-                                  "h_index": 0,
-                                  "sjr_attribution": "…SCImago custom terms…|null",
-                                  "issn_backfill_needed": false }  /* or null */,
-              "journal_rank":   { "cas": { "tier": 1, "rank": "5/100", "top": true,  /* MULTI-PLATFORM layer */
+              "journal_rank":   { "cas": { "tier": 1, "rank": "5/100", "top": true,  /* THE single journal layer */
                                            "minor": [{"category","tier","rank"}], "source_year": 2025 },
                                   "jcr": { "quartile": "Q1", "impact_factor": 48.5,  /* the ONLY real IF */
                                            "rank": "2/135", "category": "…", "source_year": 2024 },
                                   "sjr": { "best_quartile": "Q1", "sjr": 14.5,
                                            "per_category": [{"category","quartile"}], "source_year": 2024 },
+                                  "openalex": { "mean_citedness_2yr": 0.0, "h_index": 0 },  /* OPEN impact, NOT an IF (R-04/R-09) */
                                   "matched_issn": "0028-0836",
                                   "matched_platforms": ["cas","jcr","sjr"] }  /* or null; each slot independently null */,
               "verify":         { … } /* only with --verify */ },
@@ -101,17 +99,17 @@ an LLM classification SubAgent. Those are human-recipe concerns.
                     "after_journal_filter", "after_rank_filter", "returned" },
     "relevance":  { "method": "heuristic_v1", "is_llm_rcs": false,
                     "min_relevance", "weights": {}, "note" },
-    "journal_metric": { "enriched", "sjr_loaded", "sjr_source", "impact_source",
-                        "filter_quartiles", "filter_min_impact", "category",
-                        "issn_backfilled", "issn_backfill_attempted",
-                        "attribution", "note" },  /* LEGACY SJR-only layer */
+    "enrichment": { "enriched", "impact_source", "impact_attached",
+                    "filter_quartiles", "filter_min_impact", "category",
+                    "issn_backfill_enabled", "issn_backfill_attempted",
+                    "issn_backfilled", "note" },  /* single journal_rank layer audit */
     "rank":       { "platform", "platform_source", "keep_tiers", "keep_quartiles",
                     "top_only", "category", "applied_filter", "ambiguous",
                     "candidate_platforms", "kept", "filtered", "no_platform_data",
                     "data_loaded", "loaded_platforms", "switchable_platforms",
                     "switch_is_refilter_not_research", "stripped_phrases",
                     "deepen": { "active", "rounds", "saturated", "final_per_strategy" },
-                    "attribution", "note", "naming" },  /* MULTI-PLATFORM layer */
+                    "attribution", "note", "keep_tiers_note", "naming" },  /* journal_rank partition-filter decision */
     "saturation": { "method": "heuristic_v1", "advisory": true, "looks_saturated",
                     "per_strategy_new_papers": [], "last_strategy_marginal_yield",
                     "score_distribution": { "high", "medium", "low" }, "note" },
@@ -156,23 +154,24 @@ Process **exit code mirrors `error.code`** so a non-LLM caller can branch on `$?
 | `--limit N` | int / all | Max papers returned after scoring + filtering. |
 | `--min-relevance X` | float / `0.0` | Drop papers scoring below `X` (0..1). Scoring is ALWAYS computed; this only filters what is RETURNED. |
 | `--verify` | flag / off | Attach per-paper existence + abstract + cross-source consistency markers (see below). |
-| `--quartile Q1,Q2` | csv / none | **Legacy SJR-only** layer. Keep only these SJR quartiles. OPT-IN filter; metric is always attached. Needs a cached SJR CSV. SJR分区, **NOT** JCR (R-04). |
-| `--min-impact X` | float / none | **Legacy SJR-only** layer. Drop papers whose OPEN journal impact (OpenAlex 2yr mean citedness) is below `X`. **NOT** the JCR Impact Factor (R-09); relative use only. |
-| `--journal-category NAME` | str / none | **Legacy SJR-only** layer. Pin the SJR quartile to one category (else the journal's best). Avoids a marginal category inflating to Q1. |
-| `--sjr-csv PATH` | str / none | **Legacy SJR-only** layer. Explicit SJR CSV path (else newest in `~/.paper-search-pro/sjr/`). |
-| `--no-journal-metric` | flag / off | Skip the legacy journal_metric enrichment entirely (slots stay `null`). |
+| `--quartile Q1,Q2` | csv / none | OPT-IN filter on `journal_rank.sjr.best_quartile` (the single layer); keep only these SJR quartiles. The partition is always attached. Needs cached journal-rank data (`journal_rank fetch` → `ranks/`). SJR分区, **NOT** JCR (R-04). For 区/category control use `--rank-platform`. |
+| `--min-impact X` | float / none | Drop papers whose OPEN journal impact (`journal_rank.openalex.mean_citedness_2yr`, OpenAlex 2yr mean citedness) is below `X`. **NOT** the JCR Impact Factor (R-09); relative use only. |
+| `--journal-category NAME` | str / none | **DEPRECATED** (legacy SJR-only layer). Use `--rank-platform sjr --rank-category` to pin a per-category quartile in the single layer. |
+| `--sjr-csv PATH` | str / none | **DEPRECATED / ignored** — the legacy sjr_helper SJR-only path is retired. Cache SJR data with `journal_rank fetch --platform sjr` (→ `ranks/`) instead. |
+| `--no-journal-metric` | flag / off | Skip journal-rank enrichment entirely (`journal_rank` stays `null`: no partition labels, no OpenAlex open impact). |
 | `--rank-platform {cas,jcr,sjr}` | choice / none | **Multi-platform layer** (the A-line partition feature). The platform to FILTER on this run: `cas` (中科院 区) / `jcr` / `sjr`. Omit to take the platform from the query's NL intent (`中科院一区` → cas), else config `rank.default_platform` (which only LABELS, never filters). CAS 区 & SJR quartile are PARTITIONS; only JCR is a real IF (R-04). |
 | `--keep-tiers 1,2` | csv / none | **Multi-platform layer.** Tiers/quartiles to KEEP, mapped onto the chosen platform: CAS uses 区 numbers (`1,2`); JCR/SJR use quartiles (`Q1,Q2`). OPT-IN: with none given every paper is labelled with all three platforms but nothing is filtered. With a tier filter the search ADAPTIVELY DEEPENS to meet the target count. |
 | `--rank-category NAME` | str / none | **Multi-platform layer.** Pin the partition to a specific sub-category instead of the journal's best/大类: CAS reads the **小类 tier** for that category, SJR reads the **per-category quartile**, JCR (no per-category quartile in the source) treats it as a **category-membership gate**. A journal not present in the pinned category is filtered out. Category match is case-insensitive substring. |
 | `--deepen-target N` | int / `--limit` or 10 | **Multi-platform layer.** Target survivor count adaptive deepening aims for when a tier filter is active. Deepening re-retrieves at greater depth and RE-FILTERS the same annotated pool — switching platform/tier afterwards is a re-filter, not a re-search. |
-| `--no-issn-backfill` | flag / off (backfill ON by default) | **SS-primary path only.** By default, SS records missing an ISSN but with a DOI get a free OpenAlex single-paper lookup to recover the ISSN so the SJR join is not silently lost. Pass this to skip those per-paper lookups on large SS result sets — papers then stay unjoinable (`journal_metric.issn_backfill_needed` stays visible). No effect on the OpenAlex path. `meta.journal_metric.issn_backfill_enabled` reports the gate. |
+| `--no-issn-backfill` | flag / off (backfill ON by default) | **SS-primary path only.** By default, SS records missing an ISSN but with a DOI get a free OpenAlex single-paper lookup to recover the ISSN so the `journal_rank` join is not silently lost. Pass this to skip those per-paper lookups on large SS result sets — papers then stay unjoinable (the `meta.enrichment.issn_backfill_*` audit keeps the gap visible). No effect on the OpenAlex path. `meta.enrichment.issn_backfill_enabled` reports the gate. |
 | `--verify-refs FILE.json` | path / none | **Anti-hallucination mode** (instead of a topic search): verify whether a list of references actually EXIST. The positional query is omitted. See the dedicated section below. |
 
 All filters follow one contract: **signal-as-knob.** The underlying value
-(relevance score, journal metric) is always computed and attached to every paper;
-the flag only decides which papers are returned. `meta.counts` exposes the count
-at each stage (`after_relevance_filter`, `after_journal_filter`) so the filtering
-is fully auditable.
+(relevance score, journal rank / open impact) is always computed and attached to
+every paper; the flag only decides which papers are returned. `meta.counts` exposes
+the count at each stage (`after_relevance_filter`, `after_journal_filter` for
+`--quartile`/`--min-impact`, `after_rank_filter` for the `--rank-platform` tier
+filter) so the filtering is fully auditable.
 
 ---
 
@@ -204,6 +203,24 @@ stopwords (incl. academic-noise words like `study/review/effect/role`) → keep
 length ≥ 3 → dedupe. Coverage is by **token-set membership** (not substring), so
 `cat` does not match `category`.
 
+**Caveat under SS-primary: the default order under-ranks abstract-less classics.**
+The 0.25 abstract weight assumes records carry an abstract. On OpenAlex they almost
+always do; on the **Semantic Scholar** path they often do not — the SS bulk endpoint
+returns abstracts for only a minority of records (measured ≈40% on "prospect
+theory"), and the gap concentrates on **highly-cited foundational works** (old
+classics come back with `abstract=None`). For those papers the abstract term scores
+0, the total collapses toward `title(0.50)+recency(0.10)`, and recent low-cited
+papers that *do* carry an abstract can outrank the seminal ones — measured: under
+SS-primary, Kahneman & Tversky 1979 (36,671 cites) fell to rank #7 (score 0.65,
+`abstract_coverage:0.0`) behind 2022/2026 papers at ≈0.87. This is a known
+`heuristic_v1` × SS-data-shape interaction, **not a bug**: every signal is still
+present and transparent (`components` and `citation_count` are returned per paper).
+So when `meta.source_used == "semantic_scholar"`, do **not** trust the default
+relevance order for finding canonical work — **re-rank by `citation_count` (or fold
+it into your own ranking)** before deciding what to read. (Compounding factor: these
+same old classics often also lack a backfillable ISSN, so they miss the
+`journal_rank` join too — see `references/journal_metrics.md`.)
+
 ---
 
 ## `--verify` — existence & consistency markers (no extra network)
@@ -224,6 +241,14 @@ fetched record — **zero extra API calls, impossible to fabricate**:
 missing_title_or_year. (This verify does NOT HTTP-resolve each DOI — "came from a
 real source query" is already strong existence evidence; resolving per-DOI would
 add latency + a new failure surface for no contract gain.)
+
+**`multi_source` has little discriminative power in this mode.** `agent_search`
+retrieves from a *single* primary source, so a paper is almost never hit by ≥2
+sources in one run — `multi_source` is `false` and `flags` carries `single_source`
+for essentially every paper (measured: 5/5). Read it as an artifact of single-source
+retrieval, **not** as a reliability red flag. For genuine **cross-source existence**
+verification (the anti-hallucination use case), use `--verify-refs` below, which
+actually queries OpenAlex → CrossRef → SS per reference.
 
 ---
 
@@ -295,9 +320,9 @@ Routing is set in `~/.paper-search-pro/config.yaml` (`primary_source`):
 - `semantic_scholar` — SS as primary. **Requires `semantic_scholar_api_key`**
   (SS 429s instantly on the shared pool without a key, R-06). SS-primary records
   often lack an ISSN; `agent_search` backfills it via a free OpenAlex DOI lookup
-  so the SJR join is not silently lost (`meta.journal_metric.issn_backfilled`
+  so the `journal_rank` join is not silently lost (`meta.enrichment.issn_backfilled`
   reports how many were recovered). Papers with no DOI stay unjoinable, and the
-  gap stays visible (`journal_metric.issn_backfill_needed`).
+  gap stays visible (`meta.enrichment.issn_backfill_*`).
 - `auto` — OpenAlex normally, but a run-level quota probe stickily falls back to
   SS when the OpenAlex USD budget runs low (`quota_fallback`,
   `quota_fallback_threshold_usd`). `meta.ratelimit.switched_source` reports it.
@@ -308,9 +333,12 @@ Routing is set in `~/.paper-search-pro/config.yaml` (`primary_source`):
 
 ## Multi-platform journal partitions (中科院 / JCR / SJR) — the A-line `rank` layer
 
-This is distinct from the legacy SJR-only `journal_metric` above: it labels every
-paper with **all three** platforms and, when a tier was requested, filters on
-**one**. The data is fetched at runtime from public mirrors into the user's local
+This is **the** journal layer (v2.2 single-layer collapse): it labels every paper
+with **all three** platforms (plus an `openalex` open-impact sub-slot) and, when a
+tier was requested, filters on **one**. The opt-in `--quartile` / `--min-impact`
+filters also read this record (`journal_rank.sjr.best_quartile` /
+`journal_rank.openalex.mean_citedness_2yr`); there is no separate per-paper
+`journal_metric` any more. The data is fetched at runtime from public mirrors into the user's local
 cache (`~/.paper-search-pro/ranks/`) by `scripts/journal_rank.py` — **never bundled
 in the repo**. First use needs a one-time `journal_rank fetch` (see
 `references/journal_metrics.md`); until then this layer degrades gracefully
@@ -345,6 +373,7 @@ agent should ASK the user which platform (the CLI is non-interactive).
 | `switchable_platforms` / `switch_is_refilter_not_research` | Switching standard/tier is a **re-filter of the already-annotated pool** — no re-search. |
 | `stripped_phrases` | The partition phrases removed from the query (transparency). |
 | `deepen` | `{active, rounds, saturated, final_per_strategy}` — adaptive-deepening state. |
+| `keep_tiers_note` | Set when bare numeric `--keep-tiers` was passed with no `--rank-platform`: the digits were read as the default platform's quartiles (factory JCR `Q1,Q2…`); tells the caller to add `--rank-platform cas` for 中科院 区. `None` otherwise. |
 | `attribution` / `note` / `naming` | Platform attribution, degrade note, R-04 reminder. |
 
 **Adaptive deepening** (only when a tier filter is active, data is loaded, the query
@@ -360,13 +389,14 @@ path has no depth knob, so SS-primary does not deepen (`meta.rank.deepen.active`
 reflects this).
 
 **Counts.** `meta.counts.after_rank_filter` is the survivor count after the
-multi-platform tier filter (the legacy `after_journal_filter` stays for the SJR-only
-layer; both are present and independent).
+multi-platform `--rank-platform` tier filter; `after_journal_filter` is the survivor
+count after the `--quartile` / `--min-impact` opt-in filters (both now sourced from
+`journal_rank`). Both are present and independent.
 
 For sources, the ISSN join, attribution, fetch, and the "never call it an Impact
 Factor" rule, see `references/journal_metrics.md`.
 
 ---
 
-For the legacy SJR-only journal metrics (SJR acquisition, ISSN join, naming rules),
-see `references/journal_metrics.md`.
+For the journal partition platforms (CAS / JCR / SJR acquisition, the OpenAlex
+open-impact slot, ISSN join, naming rules), see `references/journal_metrics.md`.

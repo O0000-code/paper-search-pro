@@ -295,6 +295,28 @@ def test_rank_metric_dict_none_and_empty():
     print("OK  rank_metric_dict_none_and_empty")
 
 
+def test_rank_metric_dict_emits_openalex_and_alias():
+    # journal_rank_dict is the canonical name; rank_metric_dict is a back-compat alias.
+    assert rank_filter.rank_metric_dict is rank_filter.journal_rank_dict
+    # The openalex open-impact slot is serialised (R-04: never named impact_factor).
+    rec = JournalRank(
+        title="JPSP", issns=["0022-3514"],
+        sjr=SJRRank(best_quartile="Q1", sjr=5.1, source_year=2024),
+        openalex={"mean_citedness_2yr": 2.72, "h_index": 757},
+        matched_platforms=["sjr"],
+    )
+    d = rank_filter.journal_rank_dict(rec)
+    assert d["openalex"] == {"mean_citedness_2yr": 2.72, "h_index": 757}
+    assert d["sjr"]["best_quartile"] == "Q1"
+    assert "impact_factor" not in d["openalex"]
+    # An openalex-ONLY record (no platform) still serialises (single-layer impact).
+    oa_only = JournalRank(title="X", issns=["1111-1111"], openalex={"mean_citedness_2yr": 1.0, "h_index": 3})
+    d2 = rank_filter.journal_rank_dict(oa_only)
+    assert d2 is not None and d2["cas"] is None and d2["jcr"] is None and d2["sjr"] is None
+    assert d2["openalex"]["mean_citedness_2yr"] == 1.0
+    print("OK  rank_metric_dict_emits_openalex_and_alias")
+
+
 def main() -> int:
     tests = [
         test_normalize_keep_tiers_cas_and_quartile_platforms,
@@ -309,6 +331,7 @@ def main() -> int:
         test_jcr_category_is_membership_gate,
         test_rank_metric_dict_three_platforms_and_naming,
         test_rank_metric_dict_none_and_empty,
+        test_rank_metric_dict_emits_openalex_and_alias,
     ]
     failed = []
     for t in tests:

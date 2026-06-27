@@ -207,6 +207,11 @@ class JournalRank:
     Additive / optional: every platform slot defaults to None so a journal found
     on only one platform still produces a valid record. ``matched_platforms``
     lists which platforms actually contributed.
+
+    The ``openalex`` slot ({mean_citedness_2yr, h_index}) is NOT filled by the CSV
+    parsers — it is attached downstream by the search pipeline from OpenAlex
+    summary_stats (CC0). R-04/R-09: it is an OPEN journal-impact figure, never an
+    Impact Factor (only JCR IF(2024) is a real IF).
     """
 
     title: Optional[str] = None
@@ -214,6 +219,7 @@ class JournalRank:
     cas: Optional[CASRank] = None
     jcr: Optional[JCRRank] = None
     sjr: Optional[SJRRank] = None
+    openalex: Optional[Dict] = None  # {mean_citedness_2yr: float|None, h_index: int|None}
     matched_issn: Optional[str] = None  # the ISSN the lookup hit on
     matched_platforms: List[str] = field(default_factory=list)
 

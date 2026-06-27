@@ -141,12 +141,19 @@ class JournalRank:
     independently optional (a journal found on only one platform still yields a
     valid record). Populated by journal_rank.py when ranking CSVs are cached.
 
-    NOTE this is the v2.2 A-line *multi-platform* schema (CAS + JCR + SJR), and is
-    distinct from the older SJR-only ``JournalMetric`` above (kept for backward
-    compatibility until Wave A-2 migrates consumers).
+    NOTE this is the v2.2 A-line *multi-platform* schema (CAS + JCR + SJR + an
+    OpenAlex open-impact slot). As of the v2.2 single-layer collapse it is the ONE
+    journal-rank record on a paper: the older SJR-only ``JournalMetric`` above is no
+    longer populated by the search pipeline (kept only for back-compat decoding of
+    pre-collapse kg.json).
     - title             : journal title (from whichever platform supplied it).
     - issns             : normalised "XXXX-XXXX" keys (print + electronic).
     - cas / jcr / sjr   : per-platform sub-records (None when not on that platform).
+    - openalex          : OPEN journal-impact slot {mean_citedness_2yr, h_index} from
+                          OpenAlex summary_stats (CC0). R-04/R-09: this is an OPEN
+                          impact figure, NEVER an Impact Factor — only JCR's IF(2024)
+                          is a real IF. Filled by the search pipeline, not the CSV
+                          parsers; None when no impact was looked up / reachable.
     - matched_issn      : the ISSN a lookup hit on.
     - matched_platforms : which platforms contributed (["cas","jcr","sjr"] subset).
     """
@@ -155,6 +162,7 @@ class JournalRank:
     cas: Optional["CASRank"] = None
     jcr: Optional["JCRRank"] = None
     sjr: Optional["SJRRank"] = None
+    openalex: Optional[Dict] = None  # {mean_citedness_2yr: float|None, h_index: int|None}
     matched_issn: Optional[str] = None
     matched_platforms: List[str] = field(default_factory=list)
 

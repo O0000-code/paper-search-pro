@@ -240,14 +240,124 @@ def test_real_intent_still_parses_after_boundary_hardening():
         assert r.tiers == tiers, f"{q!r}: tiers {r.tiers!r} != {tiers!r}"
         assert r.quartiles == quarts, f"{q!r}: quartiles {r.quartiles!r} != {quarts!r}"
         assert r.cleaned_query == cleaned, f"{q!r}: cleaned {r.cleaned_query!r} != {cleaned!r}"
-    # Standalone platform-word hints: stripping the recognised word is INTENDED
-    # (identical to "中科院 emotion regulation"), not corruption.
+    # A bare Latin platform word used as a research TOPIC (no tier/quartile, no top,
+    # not followed by 分区) is left untouched — it is NOT a platform hint. This
+    # reverses the earlier "stripping is INTENDED" stance, which corrupted the search
+    # term for bibliometric topics (review_A_alpha P1-① / review2 P2-2).
     r = parse_rank_intent("WoS coverage")
-    assert r.platform == "jcr" and r.has_filter is False and r.cleaned_query == "coverage"
+    assert r.platform is None and r.has_filter is False and r.cleaned_query == "WoS coverage"
+    # But a standalone platform word DOES resolve when it sits in a real partition
+    # context (followed by 分区, or co-occurring with top-journal intent).
+    r = parse_rank_intent("JCR 顶刊 protein structure")
+    assert r.platform == "jcr" and r.top is True and r.ambiguous is False
+    assert r.cleaned_query == "protein structure"
     # A bare "Q1" with no platform is still ambiguous (must not guess).
     r = parse_rank_intent("Q1 attention")
     assert r.platform is None and r.ambiguous is True and r.cleaned_query == "attention"
     print("OK  real_intent_still_parses_after_boundary_hardening")
+
+
+# ---------------------------------------------------------------------------
+# F1 fix #1: top-only with no platform must NOT be silently dropped.
+#
+# Before the fix, "顶刊 protein" stripped "顶刊" out of the search query but left
+# top=False / ambiguous=False, so the headless path neither filtered nor asked —
+# the intent simply vanished (the exact anti-goal this feature exists to kill).
+# Now top-only-no-platform mirrors a bare quartile: ambiguous=True + candidates.
+# ---------------------------------------------------------------------------
+
+
+def test_top_only_no_platform_is_ambiguous():
+    r = parse_rank_intent("顶刊 protein")
+    assert r.top is True
+    assert r.platform is None  # top alone names no platform
+    assert r.ambiguous is True  # must NOT silently drop — flag for the caller to ask
+    assert r.has_filter is True  # top IS a stated filter intent
+    assert r.cleaned_query == "protein"  # the topic survives, 顶刊 stripped
+    # candidate_platforms lets the caller ask "which platform?" (top exists on all 3).
+    assert r.candidate_platforms == ["cas", "jcr", "sjr"]
+
+    # English form behaves identically.
+    r2 = parse_rank_intent("top journals on working memory")
+    assert r2.top is True and r2.platform is None and r2.ambiguous is True
+    assert r2.candidate_platforms == ["cas", "jcr", "sjr"]
+    print("OK  top_only_no_platform_is_ambiguous")
+
+
+def test_top_only_filler_words_stripped_cleanly():
+    """'只要顶刊的X' / '只要顶刊 X' must strip to a clean topic — no 只要/的 residue."""
+    r = parse_rank_intent("只要顶刊的认知")
+    assert r.top is True and r.platform is None and r.ambiguous is True
+    assert r.cleaned_query == "认知"  # not "只要 的认知"
+
+    r2 = parse_rank_intent("只要顶刊 transformer")
+    assert r2.top is True and r2.cleaned_query == "transformer"  # not "只要 transformer"
+
+    # When a platform word is present, the filler/的 still strip cleanly and the
+    # platform resolves (not ambiguous).
+    r3 = parse_rank_intent("只要中科院顶刊的情绪调节")
+    assert r3.platform == "cas" and r3.top is True and r3.ambiguous is False
+    assert r3.cleaned_query == "情绪调节"
+    print("OK  top_only_filler_words_stripped_cleanly")
+
+
+# ---------------------------------------------------------------------------
+# F1 fix #2: bare Latin platform words used as research TOPICS must not be
+# stripped / mistaken for a platform. Bibliometric queries about WoS/Scopus/etc.
+# were being bisected ("Web of Science coverage analysis" -> "coverage analysis").
+# Red line: when the platform word is the topic, cleaned_query == query byte-for-
+# byte, no platform guessed, has_filter False.
+# ---------------------------------------------------------------------------
+
+_PLATFORM_AS_TOPIC_QUERIES = [
+    "Web of Science coverage analysis",
+    "WoS coverage",
+    "Scopus database comparison",
+    "Scopus vs WoS comparison",
+    "Web of Science vs Scopus database overlap",
+    "CAS registry number lookup",
+    "SJR indexing methodology",
+    "clarivate analytics market report",
+    "scimago journal ranking methodology",
+    "JCR coverage of open access journals",
+]
+
+
+def test_latin_platform_word_as_topic_is_not_stripped():
+    for q in _PLATFORM_AS_TOPIC_QUERIES:
+        r = parse_rank_intent(q)
+        assert r.platform is None, f"{q!r}: wrongly guessed platform {r.platform!r}"
+        assert r.has_filter is False, f"{q!r}: wrongly set a filter"
+        assert r.ambiguous is False, f"{q!r}: wrongly flagged ambiguous"
+        assert r.cleaned_query == q, (
+            f"{q!r}: topic corrupted to {r.cleaned_query!r} (must be byte-identical)"
+        )
+    print("OK  latin_platform_word_as_topic_is_not_stripped")
+
+
+def test_platform_word_resolves_only_in_partition_context():
+    """The flip side: a standalone platform word DOES resolve when partition intent
+    is present (followed by 分区, or co-occurring with top-journal intent)."""
+    # co-occurring top intent -> platform resolves, not ambiguous.
+    r = parse_rank_intent("JCR 顶刊 protein structure")
+    assert r.platform == "jcr" and r.top is True and r.ambiguous is False
+    assert r.cleaned_query == "protein structure"
+
+    r = parse_rank_intent("SJR 顶刊 climate change")
+    assert r.platform == "sjr" and r.top is True and r.cleaned_query == "climate change"
+
+    # followed by 分区 -> platform hint, stripped cleanly (no dangling 分区).
+    r = parse_rank_intent("Web of Science 分区 心理学")
+    assert r.platform == "jcr" and r.has_filter is False and r.cleaned_query == "心理学"
+
+    r = parse_rank_intent("cas 分区 材料科学")
+    assert r.platform == "cas" and r.has_filter is False and r.cleaned_query == "材料科学"
+
+    # CJK 中科院 keeps its substring-hint semantics (unchanged).
+    r = parse_rank_intent("中科院顶刊 emotion regulation")
+    assert r.platform == "cas" and r.top is True and r.ambiguous is False
+    assert r.cleaned_query == "emotion regulation"
+    print("OK  platform_word_resolves_only_in_partition_context")
 
 
 def main() -> int:
@@ -266,6 +376,10 @@ def main() -> int:
         test_cas_word_with_cas_prefix_and_space,
         test_no_false_positive_substring_pollution,
         test_real_intent_still_parses_after_boundary_hardening,
+        test_top_only_no_platform_is_ambiguous,
+        test_top_only_filler_words_stripped_cleanly,
+        test_latin_platform_word_as_topic_is_not_stripped,
+        test_platform_word_resolves_only_in_partition_context,
     ]
     failed = []
     for t in tests:

@@ -213,6 +213,58 @@ def test_md_render_no_partition_line_without_rank():
     assert "运行时从公开镜像拉取" not in md
 
 
+# ---------------------------------------------------------------------------
+# 5. openalex open-impact slot (single-layer collapse): renders 期刊影响力,
+#    round-trips through JSON, and an openalex-ONLY journal_rank still shows.
+# ---------------------------------------------------------------------------
+
+
+def _openalex_only_paper() -> UnifiedPaperEntity:
+    # No CAS/JCR/SJR platform join, but an OpenAlex open-impact figure attached —
+    # the single-layer way the legacy journal_metric impact is now carried.
+    jr = JournalRank(
+        title="Some Journal",
+        issns=["1111-2222"],
+        openalex={"mean_citedness_2yr": 3.14, "h_index": 42},
+        matched_issn="1111-2222",
+        matched_platforms=[],
+    )
+    return UnifiedPaperEntity(
+        doi="10.1/oa", title="OA-impact paper", authors=[Author(name="C. Cite")],
+        year=2021, venue="Some Journal", citation_count=12, rcs=7, journal_rank=jr,
+    )
+
+
+def test_render_paper_openalex_only_emits_impact_no_partition():
+    r = dm._render_paper(_openalex_only_paper())
+    jr = r["journal_rank"]
+    assert jr is not None
+    assert jr["cas"] is None and jr["jcr"] is None and jr["sjr"] is None
+    assert jr["openalex"]["mean_citedness_2yr"] == 3.14
+    # round-trips through the kg.json decoder
+    back = dm._journal_rank_from_json(r)
+    assert back is not None and back.openalex["h_index"] == 42
+
+
+def test_md_render_shows_impact_line_for_openalex_slot():
+    md = _render_md_for([_openalex_only_paper()])
+    assert "期刊影响力 (OpenAlex 2yr mean citedness)" in md
+    assert "3.14" in md
+    assert "H-index" in md
+    # openalex-only: no 期刊分区 partition line (no CAS/JCR/SJR data)
+    assert "期刊分区" not in md
+
+
+def test_ranked_paper_keeps_partition_line_and_no_impact_when_no_openalex():
+    # The classic three-platform paper (no openalex slot) still renders 期刊分区 and
+    # NO per-paper 期刊影响力 line — proving the impact line is gated on the openalex
+    # slot. (The methodology footer may still mention 期刊影响力 in prose; we assert
+    # the per-paper line marker specifically.)
+    md = _render_md_for([_ranked_paper()])
+    assert "期刊分区" in md
+    assert "**期刊影响力 (OpenAlex 2yr mean citedness):**" not in md
+
+
 if __name__ == "__main__":
     import pytest
 
