@@ -1,0 +1,18 @@
+# paper-search-pro — notes for sessions modifying this repo
+
+Published Agent Skill (Apache 2.0). Edit the **git repo** here; the running copy
+is separate at `~/.claude/skills/paper-search-pro/` — sync to it (rsync
+`scripts/` `references/` `assets/` + `SKILL.md`) for changes to take effect.
+
+## Invariants — do not break
+- **R-04 naming**: OpenAlex / SJR / 中科院(CAS) journal metrics are *partitions / open impact*, **never "Impact Factor"**. Only JCR `IF(YYYY)` is a real Impact Factor.
+- **R-19 human-path preservation**: the human 14-STEP flow — especially **STEP 6** (parallel classification SubAgents) and **STEP 12** (HTML render) — must stay **byte-identical** when the agent/headless, source-switch, and journal-rank features are unused. Every new capability is opt-in additive; default = current behavior.
+- **Journal-rank data is never committed** (Clarivate/SCImago/CAS copyright). It is runtime-fetched from public GitHub mirrors into `~/.paper-search-pro/ranks/`. `scripts/journal_rank.py` is the single canonical rank layer; `scripts/sjr_helper.py` is superseded (kept for back-compat, not the wired source).
+- **Zero new hard dependencies** for v2.2 (GitHub-raw fetch uses `requests`) — keep it that way: no playwright, no heavyweight libs.
+
+## Test
+`PYTHONPATH=. python3 -m pytest tests -q` — ~264 offline pass. The ~12 failures in `tests/test_openalex_helper.py` are live OpenAlex rate-limit / key issues (environmental), not regressions.
+
+## Design record
+Full v2.2 research / decisions / reviews live outside the repo:
+`~/Documents/Claude Code/Skills/Enhancement/Paper Search Pro/v2.2-evolution/`.

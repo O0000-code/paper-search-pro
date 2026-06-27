@@ -61,3 +61,8 @@ evals/
 # code provenance + build steps and ship harmlessly with their directories.
 /README.md
 /README.zh.md
+
+# --- Repo dev-context file (added 2026-06-28) ---
+# CLAUDE.md guides sessions that MODIFY this repo (invariants + test cmd); it is
+# not part of the runnable Skill. Excluded from the bundle, kept git-tracked.
+/CLAUDE.md
