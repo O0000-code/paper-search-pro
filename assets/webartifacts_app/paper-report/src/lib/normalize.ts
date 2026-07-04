@@ -13,6 +13,7 @@ import { getLang } from "./i18n"
 import type {
   AuthorRef,
   ChartDataBins,
+  JournalRank,
   NormalizedData,
   NormalizedPaper,
   PrismaLog,
@@ -43,6 +44,8 @@ interface RawPaper {
   sources?: string[] | null
   is_oa?: boolean
   isOpenAccess?: boolean
+  journal_rank?: JournalRank | null
+  journal_rank_attribution?: string | null
 }
 
 interface RawMetadata {
@@ -142,6 +145,8 @@ export function normalize(raw: RawShape | null | undefined): NormalizedData {
             discoveryPath: p.discovery_path ?? null,
             sources: p.sources ?? [],
             isOpenAccess: p.is_oa,
+            journalRank: p.journal_rank ?? null,
+            journalRankAttribution: p.journal_rank_attribution ?? null,
           }
         })
         .sort((a, b) => b.rcs - a.rcs),
@@ -181,6 +186,8 @@ export function normalize(raw: RawShape | null | undefined): NormalizedData {
         discoveryPath: null,
         sources: p.sources ?? [],
         isOpenAccess: p.isOpenAccess,
+        journalRank: p.journal_rank ?? null,
+        journalRankAttribution: p.journal_rank_attribution ?? null,
       }
     }),
     chartData: raw.chart_data ?? {},

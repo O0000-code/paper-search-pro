@@ -5,13 +5,11 @@
 // text-link style (medium weight, underlined active). Findings toolbar uses
 // text-link Tier chips and a Cards/List ToggleGroup.
 
-import { FileText, Layers } from "lucide-react"
-
 import { SearchInput } from "@/components/adapters/SearchInput"
-import { SegmentedToggle } from "@/components/adapters/SegmentedToggle"
+import { ZoneFilter, type ZoneFilterValue } from "@/components/papers/ZoneFilter"
 import { fmtNum } from "@/lib/format"
 import { t } from "@/lib/i18n"
-import type { NormalizedData, Tier } from "@/lib/types"
+import type { NormalizedData, NormalizedPaper, Tier } from "@/lib/types"
 
 import type { TierFilter } from "../TierStrip"
 
@@ -21,11 +19,13 @@ export interface EditorialTopProps {
   setTab: (next: string) => void
   search: string
   setSearch: (next: string) => void
-  view: string
-  setView: (next: string) => void
   tierFilter: TierFilter
   setTierFilter: (next: TierFilter) => void
   tierCounts: Partial<Record<Tier, number>>
+  zoneFilter: ZoneFilterValue
+  setZoneFilter: (next: ZoneFilterValue) => void
+  papersForZone: NormalizedPaper[]
+  hasAnyRank: boolean
 }
 
 export function EditorialTop({
@@ -34,11 +34,13 @@ export function EditorialTop({
   setTab,
   search,
   setSearch,
-  view,
-  setView,
   tierFilter,
   setTierFilter,
   tierCounts,
+  zoneFilter,
+  setZoneFilter,
+  papersForZone,
+  hasAnyRank,
 }: EditorialTopProps) {
   const m = data.meta
   const date = (m.generatedAt || "").slice(0, 10)
@@ -287,6 +289,18 @@ export function EditorialTop({
                   )
                 })}
             </div>
+            {/* Journal-rank zone filter — grouped with the tier chips on the
+                left; underline variant matches the Editorial text-link idiom.
+                Only when partitions were annotated (R-19). */}
+            {hasAnyRank && (
+              <ZoneFilter
+                variant="underline"
+                value={zoneFilter}
+                onChange={setZoneFilter}
+                papers={papersForZone}
+                style={{ marginLeft: 16 }}
+              />
+            )}
             <div style={{ flex: 1 }} />
             <div style={{ flex: "0 0 220px" }}>
               <SearchInput
@@ -295,14 +309,6 @@ export function EditorialTop({
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <SegmentedToggle
-              value={view}
-              onValueChange={setView}
-              items={[
-                { value: "compact", label: t("list"), Icon: FileText },
-                { value: "card", label: t("cards"), Icon: Layers },
-              ]}
-            />
           </div>
         </div>
       )}

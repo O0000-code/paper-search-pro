@@ -7,9 +7,10 @@
 // Tier filter strip with vertical dividers between tier cells.
 
 import { SearchInput } from "@/components/adapters/SearchInput"
+import { ZoneFilter, type ZoneFilterValue } from "@/components/papers/ZoneFilter"
 import { fmtNum } from "@/lib/format"
 import { t } from "@/lib/i18n"
-import type { NormalizedData, Tier } from "@/lib/types"
+import type { NormalizedData, NormalizedPaper, Tier } from "@/lib/types"
 
 import type { TierFilter } from "../TierStrip"
 
@@ -23,6 +24,10 @@ export interface SwissTopProps {
   setTierFilter: (next: TierFilter) => void
   tierCounts: Partial<Record<Tier, number>>
   resultsCount: number
+  zoneFilter: ZoneFilterValue
+  setZoneFilter: (next: ZoneFilterValue) => void
+  papersForZone: NormalizedPaper[]
+  hasAnyRank: boolean
 }
 
 const TIER_PILLS: ("all" | Tier)[] = [
@@ -44,6 +49,10 @@ export function SwissTop({
   setTierFilter,
   tierCounts,
   resultsCount,
+  zoneFilter,
+  setZoneFilter,
+  papersForZone,
+  hasAnyRank,
 }: SwissTopProps) {
   const m = data.meta
   const date = (m.generatedAt || "").slice(0, 10)
@@ -345,50 +354,75 @@ export function SwissTop({
             >
               {t("filter")}
             </div>
-            {TIER_PILLS.map((tier) => {
-              const count =
-                tier === "all" ? data.papers.length : tierCounts[tier as Tier] || 0
-              if (count === 0 && tier !== "all") return null
-              const active = tierFilter === tier
-              return (
-                <button
-                  key={tier}
-                  type="button"
-                  onClick={() => setTierFilter(tier)}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "baseline",
-                    gap: 6,
-                    padding: "4px 14px",
-                    fontSize: 11.5,
-                    fontFamily: "var(--font-mono)",
-                    color: active
-                      ? "hsl(var(--foreground))"
-                      : "hsl(var(--muted-foreground))",
-                    fontWeight: active ? 600 : 400,
-                    borderRight: "1px solid hsl(var(--border))",
-                    background: "transparent",
-                    border: 0,
-                    borderRightWidth: 1,
-                    borderRightStyle: "solid",
-                    borderRightColor: "hsl(var(--border))",
-                    cursor: "pointer",
-                  }}
-                >
-                  <span>{tier === "all" ? t("all") : t(tier)}</span>
-                  <span
-                    className="tabular"
+            {(() => {
+              // Pre-filter so we know the last rendered chip: the divider rule
+              // must only sit BETWEEN adjacent tier chips, never trailing the
+              // last one (else it floats next to the ZoneFilter group).
+              const rendered = TIER_PILLS.filter(
+                (tier) => tier === "all" || (tierCounts[tier as Tier] || 0) > 0,
+              )
+              return rendered.map((tier, i) => {
+                const count =
+                  tier === "all"
+                    ? data.papers.length
+                    : tierCounts[tier as Tier] || 0
+                const active = tierFilter === tier
+                const isLast = i === rendered.length - 1
+                return (
+                  <button
+                    key={tier}
+                    type="button"
+                    onClick={() => setTierFilter(tier)}
                     style={{
-                      fontSize: 10.5,
-                      opacity: 0.7,
-                      fontVariantNumeric: "tabular-nums",
+                      display: "inline-flex",
+                      alignItems: "baseline",
+                      gap: 6,
+                      padding: "4px 14px",
+                      fontSize: 11.5,
+                      fontFamily: "var(--font-mono)",
+                      color: active
+                        ? "hsl(var(--foreground))"
+                        : "hsl(var(--muted-foreground))",
+                      fontWeight: active ? 600 : 400,
+                      background: "transparent",
+                      border: 0,
+                      cursor: "pointer",
+                      ...(isLast
+                        ? {}
+                        : {
+                            borderRightWidth: 1,
+                            borderRightStyle: "solid" as const,
+                            borderRightColor: "hsl(var(--border))",
+                          }),
                     }}
                   >
-                    {count}
-                  </span>
-                </button>
-              )
-            })}
+                    <span>{tier === "all" ? t("all") : t(tier)}</span>
+                    <span
+                      className="tabular"
+                      style={{
+                        fontSize: 10.5,
+                        opacity: 0.7,
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                )
+              })
+            })()}
+            {/* Journal-rank zone filter — set off from the tier group by
+                whitespace; divider variant matches the Swiss chip idiom.
+                Only when partitions were annotated (R-19). */}
+            {hasAnyRank && (
+              <ZoneFilter
+                variant="divider"
+                value={zoneFilter}
+                onChange={setZoneFilter}
+                papers={papersForZone}
+                style={{ marginLeft: 18 }}
+              />
+            )}
           </div>
         </div>
       )}

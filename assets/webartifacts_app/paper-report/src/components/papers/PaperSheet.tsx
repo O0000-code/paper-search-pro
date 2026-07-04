@@ -25,6 +25,7 @@ import type { NormalizedPaper } from "@/lib/types"
 import { fmtNum, fmtRcs } from "@/lib/format"
 import { t, getS } from "@/lib/i18n"
 
+import { JournalRankDetail } from "./JournalRank"
 import { TierDot } from "./TierDot"
 
 function Dot() {
@@ -48,6 +49,9 @@ export interface PaperSheetProps {
   onNext: () => void
   hasPrev: boolean
   hasNext: boolean
+  /** Report-level: any paper carries partition data. Gates the rank section
+      so a non-partition run is byte-for-byte the pre-delta5 sheet (R-19). */
+  hasAnyRank: boolean
 }
 
 export function PaperSheet({
@@ -57,6 +61,7 @@ export function PaperSheet({
   onNext,
   hasPrev,
   hasNext,
+  hasAnyRank,
 }: PaperSheetProps) {
   const open = !!paper
   const [absExpanded, setAbsExpanded] = React.useState(false)
@@ -550,6 +555,10 @@ export function PaperSheet({
                   )}
                 </dl>
               </section>
+
+              {/* Journal rank — full three-platform breakdown (delta5).
+                  Report-level gate: only when partitions were annotated. */}
+              {hasAnyRank && <JournalRankDetail rank={paper.journalRank} />}
             </div>
 
             {/* Footer actions */}

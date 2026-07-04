@@ -29,6 +29,11 @@ import { PaperRowCatalog } from "@/components/papers/PaperRowCatalog"
 import { PaperRowIndex } from "@/components/papers/PaperRowIndex"
 import { PaperRowIndexHeader } from "@/components/papers/PaperRowIndexHeader"
 import { PaperSheet } from "@/components/papers/PaperSheet"
+import {
+  defaultZone,
+  passesZone,
+  type ZoneFilterValue,
+} from "@/components/papers/ZoneFilter"
 import { MethodsTab } from "@/components/methods/MethodsTab"
 import { AuditTab } from "@/components/audit/AuditTab"
 
@@ -209,6 +214,9 @@ function ReportShell({
   const [view, setView] = useState<string>("compact")
   const [active, setActive] = useState<NormalizedPaper | null>(null)
   const [tierFilter, setTierFilter] = useState<"all" | Tier>("all")
+  const [zoneFilter, setZoneFilter] = useState<ZoneFilterValue>(() =>
+    defaultZone(),
+  )
   // NOTE (2026-05-23): `focus` state was previously a "Recommended" (Foundational+High)
   // vs "All" toggle. The toggle UI lives in `components/hero/FilterBar.tsx` but FilterBar
   // is never imported by any active Top (Swiss/Editorial/Document each embed their own
@@ -219,12 +227,22 @@ function ReportShell({
   // default. If a Recommended quick-filter is ever wanted again, wire FilterBar into a
   // Top and reintroduce the state with a real UI toggle.
 
-  const filtered = useMemo(() => {
+  // Pre-zone set: threshold + relevance-tier filter. Zone-filter chip counts
+  // are computed against THIS set so they mirror the tier row's totals.
+  const zoneBase = useMemo(() => {
     const out = data.papers.filter((p) => p.rcs >= threshold)
     return tierFilter === "all"
       ? out
       : out.filter((p) => p.tier === tierFilter)
   }, [data.papers, threshold, tierFilter])
+
+  // Final set: journal-rank zone filter on top. Additive — with the default
+  // zone (all quartiles + unranked) passesZone() is true for every paper, so
+  // this is identity until the user picks a zone (R-19: human path unchanged).
+  const filtered = useMemo(
+    () => zoneBase.filter((p) => passesZone(p, zoneFilter)),
+    [zoneBase, zoneFilter],
+  )
 
   function go(delta: number): void {
     if (!active) return
@@ -255,6 +273,14 @@ function ReportShell({
     return c
   }, [data.papers])
 
+  // Report-level: were journal partitions annotated at all? Gates the zone
+  // filter chips + the sheet's rank section so a run WITHOUT partitions renders
+  // byte-for-byte the pre-delta5 report (R-19). Per-paper badges self-hide.
+  const hasAnyRank = useMemo(
+    () => data.papers.some((p) => !!p.journalRank),
+    [data.papers],
+  )
+
   // Results counter just reflects the current tier+threshold filter — no
   // hidden "recommended" overlay. Header "16 / 249" now matches the list below.
   const resultsCount = filtered.length
@@ -279,6 +305,10 @@ function ReportShell({
         setTierFilter={setTierFilter}
         tierCounts={tierCounts}
         resultsCount={resultsCount}
+        zoneFilter={zoneFilter}
+        setZoneFilter={setZoneFilter}
+        papersForZone={zoneBase}
+        hasAnyRank={hasAnyRank}
       />
 
       {tab === "findings" && view === "compact" && RowComponent === PaperRowIndex && (
@@ -310,6 +340,7 @@ function ReportShell({
         onNext={() => go(1)}
         hasPrev={!!active && activeIndex > 0}
         hasNext={!!active && activeIndex >= 0 && activeIndex < filtered.length - 1}
+        hasAnyRank={hasAnyRank}
       />
 
       {/* No footer — delta change 2 (2026-05-23) removed the two-row footer

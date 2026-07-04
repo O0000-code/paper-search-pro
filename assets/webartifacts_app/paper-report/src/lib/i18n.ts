@@ -65,6 +65,18 @@ const STRINGS = {
     copyDoiToast: 'DOI copied to clipboard',
     navHint: '↑↓ navigate · Esc close',
 
+    // Journal rank (delta5). R-04: only JCR's IF is an "Impact Factor";
+    // CAS / SJR are partitions. tierZone is '' in EN (casTier carries "Tier n").
+    journalRankLabel: 'Journal rank',
+    casName: 'CAS',
+    casTier: 'Tier {n}',
+    tierZone: '',
+    rankNone: 'N/A',
+    rankNoneNote: 'No ranking data matched.',
+    ownerCas: 'CAS',
+    rankCopyrightPre: 'Ranking data © ',
+    rankCopyrightPost: '; for reference only.',
+
     // Methods
     coverageKicker: '01 · Coverage', timeKicker: '02 · Time', qualityKicker: '03 · Quality',
     citationGraphKicker: '04 · Citation graph', topicsKicker: '05 · Topics',
@@ -316,6 +328,17 @@ const STRINGS = {
     copyDoi: '复制 DOI', open: '打开', openAtDoi: '在 doi.org 打开',
     copyDoiToast: 'DOI 已复制到剪贴板',
     navHint: '↑↓ 导航 · Esc 关闭',
+
+    // 期刊分区 (delta5)
+    journalRankLabel: '期刊分区',
+    casName: '中科院',
+    casTier: '{n}区',
+    tierZone: '区',
+    rankNone: '无',
+    rankNoneNote: '未匹配到分区数据。',
+    ownerCas: '中科院文献情报中心',
+    rankCopyrightPre: '分区数据版权归 ',
+    rankCopyrightPost: ' 所有，仅供参考。',
 
     coverageKicker: '01 · 覆盖率', timeKicker: '02 · 时间分布', qualityKicker: '03 · 质量分布',
     citationGraphKicker: '04 · 引用图谱', topicsKicker: '05 · 主题分布',

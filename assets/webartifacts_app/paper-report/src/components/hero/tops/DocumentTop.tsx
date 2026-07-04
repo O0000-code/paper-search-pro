@@ -6,10 +6,10 @@
 // numerals ("I. Findings", "II. Methods", "III. Audit log").
 
 import { SearchInput } from "@/components/adapters/SearchInput"
-import { SegmentedToggle } from "@/components/adapters/SegmentedToggle"
+import { ZoneFilter, type ZoneFilterValue } from "@/components/papers/ZoneFilter"
 import { fmtNum } from "@/lib/format"
 import { t } from "@/lib/i18n"
-import type { NormalizedData, Tier } from "@/lib/types"
+import type { NormalizedData, NormalizedPaper, Tier } from "@/lib/types"
 
 import type { TierFilter } from "../TierStrip"
 
@@ -19,11 +19,13 @@ export interface DocumentTopProps {
   setTab: (next: string) => void
   search: string
   setSearch: (next: string) => void
-  view: string
-  setView: (next: string) => void
   tierFilter: TierFilter
   setTierFilter: (next: TierFilter) => void
   tierCounts: Partial<Record<Tier, number>>
+  zoneFilter: ZoneFilterValue
+  setZoneFilter: (next: ZoneFilterValue) => void
+  papersForZone: NormalizedPaper[]
+  hasAnyRank: boolean
 }
 
 const TIER_PILLS: ("all" | Tier)[] = [
@@ -41,11 +43,13 @@ export function DocumentTop({
   setTab,
   search,
   setSearch,
-  view,
-  setView,
   tierFilter,
   setTierFilter,
   tierCounts,
+  zoneFilter,
+  setZoneFilter,
+  papersForZone,
+  hasAnyRank,
 }: DocumentTopProps) {
   const m = data.meta
   const date = (m.generatedAt || "").slice(0, 10)
@@ -330,19 +334,14 @@ export function DocumentTop({
               padding: "14px 40px",
               display: "flex",
               alignItems: "center",
-              gap: 18,
+              gap: 0,
             }}
           >
-            <div style={{ flex: "0 0 240px" }}>
-              <SearchInput
-                placeholder={t("searchWithin")}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
+            {/* Tier group — label + relevance-tier chips (left cluster).
+                1:1 with TARGET top-3-document.jsx: tier group + zone filter on
+                the left, search pushed to the far right by a flex spacer. */}
             <div
               style={{
-                flex: "1 1 auto",
                 display: "flex",
                 alignItems: "center",
                 gap: 12,
@@ -355,6 +354,7 @@ export function DocumentTop({
                   fontFamily: "var(--font-mono)",
                   textTransform: "uppercase",
                   letterSpacing: "0.1em",
+                  marginRight: 22,
                 }}
               >
                 {t("tier")}
@@ -392,7 +392,11 @@ export function DocumentTop({
                         : "transparent",
                       cursor: "pointer",
                       padding: 0,
-                      font: "inherit",
+                      // Inherit the sans family WITHOUT the `font:` shorthand —
+                      // `font: inherit` would reset the explicit fontSize:12
+                      // above to the body's 16px (same trap as PaperSheet /
+                      // TierStrip). The design uses 12px sans here.
+                      fontFamily: "inherit",
                     }}
                   >
                     <span>
@@ -412,14 +416,26 @@ export function DocumentTop({
                 )
               })}
             </div>
-            <SegmentedToggle
-              value={view}
-              onValueChange={setView}
-              items={[
-                { value: "compact", label: t("list") },
-                { value: "card", label: t("cards") },
-              ]}
-            />
+            {/* Journal-rank zone filter — sibling after the tier group,
+                marginLeft 34 (TARGET top-3-document.jsx). R-19 gated. */}
+            {hasAnyRank && (
+              <ZoneFilter
+                variant="underline"
+                value={zoneFilter}
+                onChange={setZoneFilter}
+                papers={papersForZone}
+                style={{ marginLeft: 34 }}
+              />
+            )}
+            <div style={{ flex: 1 }} />
+            {/* Search — right-aligned (TARGET top-3-document.jsx) */}
+            <div style={{ flex: "0 0 240px" }}>
+              <SearchInput
+                placeholder={t("searchWithin")}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
           </div>
         </div>
       )}

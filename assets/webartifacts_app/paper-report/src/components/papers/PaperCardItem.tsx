@@ -23,6 +23,8 @@ import type { NormalizedPaper } from "@/lib/types"
 import { fmtNum, fmtRcs } from "@/lib/format"
 import { t, getS } from "@/lib/i18n"
 
+import { JournalRank } from "./JournalRank"
+
 function Dot() {
   return (
     <span
@@ -307,6 +309,9 @@ export function PaperCardItem({ paper, index, onSelect }: PaperCardItemProps) {
               </>
             )}
           </div>
+
+          {/* Journal rank — primary platform (delta5) */}
+          <JournalRank rank={paper.journalRank} />
         </div>
 
         {/* RCS instrument column */}

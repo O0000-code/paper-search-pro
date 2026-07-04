@@ -41,6 +41,45 @@ export interface AuthorRef {
   affiliation?: string
 }
 
+// Multi-platform journal partition / rank (delta5). Mirrors the Python
+// `rank_filter.rank_metric_dict` SSOT shape emitted by
+// data_materialization._journal_rank_render(). Every platform sub-object is
+// nullable (a journal may match on some platforms and not others); the whole
+// `journalRank` is null/absent when the paper matched no platform. R-04: only
+// `jcr.impact_factor` is a true Impact Factor — CAS/SJR are partitions only.
+export interface CasRank {
+  tier: number
+  rank?: string | null
+  top?: boolean
+  minor?: Array<{ category: string; tier: number; rank?: string | null }>
+  source_year?: number | null
+}
+export interface JcrRank {
+  quartile: string
+  impact_factor?: number | null
+  rank?: string | null
+  category?: string | null
+  source_year?: number | null
+}
+export interface SjrRank {
+  best_quartile: string
+  sjr?: number | null
+  per_category?: Array<{ category: string; quartile: string }>
+  source_year?: number | null
+}
+export interface OpenAlexImpact {
+  mean_citedness_2yr?: number | null
+  h_index?: number | null
+}
+export interface JournalRank {
+  cas?: CasRank | null
+  jcr?: JcrRank | null
+  sjr?: SjrRank | null
+  openalex?: OpenAlexImpact | null
+  matched_issn?: string | null
+  matched_platforms?: string[]
+}
+
 export interface NormalizedPaper {
   id: string
   title: string
@@ -64,6 +103,10 @@ export interface NormalizedPaper {
   /** Provenance source identifiers, e.g. "openalex", "semantic_scholar" */
   sources: string[]
   isOpenAccess?: boolean
+  /** Multi-platform journal partition (delta5); null when no platform matched */
+  journalRank?: JournalRank | null
+  /** Legally-required attribution string for whichever platforms matched */
+  journalRankAttribution?: string | null
 }
 
 export interface YearBin {

@@ -7,6 +7,7 @@ import type { NormalizedPaper } from "@/lib/types"
 import { fmtNum, fmtRcs } from "@/lib/format"
 import { t } from "@/lib/i18n"
 
+import { JournalRankInline } from "./JournalRank"
 import { QuickJump } from "./QuickJump"
 import { TierDot } from "./TierDot"
 
@@ -192,6 +193,9 @@ export function PaperRowCatalog({ paper, index, onSelect }: PaperRowCatalogProps
                 OA
               </span>
             </>
+          )}
+          {paper.journalRank && (
+            <JournalRankInline rank={paper.journalRank} />
           )}
         </div>
       </div>
