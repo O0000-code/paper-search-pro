@@ -28,7 +28,7 @@ export const MOCK_RAW = {
     coverage_estimate: 0.91,
     coverage_ci: [0.83, 0.96],
     generated_at: "2026-05-22T10:14:08.523000",
-    skill_version: "paper-search-pro/2.0",
+    skill_version: "paper-search-pro/2.2",
     stop_reason: null,
   },
 
@@ -36,6 +36,8 @@ export const MOCK_RAW = {
     // --- Foundational (rcs >= 9) — 3 papers
     {
       paper_id: "10.1126/science.1230579",
+      journal_rank: {"cas": {"tier": 1, "rank": "2/118", "top": true, "minor": [{"category": "MULTIDISCIPLINARY SCIENCES 综合性期刊", "tier": 1, "rank": "2/131"}], "source_year": 2025}, "jcr": {"quartile": "Q1", "impact_factor": 45.8, "rank": "3/135", "category": "MULTIDISCIPLINARY SCIENCES(SCIE)", "source_year": 2024}, "sjr": {"best_quartile": "Q1", "sjr": 10.416, "per_category": [{"category": "History and Philosophy of Science", "quartile": "Q1"}, {"category": "Multidisciplinary", "quartile": "Q1"}], "source_year": 2024}, "openalex": null, "matched_issn": "0036-8075", "matched_platforms": ["cas", "jcr", "sjr"]},
+      journal_rank_attribution: "Data: 中科院文献情报中心期刊分区表 (CAS Journal Ranking). For personal/non-commercial use; 勿公开传播.  Data: Journal Citation Reports (Clarivate). Impact Factor and JCR quartiles are © Clarivate; for reference only.  Data: SCImago Journal Rank, scimagojr.com — non-commercial use as long as it is cited (SCImago custom terms; NOT a Creative Commons licence).",
       title:
         "Putting Brain Training to the Test: Adaptive Working Memory Training in Healthy Older Adults",
       authors_short: "Owen et al.",
@@ -67,6 +69,8 @@ export const MOCK_RAW = {
     },
     {
       paper_id: "10.1037/a0028228",
+      journal_rank: {"cas": {"tier": 2, "rank": "71/657", "top": true, "minor": [{"category": "PSYCHOLOGY, DEVELOPMENTAL 心理学：发育", "tier": 2, "rank": "18/91"}], "source_year": 2025}, "jcr": {"quartile": "Q2", "impact_factor": 3.1, "rank": "27/94", "category": "PSYCHOLOGY, DEVELOPMENTAL(SSCI)", "source_year": 2024}, "sjr": {"best_quartile": "Q1", "sjr": 1.567, "per_category": [{"category": "Demography", "quartile": "Q1"}, {"category": "Developmental and Educational Psychology", "quartile": "Q1"}, {"category": "Life-span and Life-course Studies", "quartile": "Q1"}], "source_year": 2024}, "openalex": null, "matched_issn": "0012-1649", "matched_platforms": ["cas", "jcr", "sjr"]},
+      journal_rank_attribution: "Data: 中科院文献情报中心期刊分区表 (CAS Journal Ranking). For personal/non-commercial use; 勿公开传播.  Data: Journal Citation Reports (Clarivate). Impact Factor and JCR quartiles are © Clarivate; for reference only.  Data: SCImago Journal Rank, scimagojr.com — non-commercial use as long as it is cited (SCImago custom terms; NOT a Creative Commons licence).",
       title:
         "The cognitive plasticity of adaptive working memory training: a meta-analysis",
       authors_short: "Melby-Lervåg & Hulme",
@@ -91,6 +95,8 @@ export const MOCK_RAW = {
     },
     {
       paper_id: "10.1073/pnas.0801268105",
+      journal_rank: {"cas": {"tier": 1, "rank": "6/118", "top": true, "minor": [{"category": "MULTIDISCIPLINARY SCIENCES 综合性期刊", "tier": 1, "rank": "6/131"}], "source_year": 2025}, "jcr": {"quartile": "Q1", "impact_factor": 9.1, "rank": "14/135", "category": "MULTIDISCIPLINARY SCIENCES(SCIE)", "source_year": 2024}, "sjr": {"best_quartile": "Q1", "sjr": 3.414, "per_category": [{"category": "Multidisciplinary", "quartile": "Q1"}], "source_year": 2024}, "openalex": null, "matched_issn": "0027-8424", "matched_platforms": ["cas", "jcr", "sjr"]},
+      journal_rank_attribution: "Data: 中科院文献情报中心期刊分区表 (CAS Journal Ranking). For personal/non-commercial use; 勿公开传播.  Data: Journal Citation Reports (Clarivate). Impact Factor and JCR quartiles are © Clarivate; for reference only.  Data: SCImago Journal Rank, scimagojr.com — non-commercial use as long as it is cited (SCImago custom terms; NOT a Creative Commons licence).",
       title:
         "Improving fluid intelligence with training on working memory",
       authors_short: "Jaeggi et al.",
@@ -122,6 +128,8 @@ export const MOCK_RAW = {
     // --- High (7 <= rcs < 8.5) — 3 papers
     {
       paper_id: "10.1037/a0029082",
+      journal_rank: {"cas": {"tier": 1, "rank": "8/657", "top": true, "minor": [{"category": "PSYCHOLOGY 心理学", "tier": 1, "rank": "3/92"}, {"category": "PSYCHOLOGY, MULTIDISCIPLINARY 心理学：综合", "tier": 1, "rank": "4/219"}], "source_year": 2025}, "jcr": {"quartile": "Q1", "impact_factor": 19.8, "rank": "3/221", "category": "PSYCHOLOGY(SCIE);PSYCHOLOGY, MULTIDISCIPLINARY(SSCI)", "source_year": 2024}, "sjr": {"best_quartile": "Q1", "sjr": 8.696, "per_category": [{"category": "History and Philosophy of Science", "quartile": "Q1"}], "source_year": 2024}, "openalex": null, "matched_issn": "0033-2909", "matched_platforms": ["cas", "jcr", "sjr"]},
+      journal_rank_attribution: "Data: 中科院文献情报中心期刊分区表 (CAS Journal Ranking). For personal/non-commercial use; 勿公开传播.  Data: Journal Citation Reports (Clarivate). Impact Factor and JCR quartiles are © Clarivate; for reference only.  Data: SCImago Journal Rank, scimagojr.com — non-commercial use as long as it is cited (SCImago custom terms; NOT a Creative Commons licence).",
       title:
         "Is working memory training effective? A meta-analytic review",
       authors_short: "Shipstead, Redick, & Engle",
@@ -150,6 +158,8 @@ export const MOCK_RAW = {
     },
     {
       paper_id: "10.1037/a0035144",
+      journal_rank: {"cas": {"tier": 3, "rank": "204/657", "top": false, "minor": [{"category": "PSYCHOLOGY, EXPERIMENTAL 心理学：实验", "tier": 3, "rank": "41/99"}], "source_year": 2025}, "jcr": {"quartile": "Q2", "impact_factor": 2.1, "rank": "46/102", "category": "PSYCHOLOGY, EXPERIMENTAL(SSCI)", "source_year": 2024}, "sjr": {"best_quartile": "Q1", "sjr": 1.149, "per_category": [{"category": "Experimental and Cognitive Psychology", "quartile": "Q1"}, {"category": "Neuropsychology and Physiological Psychology", "quartile": "Q1"}], "source_year": 2024}, "openalex": null, "matched_issn": "0090-502X", "matched_platforms": ["cas", "jcr", "sjr"]},
+      journal_rank_attribution: "Data: 中科院文献情报中心期刊分区表 (CAS Journal Ranking). For personal/non-commercial use; 勿公开传播.  Data: Journal Citation Reports (Clarivate). Impact Factor and JCR quartiles are © Clarivate; for reference only.  Data: SCImago Journal Rank, scimagojr.com — non-commercial use as long as it is cited (SCImago custom terms; NOT a Creative Commons licence).",
       title:
         "The role of individual differences in cognitive training and transfer",
       authors_short: "Jaeggi, Buschkuehl, Shah, & Jonides",
@@ -179,6 +189,8 @@ export const MOCK_RAW = {
     },
     {
       paper_id: "10.1016/j.tics.2013.05.009",
+      journal_rank: {"cas": {"tier": 1, "rank": "2/657", "top": true, "minor": [{"category": "BEHAVIORAL SCIENCES 行为科学", "tier": 1, "rank": "1/55"}, {"category": "NEUROSCIENCES 神经科学", "tier": 1, "rank": "2/309"}, {"category": "PSYCHOLOGY, EXPERIMENTAL 心理学：实验", "tier": 1, "rank": "1/99"}], "source_year": 2025}, "jcr": {"quartile": "Q1", "impact_factor": 17.2, "rank": "1/102", "category": "BEHAVIORAL SCIENCES(SCIE);NEUROSCIENCES(SCIE);PSYCHOLOGY, EXPERIMENTAL(SSCI)", "source_year": 2024}, "sjr": {"best_quartile": "Q1", "sjr": 4.506, "per_category": [{"category": "Cognitive Neuroscience", "quartile": "Q1"}, {"category": "Experimental and Cognitive Psychology", "quartile": "Q1"}, {"category": "Neuropsychology and Physiological Psychology", "quartile": "Q1"}], "source_year": 2024}, "openalex": null, "matched_issn": "1364-6613", "matched_platforms": ["cas", "jcr", "sjr"]},
+      journal_rank_attribution: "Data: 中科院文献情报中心期刊分区表 (CAS Journal Ranking). For personal/non-commercial use; 勿公开传播.  Data: Journal Citation Reports (Clarivate). Impact Factor and JCR quartiles are © Clarivate; for reference only.  Data: SCImago Journal Rank, scimagojr.com — non-commercial use as long as it is cited (SCImago custom terms; NOT a Creative Commons licence).",
       title:
         "Working memory training in healthy older adults: a longitudinal MRI study",
       authors_short: "Brehmer, Westerberg, & Bäckman",
@@ -205,6 +217,8 @@ export const MOCK_RAW = {
     // --- Moderate (5.5 <= rcs < 7) — 3 papers
     {
       paper_id: "10.1037/a0030986",
+      journal_rank: {"cas": {"tier": 2, "rank": "66/657", "top": true, "minor": [{"category": "GERONTOLOGY 老年医学（社科）", "tier": 1, "rank": "1/48"}, {"category": "PSYCHOLOGY, DEVELOPMENTAL 心理学：发育", "tier": 2, "rank": "16/91"}], "source_year": 2025}, "jcr": {"quartile": "Q1", "impact_factor": 3.5, "rank": "8/48", "category": "GERONTOLOGY(SSCI);PSYCHOLOGY, DEVELOPMENTAL(SSCI)", "source_year": 2024}, "sjr": {"best_quartile": "Q1", "sjr": 1.585, "per_category": [{"category": "Aging", "quartile": "Q1"}, {"category": "Geriatrics and Gerontology", "quartile": "Q1"}, {"category": "Social Psychology", "quartile": "Q1"}], "source_year": 2024}, "openalex": null, "matched_issn": "0882-7974", "matched_platforms": ["cas", "jcr", "sjr"]},
+      journal_rank_attribution: "Data: 中科院文献情报中心期刊分区表 (CAS Journal Ranking). For personal/non-commercial use; 勿公开传播.  Data: Journal Citation Reports (Clarivate). Impact Factor and JCR quartiles are © Clarivate; for reference only.  Data: SCImago Journal Rank, scimagojr.com — non-commercial use as long as it is cited (SCImago custom terms; NOT a Creative Commons licence).",
       title:
         "Mediators of training-related transfer: a five-month randomized trial in older adults",
       authors_short: "Karbach et al.",
@@ -233,6 +247,8 @@ export const MOCK_RAW = {
     },
     {
       paper_id: "10.1037/aap0000094",
+      journal_rank: {"cas": {"tier": 1, "rank": "12/657", "top": true, "minor": [{"category": "PSYCHOLOGY, MULTIDISCIPLINARY 心理学：综合", "tier": 1, "rank": "6/219"}], "source_year": 2025}, "jcr": {"quartile": "Q1", "impact_factor": 8.4, "rank": "8/221", "category": "PSYCHOLOGY, MULTIDISCIPLINARY(SSCI)", "source_year": 2024}, "sjr": {"best_quartile": "Q1", "sjr": 5.393, "per_category": [], "source_year": 2024}, "openalex": null, "matched_issn": "1745-6916", "matched_platforms": ["cas", "jcr", "sjr"]},
+      journal_rank_attribution: "Data: 中科院文献情报中心期刊分区表 (CAS Journal Ranking). For personal/non-commercial use; 勿公开传播.  Data: Journal Citation Reports (Clarivate). Impact Factor and JCR quartiles are © Clarivate; for reference only.  Data: SCImago Journal Rank, scimagojr.com — non-commercial use as long as it is cited (SCImago custom terms; NOT a Creative Commons licence).",
       title:
         "Active versus passive control comparisons in cognitive training research",
       authors_short: "Boot, Simons, & Stothart",
@@ -262,6 +278,8 @@ export const MOCK_RAW = {
     },
     {
       paper_id: "10.3389/fnagi.2014.00063",
+      journal_rank: {"cas": {"tier": 3, "rank": "1281/5603", "top": false, "minor": [{"category": "GERIATRICS & GERONTOLOGY 老年医学", "tier": 3, "rank": "26/72"}, {"category": "NEUROSCIENCES 神经科学", "tier": 3, "rank": "105/309"}], "source_year": 2025}, "jcr": {"quartile": "Q1", "impact_factor": 4.5, "rank": "13/73", "category": "GERIATRICS & GERONTOLOGY(SCIE);NEUROSCIENCES(SCIE)", "source_year": 2024}, "sjr": {"best_quartile": "Q1", "sjr": 1.479, "per_category": [{"category": "Cognitive Neuroscience", "quartile": "Q1"}, {"category": "Aging", "quartile": "Q2"}], "source_year": 2024}, "openalex": null, "matched_issn": "1663-4365", "matched_platforms": ["cas", "jcr", "sjr"]},
+      journal_rank_attribution: "Data: 中科院文献情报中心期刊分区表 (CAS Journal Ranking). For personal/non-commercial use; 勿公开传播.  Data: Journal Citation Reports (Clarivate). Impact Factor and JCR quartiles are © Clarivate; for reference only.  Data: SCImago Journal Rank, scimagojr.com — non-commercial use as long as it is cited (SCImago custom terms; NOT a Creative Commons licence).",
       title:
         "Computerized cognitive training in healthy older adults: a systematic review and meta-analysis",
       authors_short: "Lampit, Hallock, & Valenzuela",
@@ -292,6 +310,8 @@ export const MOCK_RAW = {
     // --- Emerging (4.5 <= rcs < 5.5) — 2 papers
     {
       paper_id: "10.1038/nrn3884",
+      journal_rank: {"cas": {"tier": 1, "rank": "11/5603", "top": true, "minor": [{"category": "NEUROSCIENCES 神经科学", "tier": 1, "rank": "1/309"}], "source_year": 2025}, "jcr": {"quartile": "Q1", "impact_factor": 26.7, "rank": "1/314", "category": "NEUROSCIENCES(SCIE)", "source_year": 2024}, "sjr": {"best_quartile": "Q1", "sjr": 9.331, "per_category": [], "source_year": 2024}, "openalex": null, "matched_issn": "1471-003X", "matched_platforms": ["cas", "jcr", "sjr"]},
+      journal_rank_attribution: "Data: 中科院文献情报中心期刊分区表 (CAS Journal Ranking). For personal/non-commercial use; 勿公开传播.  Data: Journal Citation Reports (Clarivate). Impact Factor and JCR quartiles are © Clarivate; for reference only.  Data: SCImago Journal Rank, scimagojr.com — non-commercial use as long as it is cited (SCImago custom terms; NOT a Creative Commons licence).",
       title:
         "Aging, cognitive reserve, and the architecture of working memory",
       authors_short: "Reuter-Lorenz & Park",
@@ -319,6 +339,8 @@ export const MOCK_RAW = {
     },
     {
       paper_id: "10.1037/0894-4105.22.5.567",
+      journal_rank: {"cas": {"tier": 3, "rank": "287/657", "top": false, "minor": [{"category": "NEUROSCIENCES 神经科学", "tier": 3, "rank": "152/309"}, {"category": "PSYCHOLOGY 心理学", "tier": 3, "rank": "38/92"}, {"category": "PSYCHOLOGY, CLINICAL 心理学：临床", "tier": 4, "rank": "84/179"}], "source_year": 2025}, "jcr": {"quartile": "Q1", "impact_factor": 3.0, "rank": "41/185", "category": "NEUROSCIENCES(SCIE);PSYCHOLOGY(SCIE);PSYCHOLOGY, CLINICAL(SSCI)", "source_year": 2024}, "sjr": {"best_quartile": "Q1", "sjr": 1.002, "per_category": [{"category": "Neuropsychology and Physiological Psychology", "quartile": "Q1"}], "source_year": 2024}, "openalex": null, "matched_issn": "0894-4105", "matched_platforms": ["cas", "jcr", "sjr"]},
+      journal_rank_attribution: "Data: 中科院文献情报中心期刊分区表 (CAS Journal Ranking). For personal/non-commercial use; 勿公开传播.  Data: Journal Citation Reports (Clarivate). Impact Factor and JCR quartiles are © Clarivate; for reference only.  Data: SCImago Journal Rank, scimagojr.com — non-commercial use as long as it is cited (SCImago custom terms; NOT a Creative Commons licence).",
       title:
         "Working memory and aging: a review of the literature on capacity, complexity, and control",
       authors_short: "Park & Reuter-Lorenz",
@@ -345,6 +367,8 @@ export const MOCK_RAW = {
     // --- Peripheral (rcs < 4.5) — 1 paper
     {
       paper_id: "10.1038/nature11704",
+      journal_rank: {"cas": {"tier": 1, "rank": "1/118", "top": true, "minor": [{"category": "MULTIDISCIPLINARY SCIENCES 综合性期刊", "tier": 1, "rank": "1/131"}], "source_year": 2025}, "jcr": {"quartile": "Q1", "impact_factor": 48.5, "rank": "2/135", "category": "MULTIDISCIPLINARY SCIENCES(SCIE)", "source_year": 2024}, "sjr": {"best_quartile": "Q1", "sjr": 18.288, "per_category": [{"category": "Multidisciplinary", "quartile": "Q1"}], "source_year": 2024}, "openalex": null, "matched_issn": "0028-0836", "matched_platforms": ["cas", "jcr", "sjr"]},
+      journal_rank_attribution: "Data: 中科院文献情报中心期刊分区表 (CAS Journal Ranking). For personal/non-commercial use; 勿公开传播.  Data: Journal Citation Reports (Clarivate). Impact Factor and JCR quartiles are © Clarivate; for reference only.  Data: SCImago Journal Rank, scimagojr.com — non-commercial use as long as it is cited (SCImago custom terms; NOT a Creative Commons licence).",
       title:
         "Visual short-term memory and the operation of attention",
       authors_short: "Vogel & Awh",

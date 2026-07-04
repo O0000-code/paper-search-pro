@@ -14,14 +14,14 @@
 <br/>
 原生支持 Claude Code；也可在 Codex 等加载 SKILL.md 格式的 Agent 中使用。
 <br/>
-五源 · 四档 · 单文件 Shadcn 报告。
+五源 · 四档 · 期刊分区 · 单文件 Shadcn 报告。
 
 <br/>
 
 <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache_2.0-000?style=flat-square" alt="Apache 2.0"/></a>
 <a href="SKILL.md"><img src="https://img.shields.io/badge/agent-Skill-000?style=flat-square" alt="Agent Skill"/></a>
 <img src="https://img.shields.io/badge/Python-3.10+-000?style=flat-square" alt="Python 3.10+"/>
-<img src="https://img.shields.io/badge/version-2.1.2-000?style=flat-square" alt="v2.1.2"/>
+<img src="https://img.shields.io/badge/version-2.2.0-000?style=flat-square" alt="v2.2.0"/>
 
 </div>
 
@@ -134,6 +134,8 @@ python3 -m pip install -r "$PSP_HOME/scripts/requirements.txt"
   </tr>
 </table>
 
+**期刊分区。** 每篇论文都标注其 **中科院 / JCR / SJR** 分区 —— 卡片上一个安静的徽章、详情面板里三家完整对照、工具栏里按分区筛选（`Q1 / ≥Q2 / ≥Q3`，中科院则是 `一区 / ≥二区`）。分区表在运行时从公开镜像拉取 —— 不随包分发 —— 并标注来源；只有 JCR 的数值才称为影响因子。
+
 输出落在 `$PWD/paper-search-results/<search_id>/`：
 
 ```text
@@ -170,6 +172,11 @@ PYTHONPATH=$PSP_HOME python3 -c \
    print('ready' if c.openalex_api_key and c.ncbi_email else 'missing')"
 ```
 
+**主源 —— 按需选择，也能自动兜底。** 一个开关，两件独立的事：
+
+- **自选主源。** 默认 OpenAlex；当某个领域或语料更适合 Semantic Scholar 时，可把它设为主源。
+- **额度自动兜底。** 当前主源当日额度见底（或开始报错）时，整轮会自动切到另一个源继续，而不是停下 —— key 用尽时优雅降级。
+
 <br/>
 
 ## 工作原理
@@ -197,7 +204,9 @@ PYTHONPATH=$PSP_HOME python3 -c \
                        └─────────────────────────────┘
 ```
 
-17 份分步 reference 文档位于 [`references/`](references/) — 档级决策、查询规划（PICO / SPIDER / PEO）、源路由、helper cheatsheet、RCS 评分准则、停止条件、引文追溯、SubAgent prompt、PRISMA-S 16 项 checklist、summary 撰写指南、错误处理、输出规范。
+分步 reference 文档位于 [`references/`](references/) — 档级决策、查询规划（PICO / SPIDER / PEO）、源路由、helper cheatsheet、RCS 评分准则、停止条件、引文追溯、SubAgent prompt、PRISMA-S 16 项 checklist、summary 撰写指南、错误处理、输出规范。
+
+**面向 Agent 的无头模式。** 当消费方是另一个 Agent 而非人时，[`scripts/agent_search.py`](scripts/agent_search.py) 用一条命令跑完确定性核心，返回单个结构化 JSON 信封 —— 去重、相关性打分、饱和判断俱全 —— 不出 HTML、不派分类 SubAgent。同样的检索纪律，机器可读的输出。
 
 <br/>
 

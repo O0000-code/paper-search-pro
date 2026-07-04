@@ -14,14 +14,14 @@
 <br/>
 Built natively for Claude Code; runs in Codex and any agent that loads the SKILL.md format.
 <br/>
-Five sources · four tiers · single-file Shadcn report.
+Five sources · four tiers · journal partitions · single-file Shadcn report.
 
 <br/>
 
 <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache_2.0-000?style=flat-square" alt="Apache 2.0"/></a>
 <a href="SKILL.md"><img src="https://img.shields.io/badge/agent-Skill-000?style=flat-square" alt="Agent Skill"/></a>
 <img src="https://img.shields.io/badge/Python-3.10+-000?style=flat-square" alt="Python 3.10+"/>
-<img src="https://img.shields.io/badge/version-2.1.2-000?style=flat-square" alt="v2.1.2"/>
+<img src="https://img.shields.io/badge/version-2.2.0-000?style=flat-square" alt="v2.2.0"/>
 
 </div>
 
@@ -134,6 +134,8 @@ Three tabs · three hero layouts · two list densities · responsive at 860 px �
   </tr>
 </table>
 
+**Journal partitions.** Every paper is tagged with its 中科院 (CAS) / JCR / SJR tier — a quiet badge on each card, the full three-platform breakdown in the detail panel, and a zone filter (`Q1 / ≥Q2 / ≥Q3`, or `一区 / ≥二区`) in the toolbar. The tables are fetched at runtime from public mirrors — never bundled — and attributed; only JCR's figure is labelled an impact factor.
+
 Outputs land in `$PWD/paper-search-results/<search_id>/`:
 
 ```text
@@ -170,6 +172,11 @@ PYTHONPATH=$PSP_HOME python3 -c \
    print('ready' if c.openalex_api_key and c.ncbi_email else 'missing')"
 ```
 
+**Primary source — by preference, *and* by fallback.** Two independent capabilities from one switch:
+
+- **Pick your primary.** OpenAlex is the default; set Semantic Scholar as the primary source instead when its corpus or field coverage suits your topic better.
+- **Automatic quota fallback.** When the active primary runs low on its daily quota (or starts erroring), the run continues on the other source rather than stopping — a depleted key degrades gracefully.
+
 <br/>
 
 ## How it works
@@ -197,7 +204,9 @@ A 14-step recipe in [`SKILL.md`](SKILL.md) drives every run. Python helpers in [
                        └─────────────────────────────┘
 ```
 
-Seventeen per-step reference documents live in [`references/`](references/) — tier decisions, query planning (PICO / SPIDER / PEO), source routing, helper cheatsheets, the RCS rubric, stop conditions, citation chasing, the classifier SubAgent prompt, the PRISMA-S 16-item checklist, summary writer guide, error handling, output conventions.
+Per-step reference documents live in [`references/`](references/) — tier decisions, query planning (PICO / SPIDER / PEO), source routing, helper cheatsheets, the RCS rubric, stop conditions, citation chasing, the classifier SubAgent prompt, the PRISMA-S 16-item checklist, summary writer guide, error handling, output conventions.
+
+**Headless mode for agents.** When the consumer is another agent rather than a person, [`scripts/agent_search.py`](scripts/agent_search.py) runs the deterministic core in a single command and returns one structured JSON envelope — deduped, relevance-scored, saturation-checked — with no HTML and no classification SubAgents. Same search discipline, machine-readable output.
 
 <br/>
 
