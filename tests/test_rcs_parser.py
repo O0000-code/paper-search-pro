@@ -12,6 +12,7 @@ sys.path.insert(0, str(SKILL_ROOT))
 from scripts.rcs_parser import (  # noqa: E402
     parse_rcs_response,
     apply_to_kg,
+    ParsedRCS,
     VALID_FLAGS,
 )
 from scripts.types import UnifiedPaperEntity  # noqa: E402
@@ -138,6 +139,41 @@ def test_apply_to_kg():
     assert n_updated == 2
     assert papers[0].rcs == 8
     assert papers[1].rcs == 3
+
+
+# Regression (PR #2): apply_to_kg must match batches keyed by the KG's own
+# canonical_key string (how rcs_parser loads the KG — see rcs_parser CLI
+# `kg[key_tuple_str]`), not only by entity.paper_id. Before the fix these were
+# silently dropped (updated=0), discarding the RCS scores with no error.
+def test_apply_to_kg_matches_canonical_key_keyed_batch():
+    papers = _sample_papers(2)
+    # KG keyed by the canonical_key string (doi|<id>), a DIFFERENT value from
+    # entity.paper_id (the bare DOI).
+    kg = {f"doi|{p.doi}": p for p in papers}
+    assert papers[0].paper_id != f"doi|{papers[0].doi}"  # keys genuinely differ
+    parsed = [
+        ParsedRCS(paper_id=f"doi|{papers[0].doi}", rcs=9,
+                  reasoning="Field-defining reference cited throughout the area.", flag=None),
+        ParsedRCS(paper_id=f"doi|{papers[1].doi}", rcs=2,
+                  reasoning="Only marginally related to the query at hand.", flag=None),
+    ]
+    assert apply_to_kg(parsed, kg) == 2
+    assert papers[0].rcs == 9 and papers[1].rcs == 2
+
+
+# Regression (PR #2): the pre-existing entity.paper_id-keyed path must still
+# match exactly (backward compatibility — paper_id takes precedence on collision).
+def test_apply_to_kg_paper_id_keyed_batch_still_matches():
+    papers = _sample_papers(2)
+    kg = {f"doi|{p.doi}": p for p in papers}
+    parsed = [
+        ParsedRCS(paper_id=papers[0].paper_id, rcs=7,
+                  reasoning="Directly relevant with a strong methods section.", flag=None),
+        ParsedRCS(paper_id=papers[1].paper_id, rcs=4,
+                  reasoning="Adjacent topic, useful mainly for context here.", flag=None),
+    ]
+    assert apply_to_kg(parsed, kg) == 2
+    assert papers[0].rcs == 7 and papers[1].rcs == 4
 
 
 # Empty input

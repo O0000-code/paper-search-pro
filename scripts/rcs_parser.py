@@ -318,8 +318,16 @@ def main():
             parsed = [ParsedRCS(**obj) for obj in result_data["papers"]]
         elif isinstance(result_data, dict) and "raw_response" in result_data:
             # SubAgent stored raw LLM text + the batch_paper_ids
-            batch_ids = result_data.get("batch_paper_ids", [])
-            batch_papers = [e for e in kg.values() if e.paper_id in batch_ids]
+            batch_ids = set(result_data.get("batch_paper_ids", []))
+            # Match on BOTH entity.paper_id and the KG's canonical_key string
+            # (same reason as apply_to_kg above / PR #2): a batch built by
+            # iterating kg.items() identifies papers by canonical_key, so a
+            # paper_id-only filter would leave batch_papers empty here.
+            batch_papers = [
+                e
+                for key, e in kg.items()
+                if e.paper_id in batch_ids or str(key) in batch_ids
+            ]
             parsed = parse_rcs_response(result_data["raw_response"], batch_papers)
         else:
             logger.warning("Unknown format in %s", result_file)
