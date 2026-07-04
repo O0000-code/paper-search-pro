@@ -458,6 +458,11 @@ if __name__ == "__main__":
     kg = _kg_from_json(json.loads(kg_path.read_text(encoding="utf-8")))
     query_plan = _read_json(args.query_plan) or []
     snapshots = _read_json(args.snapshots) or []
+    # discovery_curve.py writes a single snapshot dict (not a list). Normalize to
+    # a list so the [-1] access below and the list-only checks downstream work —
+    # otherwise a dict payload raises KeyError: -1 and coverage_estimate is dropped.
+    if isinstance(snapshots, dict):
+        snapshots = [snapshots]
     output_paths = _read_json(args.output_paths) or {}
     errors = _read_json(args.errors) or []
 
