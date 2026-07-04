@@ -92,8 +92,14 @@ def apply_to_kg(parsed_list: List[ParsedRCS], kg: dict) -> int:
 
     Returns number of entities updated. kg is the dict from federated_kg_resolver
     (keyed by canonical_key tuple, but entities have .paper_id property for matching).
+
+    Match on BOTH entity.paper_id and the KG's canonical_key: batch files may be
+    keyed by either, and the canonical_key is the natural id when a batch is built
+    by iterating kg.items(). entity.paper_id takes precedence on collision.
     """
-    by_id = {entity.paper_id: entity for entity in kg.values()}
+    by_id = {str(key): entity for key, entity in kg.items()}
+    for entity in kg.values():
+        by_id[entity.paper_id] = entity
     updated = 0
     for p in parsed_list:
         entity = by_id.get(p.paper_id)
