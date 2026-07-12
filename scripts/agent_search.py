@@ -82,6 +82,11 @@ from .types import Config, UnifiedPaperEntity
 # These imports are the deterministic core the agent path REUSES (no new search
 # logic invented here — same backends the human path uses, R-14/enhance-not-rewrite).
 from . import openalex_helper, ss_helper, quota_guard, crossref_helper
+# Chinese supplemental sources (v2.3.0, B1): independent primary sources that emit
+# the SAME UnifiedPaperEntity shape, so their results fold into federated dedup
+# exactly like an openalex/ss strategy list. Explicit-flag only in the agent path
+# (--with-nssd / --with-yiigle); no discipline-signal auto-routing here (§8).
+from . import nssd_helper, yiigle_helper
 from .federated_kg_resolver import federated_dedup, kg_to_list
 
 # Feature A (v2.2 Wave A-2): multi-platform journal-rank intent + annotate/filter.
@@ -154,13 +159,46 @@ _STOPWORDS = frozenset(
 # healthcare} rather than scoring the "+"/parens.
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
+# CJK character class (shared source of truth): ideograph + CJK-extension +
+# compatibility ranges. Used both for the mechanical zh query signal
+# (``_query_has_cjk`` below reuses it) and for CJK n-gram coverage (#9). A CJK
+# query has no whitespace token boundaries, so the latin ``_TOKEN_RE`` yields
+# NOTHING and the heuristic score would floor at citation+recency only. We add
+# character 2-grams for the CJK runs so a Chinese query is query-grounded too.
+# A pure-ASCII query contains no CJK char, so ``_cjk_ngrams`` returns [] and the
+# English tokenise / coverage path is byte-for-byte unchanged (R-19).
+_CJK_CLASS = "㐀-䶿一-鿿豈-﫿\U00020000-\U0002ffff\U0002f800-\U0002fa1f"
+_CJK_RUN_RE = re.compile(f"[{_CJK_CLASS}]+")
+
+
+def _cjk_ngrams(text: Optional[str]) -> List[str]:
+    """Character 2-grams over each maximal CJK run in ``text`` (a length-1 run
+    yields that single char). Returns [] for any text without a CJK character, so
+    the English tokenise / coverage path is completely unaffected (#9 / R-19)."""
+    grams: List[str] = []
+    for run in _CJK_RUN_RE.findall(text or ""):
+        if len(run) == 1:
+            grams.append(run)
+        else:
+            for i in range(len(run) - 1):
+                grams.append(run[i : i + 2])
+    return grams
+
 
 def _tokenize_query(query: str) -> List[str]:
     """Lowercase the query, drop boolean punctuation and stopwords, keep terms
     of length >= 3 (so 'ml' survives only as 'machine'/'learning' when spelled
-    out; very short tokens are noise for coverage scoring)."""
-    raw = _TOKEN_RE.findall((query or "").lower())
+    out; very short tokens are noise for coverage scoring).
+
+    A CJK query has no whitespace boundaries, so the latin token pass yields
+    nothing; we additionally emit CJK character 2-grams so a Chinese query is
+    query-grounded (#9). A pure-ASCII query produces no CJK grams, so its term
+    list is byte-for-byte unchanged (R-19)."""
+    low = (query or "").lower()
+    raw = _TOKEN_RE.findall(low)
     terms = [t for t in raw if len(t) >= 3 and t not in _STOPWORDS]
+    # Additive CJK support: [] for a pure-ASCII query, so the English path is intact.
+    terms.extend(_cjk_ngrams(low))
     # Preserve order but dedupe so a repeated term doesn't inflate coverage.
     seen = set()
     out: List[str] = []
@@ -175,13 +213,22 @@ def _coverage(terms: List[str], text: Optional[str]) -> float:
     """Fraction of query terms present in text (substring match on whole-word
     boundaries-ish: we just test token membership in the text's token set).
 
-    Substring-free, token-set membership avoids 'cat' matching 'category'."""
+    Latin terms match on token-set membership (substring-free, so 'cat' does not
+    match 'category'). CJK n-gram terms match as substrings — CJK text has no word
+    boundaries, so a Chinese query grounds via substring presence (#9). For a
+    pure-ASCII query every term is latin, so this is byte-for-byte the original
+    token-membership behaviour (R-19)."""
     if not terms or not text:
         return 0.0
-    text_tokens = set(_TOKEN_RE.findall(text.lower()))
-    if not text_tokens:
-        return 0.0
-    hits = sum(1 for t in terms if t in text_tokens)
+    low = text.lower()
+    text_tokens = set(_TOKEN_RE.findall(low))
+    hits = 0
+    for t in terms:
+        if _CJK_RUN_RE.search(t):   # CJK n-gram term -> substring match
+            if t in low:
+                hits += 1
+        elif t in text_tokens:      # latin term -> token-set membership (unchanged)
+            hits += 1
     return hits / len(terms)
 
 
@@ -317,7 +364,11 @@ _SATURATION_YIELD_THRESHOLD = 0.15  # last strategy adding <15% new -> saturated
 
 
 def _saturation_signal(
-    per_strategy_new: List[int], total_unique: int, scores: List[float]
+    per_strategy_new: List[int],
+    total_unique: int,
+    scores: List[float],
+    *,
+    query_grounded: bool = True,
 ) -> Dict:
     """Build the heuristic saturation block.
 
@@ -326,6 +377,10 @@ def _saturation_signal(
             in strategy order.
         total_unique: total unique papers after dedup.
         scores: relevance scores of the returned papers.
+        query_grounded: whether the run had groundable query terms. When False
+            (e.g. a CJK query that tokenised to nothing, #9) the score
+            distribution reflects only citation/recency, not topical coverage, so
+            we mark it not-applicable rather than emit a misleading high/med/low.
     """
     last_new = per_strategy_new[-1] if per_strategy_new else 0
     # Marginal new-yield fraction of the final strategy relative to the running
@@ -342,7 +397,7 @@ def _saturation_signal(
     medium = sum(1 for s in scores if 0.35 <= s < 0.6)
     low = sum(1 for s in scores if s < 0.35)
 
-    return {
+    sig = {
         "method": "heuristic_v1",
         "advisory": True,
         "looks_saturated": bool(looks_saturated),
@@ -354,6 +409,16 @@ def _saturation_signal(
             "later strategies added few new papers. Advisory only."
         ),
     }
+    if not query_grounded:
+        # #9: the score bands are meaningless without groundable terms — the score
+        # only carries citation+recency then. Mark not-applicable (additive keys,
+        # emitted ONLY on this non-default path -> R-19 default envelope intact).
+        sig["score_distribution"] = None
+        sig["score_distribution_note"] = (
+            "not applicable: the query produced no groundable terms, so relevance "
+            "scores reflect only citation/recency, not topical coverage."
+        )
+    return sig
 
 
 # ===========================================================================
@@ -361,12 +426,18 @@ def _saturation_signal(
 # ===========================================================================
 
 
-def _resolve_source(config: Config) -> Tuple[str, bool]:
+def _resolve_source(config: Config, *, override: Optional[str] = None) -> Tuple[str, bool]:
     """Decide which primary source to use for this run.
 
     Returns (source_used, switched) where source_used is "openalex" or
     "semantic_scholar" and ``switched`` notes whether an auto-mode quota fallback
     fired.
+
+    ``override`` (#8) is the transient --primary-source flag: when given it wins
+    over ``config.primary_source`` for THIS run only (single-use, never persisted),
+    letting the agent make a per-query 引擎 choice (e.g. AI decides SS for one
+    query). When None the behaviour is byte-for-byte the config-driven original
+    (R-19). ``config.quota_fallback`` still governs the auto path either way.
 
     Routing (mirrors the Wave 3b contract):
       - primary_source == "semantic_scholar" -> SS.
@@ -375,7 +446,7 @@ def _resolve_source(config: Config) -> Tuple[str, bool]:
         quota_fallback is enabled).
       - anything else (incl. "openalex")     -> OpenAlex (default, unchanged).
     """
-    primary = (getattr(config, "primary_source", "openalex") or "openalex").lower()
+    primary = (override or getattr(config, "primary_source", "openalex") or "openalex").lower()
     if primary == "semantic_scholar":
         return "semantic_scholar", False
     if primary == "auto" and getattr(config, "quota_fallback", True):
@@ -441,6 +512,175 @@ def _retrieve(
             "the most common cause; set semantic_scholar_api_key)."
         )
     return [merged], warnings
+
+
+# ===========================================================================
+# Language space (三轴模型 axis 2) — agent-path resolution + Chinese sources
+# ===========================================================================
+#
+# The three orthogonal axes (22_routing_ux_design §3; both routing groups share
+# this exact wording):
+#   - 引擎  primary_source (openalex/SS/auto) = WHO runs the primary retrieval.
+#   - 语言  search_language (auto/en/zh/both)  = WHICH sea to fish in.
+#   - 补充源 supplemental sources             = per-space discipline sources.
+#
+# Agent-path philosophy (§8): the agent path NEVER asks and NEVER guesses. It has
+# no discipline-signal detection (just like it has no PubMed/arXiv auto-routing).
+# So the language axis is resolved from EXPLICIT signals only:
+#   1. --lang flag          -> scope_source "flags"   (explicit; wins).
+#   2. config.search_language (non-auto) -> "config"  (silently adopted, §8).
+#   3. auto:
+#        3a. no CJK in query -> en, "query_passthrough", not ambiguous
+#            (this is the byte-identical current behaviour — R-19).
+#        3b. CJK in query    -> zh, "query_passthrough", ambiguous=True
+#            (Chinese query hitting OpenAlex/SS already returns Chinese results —
+#             the agent version of "问一句" is to pass through + flag the ambiguity
+#             in meta.language so the caller, who has context, decides whether to
+#             re-run with an explicit --lang. §5.1 4b / §8).
+# Supplemental Chinese sources (NSSD 社科 / yiigle 医学) are added ONLY by explicit
+# --with-nssd / --with-yiigle (§8: 补充源只认显式 flag). A --with-* on an en scope
+# upgrades it to both, so the Chinese query actually reaches the Chinese source
+# (§6.6, agent form) — reported via meta.language + a warning.
+
+# CJK / CJK-extension / compatibility-ideograph ranges — a query carrying any of
+# these is "Chinese" for the mechanical query_lang signal (matches detect_language
+# discipline: script detection is mechanical, everything else is caller judgement).
+_CJK_RE = re.compile(f"[{_CJK_CLASS}]")
+
+
+def _query_has_cjk(text: Optional[str]) -> bool:
+    """True when the query contains a CJK ideograph (the mechanical zh signal)."""
+    return bool(_CJK_RE.search(text or ""))
+
+
+@dataclass
+class _LanguagePlan:
+    """Resolved language axis for one agent run (post precedence-merge)."""
+
+    query_lang: str = "en"          # zh | en — mechanical CJK detection
+    scope_used: str = "en"          # en | zh | both
+    scope_source: str = "query_passthrough"  # flags | config | query_passthrough
+    ambiguous: bool = False         # auto + Chinese query + no explicit signal
+    chinese_sources: List[str] = None  # sources to actually query (--with-*)
+    engaged: bool = False           # whether the language feature is active at all
+    upgraded_en_to_both: bool = False
+
+
+def _resolve_language(
+    query: str,
+    config: Config,
+    *,
+    lang_flag: Optional[str],
+    with_nssd: bool,
+    with_yiigle: bool,
+) -> _LanguagePlan:
+    """Resolve the language axis from explicit signals only (agent path never asks).
+
+    ``engaged`` is False ONLY on the fully-default path (English query, no --lang,
+    no --with-*, config auto) — in which case the caller must NOT emit meta.language
+    so the envelope stays byte-identical to v2.2 (R-19)."""
+    query_lang = "zh" if _query_has_cjk(query) else "en"
+    config_lang = (getattr(config, "search_language", "auto") or "auto").lower()
+    if config_lang not in ("auto", "en", "zh", "both"):
+        config_lang = "auto"
+
+    plan = _LanguagePlan(query_lang=query_lang, chinese_sources=[])
+
+    if lang_flag:                       # 1. explicit flag wins
+        plan.scope_used = lang_flag
+        plan.scope_source = "flags"
+    elif config_lang != "auto":         # 2. persisted config value, silently adopted
+        plan.scope_used = config_lang
+        plan.scope_source = "config"
+    else:                               # 3. auto
+        plan.scope_source = "query_passthrough"
+        if query_lang == "en":          # 3a — byte-identical current behaviour (R-19)
+            plan.scope_used = "en"
+        else:                           # 3b — Chinese query, no signal: pass through + flag
+            plan.scope_used = "zh"
+            plan.ambiguous = True
+
+    # --with-* select the Chinese supplemental sources (explicit only, §8).
+    if with_nssd:
+        plan.chinese_sources.append("nssd")
+    if with_yiigle:
+        plan.chinese_sources.append("yiigle")
+
+    # A --with-* on an en scope needs zh present — upgrade en -> both (§6.6).
+    if plan.chinese_sources and plan.scope_used == "en":
+        plan.scope_used = "both"
+        plan.upgraded_en_to_both = True
+
+    # The language feature is "engaged" whenever any explicit signal or a Chinese
+    # query is present. Only the fully-default path leaves it off (R-19: no
+    # meta.language key, byte-identical envelope).
+    plan.engaged = bool(
+        lang_flag
+        or with_nssd
+        or with_yiigle
+        or config_lang != "auto"
+        or query_lang == "zh"
+    )
+    return plan
+
+
+def _retrieve_chinese(
+    query: str,
+    chinese_sources: List[str],
+    *,
+    year_min: Optional[int],
+    year_max: Optional[int],
+    n: int,
+) -> Tuple[List[List[UnifiedPaperEntity]], List[str]]:
+    """Query the explicit Chinese supplemental sources and return their result
+    lists (one per source) for federated dedup, plus warnings.
+
+    Each helper (nssd_helper / yiigle_helper, B1) is an independent primary source
+    emitting the SAME UnifiedPaperEntity shape, so its list folds into
+    _dedup_with_yield exactly like an openalex/ss strategy. Every helper degrades
+    gracefully (never raises); we still guard per source so one failing source
+    never kills the run.
+
+    #6: the Chinese helpers only accept ``year_min`` (their forms expose no
+    reliable year-max param), so we apply the recency CEILING client-side here —
+    otherwise a Chinese source would ignore ``--year-max`` while the primary engine
+    honours it. A paper is kept when its year is unknown OR <= year_max (we only
+    drop papers we can PROVE exceed the ceiling; unknown-year records are left for
+    the caller to judge, matching how the primary engines surface them)."""
+    results: List[List[UnifiedPaperEntity]] = []
+    warnings: List[str] = []
+    for src in chinese_sources:
+        try:
+            if src == "nssd":
+                batch = nssd_helper.search(query, n=n, year_min=year_min)
+            elif src == "yiigle":
+                batch = yiigle_helper.search(query, n=n, year_min=year_min)
+            else:  # pragma: no cover - guarded by the flag parser
+                continue
+        except Exception as exc:  # helpers shouldn't raise, but never let one kill the run
+            warnings.append(f"{src} search failed: {exc}")
+            batch = []
+        if year_max is not None:
+            batch = [p for p in batch if p.year is None or p.year <= year_max]
+        if not batch:
+            warnings.append(f"{src} returned 0 papers.")
+        results.append(list(batch))
+    return results, warnings
+
+
+def _language_meta(plan: _LanguagePlan) -> Dict:
+    """The additive ``meta.language`` block (§8). Only attached when the language
+    feature is engaged (never on the byte-identical default path — R-19)."""
+    return {
+        "query_lang": plan.query_lang,          # zh | en (mechanical CJK detection)
+        "scope_used": plan.scope_used,          # en | zh | both
+        "scope_source": plan.scope_source,      # flags | config | query_passthrough
+        # ambiguous=True is the agent version of the human path's "问一句": auto +
+        # a Chinese query with no explicit --lang/config signal. The caller (which
+        # has context the CLI does not) decides whether to re-run with --lang.
+        "ambiguous": plan.ambiguous,
+        "chinese_sources_used": list(plan.chinese_sources or []),
+    }
 
 
 # ===========================================================================
@@ -1085,6 +1325,10 @@ def run_agent_search(
     rank_category: Optional[str] = None,
     deepen_target: Optional[int] = None,
     max_deepen_rounds: int = 3,
+    lang: Optional[str] = None,
+    with_nssd: bool = False,
+    with_yiigle: bool = False,
+    primary_source: Optional[str] = None,
     now_year: int = _CURRENT_YEAR,
 ) -> Dict:
     """Run the full deterministic agent pipeline and return the envelope dict.
@@ -1139,6 +1383,32 @@ def run_agent_search(
     - A bare quartile with no platform ("Q1") is AMBIGUOUS: the envelope flags it
       (``meta.rank.ambiguous``) for the calling agent to ask the user; the CLI
       itself never guesses a platform.
+
+    Language axis (三轴模型 axis 2 — additive, §8):
+    - ``lang`` ("en"|"zh"|"both"|None): the language SPACE to search. Explicit wins
+      (scope_source "flags"); None falls to config ``search_language`` (non-auto
+      adopted silently, "config") then auto (English query -> en; Chinese query ->
+      zh passthrough flagged ``ambiguous`` in ``meta.language``). The agent path
+      NEVER asks/guesses — it passes the query through and reports the ambiguity for
+      the caller (which has context) to resolve.
+    - ``with_nssd`` / ``with_yiigle``: also query the Chinese supplemental sources
+      (NSSD 社科 / yiigle 医学) and MERGE their results into the candidate pool
+      (federated dedup). Explicit only (§8: 补充源只认显式 flag). A --with-* on an en
+      scope upgrades it to 'both' so the Chinese query reaches the source (§6.6).
+    - ``meta.language`` (query_lang / scope_used / scope_source / ambiguous /
+      chinese_sources_used) is emitted ONLY when the language feature is engaged; the
+      fully-default English path never emits it, keeping the envelope byte-identical
+      to v2.2 (R-19). For a Chinese query the FLOOR relevance score is now CJK-aware
+      (#9: character 2-gram coverage) so a zh query is query-grounded; the caller can
+      still layer its own semantic judgement (see agent_mode.md).
+
+    Engine axis (三轴模型 axis 1 — additive):
+    - ``primary_source`` ("openalex"|"semantic_scholar"|"auto"|None): the transient
+      --primary-source flag (#8). When given it OVERRIDES ``config.primary_source``
+      for THIS run only (single-use, never persisted), so the agent can make a
+      per-query 引擎 choice (e.g. force SS for one query the AI judged SS-better).
+      None => the config-driven routing, byte-for-byte unchanged (R-19). SS-as-
+      primary still requires a key (E_CONFIG otherwise, R-06).
     """
     warnings: List[str] = []
 
@@ -1158,11 +1428,41 @@ def run_agent_search(
     )
     search_query = rank_plan.cleaned_query or query
 
+    # ---- Language axis (三轴模型 axis 2) — resolve scope + Chinese sources -------
+    # Explicit signals only (agent path never asks/guesses, §8). On the fully
+    # default path (English query, no --lang, no --with-*, config auto) lang_plan
+    # .engaged is False -> meta.language is NOT emitted -> envelope byte-identical
+    # to v2.2 (R-19). Chinese supplemental sources are added ONLY via --with-*.
+    lang_plan = _resolve_language(
+        query, config, lang_flag=lang, with_nssd=with_nssd, with_yiigle=with_yiigle,
+    )
+    if lang_plan.upgraded_en_to_both:
+        warnings.append(
+            "--with-nssd/--with-yiigle requested a Chinese source on an en scope; "
+            "scope upgraded to 'both' so the query reaches the Chinese source (§6.6)."
+        )
+    # #1: a Chinese query resolved to an en scope (via --lang en or config
+    # search_language=en) means the agent path searches the CJK string VERBATIM
+    # against English-language indexes and does NOT translate (headless: no LLM in
+    # the loop). Warn so the caller supplies English terms itself instead of
+    # silently getting near-empty results under a scope_used:en label. (Only fires
+    # when no Chinese source was added — a --with-* upgrades en -> both, so the
+    # query does reach a Chinese source and the warning would be moot.)
+    if lang_plan.query_lang == "zh" and lang_plan.scope_used == "en":
+        warnings.append(
+            "CJK query under en scope: the agent path does not translate in "
+            "headless mode — pass English terms yourself (or use --lang zh / a "
+            "Chinese source via --with-nssd/--with-yiigle)."
+        )
+
     terms = _tokenize_query(search_query)
 
     # ---- Source routing (+ auto-mode quota fallback) ----
+    # #8: ``primary_source`` (the --primary-source flag) transiently overrides
+    # config.primary_source for this run only when given; None => config-driven
+    # routing, byte-for-byte unchanged (R-19).
     try:
-        source_used, switched = _resolve_source(config)
+        source_used, switched = _resolve_source(config, override=primary_source)
     except Exception as exc:
         source_used, switched = "openalex", False
         warnings.append(f"source routing fell back to openalex: {exc}")
@@ -1205,6 +1505,21 @@ def run_agent_search(
     )
     warnings.extend(retr_warnings)
 
+    # ---- Chinese supplemental sources (agent path: explicit --with-* only) -------
+    # Each is an independent primary source in the same UnifiedPaperEntity shape, so
+    # its result list is just one more strategy list feeding federated dedup. Empty
+    # (no --with-*) => zero change to strategy_results => R-19 default path intact.
+    # The Chinese sources have no depth knob, so we keep their lists constant across
+    # any adaptive-deepening rounds below (re-appended on every re-dedup).
+    chinese_results: List[List[UnifiedPaperEntity]] = []
+    if lang_plan.chinese_sources:
+        chinese_results, cn_warn = _retrieve_chinese(
+            search_query, lang_plan.chinese_sources, year_min=year_min,
+            year_max=year_max, n=cur_per_strategy,
+        )
+        warnings.extend(cn_warn)
+        strategy_results = strategy_results + chinese_results
+
     # ---- Dedup + per-strategy yield ----
     unique, per_strategy_new, retrieved_raw = _dedup_with_yield(strategy_results)
 
@@ -1223,6 +1538,8 @@ def run_agent_search(
             "ratelimit": ratelimit,
             "warnings": warnings,
         }
+        if lang_plan.engaged:
+            meta["language"] = _language_meta(lang_plan)
         # No results: distinguish a likely rate-limit from a genuine empty query.
         if source_used == "semantic_scholar" and retrieved_raw == 0:
             return _error_envelope(
@@ -1306,7 +1623,9 @@ def run_agent_search(
             )
             warnings.extend(more_warn)
             # Re-dedup the deeper superset (deterministic sorts => stable superset).
-            new_unique, new_psn, new_raw = _dedup_with_yield(more_results)
+            # Chinese sources have no depth knob, so re-append their constant lists
+            # so they survive the deeper re-dedup (no-op when --with-* was not used).
+            new_unique, new_psn, new_raw = _dedup_with_yield(more_results + chinese_results)
             unique, per_strategy_new, retrieved_raw = new_unique, new_psn, new_raw
             if len(unique) <= prev_unique:
                 deepen_saturated = True  # deeper crawl added nothing new
@@ -1342,7 +1661,14 @@ def run_agent_search(
         scored.sort(key=lambda pr: (pr[1]["score"], pr[0].citation_count or 0), reverse=True)
 
     # Filter by min_relevance (signal-as-knob: filtering is opt-in, scoring is not).
-    kept = [(p, rel) for (p, rel) in scored if rel["score"] >= min_relevance]
+    # #9: when the query produced no groundable terms (e.g. a CJK query that
+    # tokenised to nothing), the score is not query-grounded — every paper floors at
+    # citation+recency, so a nonzero --min-relevance would wrongly filter the whole
+    # (zh) pool to empty. Guard by treating min_relevance as 0 when terms is empty.
+    # Default English path always has terms, so effective_min == min_relevance and
+    # this comprehension is byte-for-byte the original (R-19).
+    effective_min = min_relevance if terms else 0.0
+    kept = [(p, rel) for (p, rel) in scored if rel["score"] >= effective_min]
     after_relevance_filter = len(kept)
 
     # ---- Journal-rank enrichment (Feature A, single layer) + opt-in filtering ----
@@ -1496,6 +1822,17 @@ def run_agent_search(
     verifies: List[Dict] = []
     for p, rel in kept:
         d = _paper_to_dict(p)
+        # #17: paper_id is a @property (not in __dict__), so _paper_to_dict never
+        # serialises it; downstream joins (rcs_rubric / classifier) key on it. Emit
+        # it explicitly — but ONLY when the language feature is engaged. R-19:
+        # adding a key to every paper on the default English path would break the
+        # byte-identical default envelope, and there paper_id is trivially
+        # reconstructable (every paper exposes a directly-readable doi/openalex_id
+        # as the top priority). The NON-obvious paper_id — a NSSD/yiigle record
+        # whose id falls back to source_native_id — only ever occurs in an engaged
+        # envelope, which is exactly where we surface the explicit join key.
+        if lang_plan.engaged:
+            d["paper_id"] = p.paper_id
         d["relevance"] = rel
         # SINGLE journal layer (v2.2 collapse): the unified journal_rank dict
         # (CAS/JCR/SJR + OpenAlex open impact, spec §3) or None when the journal
@@ -1509,7 +1846,28 @@ def run_agent_search(
         data.append(d)
 
     all_scores = [rel["score"] for (_p, rel) in scored]
-    saturation = _saturation_signal(per_strategy_new, len(unique), all_scores)
+    # #10: the Chinese supplemental source lists are appended AFTER the primary
+    # strategies, so per_strategy_new's tail entries are Chinese-source yields —
+    # per_strategy_new[-1] would then measure a Chinese source, not the primary
+    # engine's last strategy. The marginal-yield saturation signal is about the
+    # PRIMARY engine's strategy decay (the Chinese sources have no depth knob), so
+    # compute it on the primary strategies only. n_chinese==0 on the default path,
+    # so primary_psn == per_strategy_new and this is byte-for-byte unchanged (R-19).
+    n_chinese = len(chinese_results)
+    primary_psn = per_strategy_new[:-n_chinese] if n_chinese else per_strategy_new
+    # #9: mark the score distribution not-applicable when there were no groundable
+    # terms (bool(terms) is always True on the English default path -> unchanged).
+    saturation = _saturation_signal(
+        primary_psn, len(unique), all_scores, query_grounded=bool(terms)
+    )
+    if n_chinese:
+        saturation["excludes_chinese_sources"] = True
+        saturation["chinese_sources_note"] = (
+            "Marginal-yield saturation is computed on the PRIMARY engine strategies "
+            "only; the Chinese supplemental sources (no depth knob) are excluded "
+            "from this signal, though they DO contribute to counts and returned "
+            "data (see counts.retrieved_raw_chinese, #10/#11)."
+        )
 
     # ---- Build the meta.rank block (Feature A, Wave A-2) -----------------------
     rank_attribution = None
@@ -1642,6 +2000,22 @@ def run_agent_search(
     }
     if verify:
         meta["verify_summary"] = _verify_summary(verifies)
+    # #11: retrieved_raw counts the Chinese supplemental sources too, but
+    # source_used names only the primary engine — split the raw count so the agent
+    # sees how many rows came from Chinese sources vs the primary engine. Additive
+    # keys, emitted ONLY when a Chinese source ran (n_chinese>0), so the default
+    # English counts block is byte-identical (R-19). chinese_results is constant
+    # across any deepen rounds, so this stays consistent with retrieved_raw.
+    if n_chinese:
+        chinese_raw = sum(len(s) for s in chinese_results)
+        meta["counts"]["retrieved_raw_chinese"] = chinese_raw
+        meta["counts"]["retrieved_raw_primary"] = retrieved_raw - chinese_raw
+    # Additive language axis (§8). Emitted ONLY when the language feature is engaged
+    # (explicit --lang / --with-* / config non-auto / Chinese query). The fully
+    # default English path never engages it -> no meta.language key -> the envelope
+    # is byte-identical to v2.2 (R-19).
+    if lang_plan.engaged:
+        meta["language"] = _language_meta(lang_plan)
 
     return _ok_envelope(data, meta)
 
@@ -1773,6 +2147,45 @@ def _main_cli() -> int:
         "platform/tier afterwards is a re-filter, not a re-search (spec §7).",
     )
     parser.add_argument(
+        "--primary-source",
+        choices=["openalex", "semantic_scholar", "auto"],
+        default=None,
+        help="Engine (三轴模型 axis 1) to run the primary retrieval THIS run: "
+        "openalex | semantic_scholar | auto. TRANSIENT override of "
+        "config.primary_source — single-use, never persisted — so the agent can "
+        "make a per-query 引擎 choice (e.g. AI judges SS better for one query). "
+        "'auto' lets the quota probe stickily fall back to SS on low OA budget. "
+        "Omit to use config.primary_source (default openalex). NB: semantic_scholar "
+        "needs a key or it fails E_CONFIG (R-06).",
+    )
+    parser.add_argument(
+        "--lang",
+        choices=["en", "zh", "both"],
+        default=None,
+        help="Language SPACE (三轴模型 axis 2) to search: en | zh | both. Omit to "
+        "take config.search_language (non-auto adopted silently) or auto (English "
+        "query -> en; Chinese query -> zh passthrough, flagged ambiguous in "
+        "meta.language for the caller to resolve). Explicit --lang wins and sets "
+        "meta.language.scope_source=flags. The agent path never asks/guesses.",
+    )
+    parser.add_argument(
+        "--with-nssd",
+        action="store_true",
+        help="Also query NSSD (国家哲社文献中心, Chinese social-sciences source) and "
+        "MERGE its results into the candidate pool (federated dedup). Chinese "
+        "supplemental source; requires zh in scope (an en scope is upgraded to "
+        "'both'). Reported in meta.language.chinese_sources_used. Explicit-only "
+        "(no discipline-signal auto-routing in the agent path).",
+    )
+    parser.add_argument(
+        "--with-yiigle",
+        action="store_true",
+        help="Also query yiigle (中华医学期刊全文数据库, Chinese medical source) and "
+        "MERGE its results into the candidate pool. Chinese supplemental source; "
+        "requires zh in scope (an en scope is upgraded to 'both'). Reported in "
+        "meta.language.chinese_sources_used. Explicit-only.",
+    )
+    parser.add_argument(
         "--no-issn-backfill",
         action="store_true",
         help="On the SS-primary path, do NOT recover missing ISSNs via free "
@@ -1865,6 +2278,10 @@ def _main_cli() -> int:
             keep_tiers=keep_tiers,
             rank_category=args.rank_category,
             deepen_target=args.deepen_target,
+            lang=args.lang,
+            with_nssd=args.with_nssd,
+            with_yiigle=args.with_yiigle,
+            primary_source=args.primary_source,
         )
     except Exception as exc:  # absolute backstop — never leak a traceback to stdout
         envelope = _error_envelope(

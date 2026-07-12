@@ -317,7 +317,25 @@ class Config:
     # ---- Output ----
     output_dir: str = "./paper-search-results"
     default_tier: Tier = "standard"
-    language: str = "en"
+    language: str = "en"                   # REPORT UI chrome language (en | zh); auto-detected by detect_language.py. ORTHOGONAL to search_language below — this is "what language the report speaks", not "which literature to fish in".
+
+    # ---- Language routing (v2.3, additive — default "auto" preserves v2.2 behavior) ----
+    # The search "language space" (axis 2 of the three-axis model): which ocean of
+    # literature to search — English, Chinese, or both. Additive / opt-in: a config
+    # missing this key defaults to "auto", so every existing (English) run is
+    # byte-for-byte unchanged (same additive precedent as primary_source — R-19).
+    #   auto (factory) — English query -> en space (byte-identical to v2.2); Chinese
+    #                    query -> follow explicit in-query signals, else the human
+    #                    path asks once and the agent path passes the query through.
+    #   en   — never enter the Chinese space; a Chinese query is planned as an
+    #          English search (with a one-line notice, never a silent translation).
+    #   zh   — Chinese query runs in the Chinese space (OpenAlex Chinese base +
+    #          discipline-routed NSSD/yiigle boosters), search terms kept in Chinese.
+    #   both — dual-space federated search (English + Chinese strategy sets).
+    # ORTHOGONAL to `language` above (UI chrome) — neither reads nor overrides the
+    # other. SSOT for parsing priority / markers: references/source_routing.md
+    # §"Language scope".
+    search_language: str = "auto"          # auto | en | zh | both
 
     # ---- Source routing (v2.2, additive — defaults preserve v2.0/2.1 behavior) ----
     # Which source the search entry-point treats as primary. "openalex" = current

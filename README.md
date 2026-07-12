@@ -14,14 +14,14 @@
 <br/>
 Built natively for Claude Code; runs in Codex and any agent that loads the SKILL.md format.
 <br/>
-Five sources · four tiers · journal partitions · single-file Shadcn report.
+Five open sources + native-Chinese search · four tiers · journal partitions · single-file Shadcn report.
 
 <br/>
 
 <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache_2.0-000?style=flat-square" alt="Apache 2.0"/></a>
 <a href="SKILL.md"><img src="https://img.shields.io/badge/agent-Skill-000?style=flat-square" alt="Agent Skill"/></a>
 <img src="https://img.shields.io/badge/Python-3.10+-000?style=flat-square" alt="Python 3.10+"/>
-<img src="https://img.shields.io/badge/version-2.2.0-000?style=flat-square" alt="v2.2.0"/>
+<img src="https://img.shields.io/badge/version-2.3.0-000?style=flat-square" alt="v2.3.0"/>
 
 </div>
 
@@ -39,7 +39,7 @@ Five sources · four tiers · journal partitions · single-file Shadcn report.
 
 ## What it does
 
-You ask your agent for papers; this Skill runs a real multi-source literature search across **OpenAlex · Semantic Scholar · CrossRef · PubMed · arXiv**, classifies relevance via parallel LLM SubAgents, and writes a self-contained HTML report you can open in any browser. No external LLM keys — your agent **is** the LLM.
+You ask your agent for papers; this Skill runs a real multi-source literature search across **OpenAlex · Semantic Scholar · CrossRef · PubMed · arXiv** — plus native-Chinese sources **NSSD** (社会科学) and **yiigle** (中华医学) when you query in Chinese — classifies relevance via parallel LLM SubAgents, and writes a self-contained HTML report you can open in any browser. No external LLM keys — your agent **is** the LLM.
 
 ```text
 In your agent's chat, after install:

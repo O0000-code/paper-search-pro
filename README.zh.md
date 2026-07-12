@@ -14,14 +14,14 @@
 <br/>
 原生支持 Claude Code；也可在 Codex 等加载 SKILL.md 格式的 Agent 中使用。
 <br/>
-五源 · 四档 · 期刊分区 · 单文件 Shadcn 报告。
+五源 + 中文原生检索 · 四档 · 期刊分区 · 单文件 Shadcn 报告。
 
 <br/>
 
 <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache_2.0-000?style=flat-square" alt="Apache 2.0"/></a>
 <a href="SKILL.md"><img src="https://img.shields.io/badge/agent-Skill-000?style=flat-square" alt="Agent Skill"/></a>
 <img src="https://img.shields.io/badge/Python-3.10+-000?style=flat-square" alt="Python 3.10+"/>
-<img src="https://img.shields.io/badge/version-2.2.0-000?style=flat-square" alt="v2.2.0"/>
+<img src="https://img.shields.io/badge/version-2.3.0-000?style=flat-square" alt="v2.3.0"/>
 
 </div>
 
@@ -39,7 +39,7 @@
 
 ## 它做什么
 
-你在 Agent 对话框中请求文献，这个 Skill 跨 **OpenAlex · Semantic Scholar · CrossRef · PubMed · arXiv** 五个数据源做真实检索，通过并行 LLM SubAgent 进行相关性分级，输出一份单文件 HTML 报告，浏览器直接打开。无需第三方 LLM key — 你的 Agent 本身就是 LLM。
+你在 Agent 对话框中请求文献，这个 Skill 跨 **OpenAlex · Semantic Scholar · CrossRef · PubMed · arXiv** 五个数据源做真实检索——用中文提问时再叠加中文原生源 **NSSD**（国家哲社文献中心·社科）与 **yiigle**（中华医学期刊·医学）——通过并行 LLM SubAgent 进行相关性分级，输出一份单文件 HTML 报告，浏览器直接打开。无需第三方 LLM key — 你的 Agent 本身就是 LLM。
 
 ```text
 安装后，在你的 Agent 中：

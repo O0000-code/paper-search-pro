@@ -177,6 +177,20 @@ def _pick_non_empty(*values):
     return None
 
 
+# Chinese-native sources whose ORIGINAL-language metadata must not be clobbered by
+# an English (OpenAlex-translated) record when the two collide on a shared DOI /
+# canonical key (#4). When a merged record mixes one of these with an English
+# source, the Chinese title / abstract / authors / venue win. A record carrying
+# none of these is unaffected, so every English-only merge stays byte-identical
+# (R-19).
+_CHINESE_SOURCES = ("nssd", "yiigle")
+
+
+def _has_chinese_source(paper: UnifiedPaperEntity) -> bool:
+    """True when the paper was contributed by a Chinese-native source (nssd/yiigle)."""
+    return any(s in _CHINESE_SOURCES for s in (paper.sources or []))
+
+
 # Sanity bound: anything past this year is treated as upstream data corruption
 # (OpenAlex has been observed returning year=2025+ for older papers; we refuse
 # to overwrite a sane existing year with such values).
@@ -219,11 +233,29 @@ def merge_paper_fields(
         existing.source_native_id, new.source_native_id
     )
 
-    # ---- title: OpenAlex preferred, else any non-empty ----
+    # ---- Chinese-native preference (#4) ----
+    # On a colliding record that mixes a Chinese-native source (nssd/yiigle) with
+    # an English one (OpenAlex), the Chinese original must win for the
+    # human-readable fields: an English OpenAlex-translated title/abstract/authors/
+    # venue must NOT overwrite a Chinese one already held, and a Chinese value
+    # arriving second must override the English one. Both flags are False for every
+    # English-only merge, so those paths are byte-identical to before (R-19).
+    # Computed here — before this function extends existing.sources at the end — so
+    # each side reflects only its own origin.
+    existing_zh = _has_chinese_source(existing)
+    new_zh = _has_chinese_source(new)
+    zh_new_wins = new_zh and not existing_zh        # Chinese `new` beats English `existing`
+    zh_existing_wins = existing_zh and not new_zh   # keep Chinese `existing`; block English `new`
+
+    # ---- title: Chinese original preferred, else OpenAlex preferred, else any non-empty ----
     # Sanity: empty new.title never overrides an existing non-empty title.
     new_title_clean = (new.title or "").strip()
     if not existing.title and new_title_clean:
         existing.title = new.title
+    elif zh_new_wins and new_title_clean:
+        existing.title = new.title
+    elif zh_existing_wins:
+        pass  # keep the Chinese original; do not let English OpenAlex overwrite it
     elif (
         "openalex" not in existing.sources
         and "openalex" in new.sources
@@ -231,14 +263,20 @@ def merge_paper_fields(
     ):
         existing.title = new.title
 
-    # ---- abstract: OA primary, SS fallback; first non-empty wins ----
+    # ---- abstract: Chinese original preferred, else OA primary / SS fallback (first non-empty) ----
     if not existing.abstract and new.abstract:
         existing.abstract = new.abstract
+    elif zh_new_wins and new.abstract:
+        existing.abstract = new.abstract  # Chinese abstract overrides an English one
 
-    # ---- authors: OpenAlex preferred ----
+    # ---- authors: Chinese original preferred, else OpenAlex preferred ----
     # Sanity: empty new.authors never overrides existing non-empty authors.
     if not existing.authors and new.authors:
         existing.authors = new.authors
+    elif zh_new_wins and new.authors:
+        existing.authors = new.authors
+    elif zh_existing_wins:
+        pass  # keep the Chinese authors; do not let English OpenAlex overwrite them
     elif (
         "openalex" not in existing.sources
         and "openalex" in new.sources
@@ -256,9 +294,20 @@ def merge_paper_fields(
     ):
         existing.year = new.year
 
-    # ---- venue / type: any non-empty ----
-    existing.venue = _pick_non_empty(existing.venue, new.venue)
+    # ---- venue: Chinese original preferred, else any non-empty ----
+    if zh_new_wins and new.venue:
+        existing.venue = new.venue  # Chinese venue overrides an English one
+    else:
+        existing.venue = _pick_non_empty(existing.venue, new.venue)
+    # ---- type: any non-empty ----
     existing.type = _pick_non_empty(existing.type, new.type)
+
+    # ---- issn: any non-empty (#3) ----
+    # Previously dropped entirely, which silently broke the downstream journal_rank
+    # ISSN join (rank_filter.annotate_papers reads p.issn). ISSNs are language-
+    # neutral (same journal = same ISSN across OpenAlex/SS/NSSD), so first-non-empty
+    # is correct — no Chinese preference needed.
+    existing.issn = _pick_non_empty(existing.issn, new.issn)
 
     # ---- citation_count: OA wins; else max ----
     if "openalex" in new.sources and new.citation_count > 0:
@@ -421,6 +470,7 @@ def _papers_from_payload(payload) -> List[UnifiedPaperEntity]:
             authors=authors,
             year=d.get("year"),
             venue=d.get("venue"),
+            issn=d.get("issn"),  # #3 (None when absent)
             type=d.get("type"),
             citation_count=int(d.get("citation_count") or 0),
             fwci=d.get("fwci"),
@@ -504,6 +554,12 @@ def _paper_to_dict(p: UnifiedPaperEntity) -> Dict:
     # (which set it) gain the key.
     if p.source_native_id:
         d["source_native_id"] = p.source_native_id
+    # #3: emit issn ONLY when set (None-不-emit) so kg.json for every issn-less
+    # record (arXiv/PubMed-only, or any journal with no ISSN) stays byte-identical
+    # to the pre-fix output; records that DO carry an ISSN now round-trip it so the
+    # downstream journal_rank ISSN join (rank_filter.annotate_papers) can fire.
+    if p.issn:
+        d["issn"] = p.issn
     return d
 
 

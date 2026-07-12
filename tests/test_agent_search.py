@@ -717,6 +717,436 @@ def test_load_refs_file_shapes(tmp_path=None):
     print("OK  load_refs_file_shapes")
 
 
+# ===========================================================================
+# Language axis (三轴模型 axis 2): --lang / --with-nssd / --with-yiigle + meta.language
+# ===========================================================================
+
+
+def _cfg_lang(search_language="auto", **kw):
+    c = _cfg(**kw)
+    c.search_language = search_language
+    return c
+
+
+# --- pure resolver: _query_has_cjk + _resolve_language --------------------------
+
+
+def test_query_has_cjk_detection():
+    assert agent_search._query_has_cjk("情绪调节 青少年") is True
+    assert agent_search._query_has_cjk("emotion regulation") is False
+    assert agent_search._query_has_cjk("mixed 中文 english") is True
+    assert agent_search._query_has_cjk("") is False
+    print("OK  query_has_cjk_detection")
+
+
+def test_resolve_language_flag_wins_over_config():
+    # Explicit --lang beats a persisted config value; not ambiguous; engaged.
+    plan = agent_search._resolve_language(
+        "情绪调节", _cfg_lang("en"), lang_flag="zh", with_nssd=False, with_yiigle=False
+    )
+    assert plan.scope_used == "zh"
+    assert plan.scope_source == "flags"
+    assert plan.ambiguous is False
+    assert plan.engaged is True
+    assert plan.query_lang == "zh"
+    print("OK  resolve_language_flag_wins_over_config")
+
+
+def test_resolve_language_config_adopted_silently():
+    plan = agent_search._resolve_language(
+        "alpha topic", _cfg_lang("both"), lang_flag=None, with_nssd=False, with_yiigle=False
+    )
+    assert plan.scope_used == "both"
+    assert plan.scope_source == "config"
+    assert plan.ambiguous is False
+    assert plan.engaged is True  # config non-auto engages the feature
+    print("OK  resolve_language_config_adopted_silently")
+
+
+def test_resolve_language_auto_english_not_engaged():
+    """The R-19 gate: English query + auto config + no flags => feature OFF."""
+    plan = agent_search._resolve_language(
+        "emotion regulation", _cfg_lang("auto"), lang_flag=None, with_nssd=False, with_yiigle=False
+    )
+    assert plan.scope_used == "en"
+    assert plan.scope_source == "query_passthrough"
+    assert plan.ambiguous is False
+    assert plan.engaged is False  # <- no meta.language emitted on this path
+    print("OK  resolve_language_auto_english_not_engaged")
+
+
+def test_resolve_language_auto_chinese_is_ambiguous():
+    """Chinese query + auto + no signal => zh passthrough, flagged ambiguous."""
+    plan = agent_search._resolve_language(
+        "情绪调节 青少年", _cfg_lang("auto"), lang_flag=None, with_nssd=False, with_yiigle=False
+    )
+    assert plan.query_lang == "zh"
+    assert plan.scope_used == "zh"
+    assert plan.scope_source == "query_passthrough"
+    assert plan.ambiguous is True   # the agent version of "问一句"
+    assert plan.engaged is True
+    print("OK  resolve_language_auto_chinese_is_ambiguous")
+
+
+def test_resolve_language_with_flag_upgrades_en_to_both():
+    """--with-nssd on an en scope upgrades to 'both' so the query reaches NSSD (§6.6)."""
+    plan = agent_search._resolve_language(
+        "alpha topic", _cfg_lang("auto"), lang_flag=None, with_nssd=True, with_yiigle=False
+    )
+    assert plan.scope_used == "both"
+    assert plan.upgraded_en_to_both is True
+    assert plan.chinese_sources == ["nssd"]
+    assert plan.engaged is True
+    print("OK  resolve_language_with_flag_upgrades_en_to_both")
+
+
+# --- full pipeline: meta.language emission + Chinese-source merge ----------------
+
+
+def _cn_stub(source_attr, papers):
+    """(obj, attr, stub) that fakes nssd_helper/yiigle_helper.search -> papers."""
+    return (
+        getattr(agent_search, source_attr),
+        "search",
+        lambda q, n=25, year_min=None, **kw: list(papers),
+    )
+
+
+def test_default_english_run_has_no_language_key():
+    """R-19 at the envelope level: default English run emits NO meta.language key."""
+    p = _paper(doi="10.1/x", title="alpha topic", abstract="alpha topic", year=2024, cites=5)
+    targets = _oa_targets({"cited_by_count:desc": [p], "publication_date:desc": [], "relevance_score:desc": []})
+    with _patched(*targets):
+        env = agent_search.run_agent_search("alpha topic", _cfg_lang("auto"), per_strategy=5, now_year=2026)
+    assert env["ok"] is True
+    assert "language" not in env["meta"]
+    print("OK  default_english_run_has_no_language_key")
+
+
+def test_lang_zh_flag_emits_language_meta_without_chinese_sources():
+    """--lang zh sets the space + emits meta.language, but adds NO supplemental
+    source (those are --with-* only, §8). NSSD/yiigle must NOT be called."""
+    p = _paper(doi="10.1/x", title="alpha topic", abstract="alpha topic", year=2024, cites=5)
+    called = {"nssd": 0, "yiigle": 0}
+
+    def spy_nssd(q, n=25, year_min=None, **kw):
+        called["nssd"] += 1
+        return []
+
+    def spy_yiigle(q, n=25, year_min=None, **kw):
+        called["yiigle"] += 1
+        return []
+
+    targets = _oa_targets({"cited_by_count:desc": [p], "publication_date:desc": [], "relevance_score:desc": []})
+    targets += [
+        (agent_search.nssd_helper, "search", spy_nssd),
+        (agent_search.yiigle_helper, "search", spy_yiigle),
+    ]
+    with _patched(*targets):
+        env = agent_search.run_agent_search("alpha topic", _cfg_lang("auto"), per_strategy=5, lang="zh", now_year=2026)
+    lang = env["meta"]["language"]
+    assert lang["scope_used"] == "zh"
+    assert lang["scope_source"] == "flags"
+    assert lang["ambiguous"] is False
+    assert lang["chinese_sources_used"] == []
+    assert called == {"nssd": 0, "yiigle": 0}  # supplemental sources are explicit-only
+    print("OK  lang_zh_flag_emits_language_meta_without_chinese_sources")
+
+
+def test_with_nssd_merges_results_and_reports():
+    """--with-nssd queries NSSD and folds its distinct paper into the candidate
+    pool (federated dedup); it appears in data + chinese_sources_used reports it."""
+    oa = _paper(doi="10.1/oa", title="alpha topic", abstract="alpha topic", year=2024, cites=100)
+    nssd_p = _paper(doi="10.1/nssd", title="alpha topic beta", abstract="alpha topic beta",
+                    year=2023, cites=3, sources=["nssd"])
+    targets = _oa_targets({"cited_by_count:desc": [oa], "publication_date:desc": [], "relevance_score:desc": []})
+    targets.append(_cn_stub("nssd_helper", [nssd_p]))
+    with _patched(*targets):
+        env = agent_search.run_agent_search(
+            "alpha topic", _cfg_lang("auto"), per_strategy=5, with_nssd=True, now_year=2026
+        )
+    assert env["ok"] is True
+    dois = {p["doi"] for p in env["data"]}
+    assert dois == {"10.1/oa", "10.1/nssd"}   # NSSD paper merged in
+    assert env["meta"]["counts"]["after_dedup"] == 2
+    lang = env["meta"]["language"]
+    assert lang["chinese_sources_used"] == ["nssd"]
+    assert lang["scope_used"] == "both"       # en upgraded to both
+    assert any("upgraded to 'both'" in w for w in env["meta"]["warnings"])
+    print("OK  with_nssd_merges_results_and_reports")
+
+
+def test_with_yiigle_on_chinese_query_merges():
+    """A Chinese query + --with-yiigle: scope stays zh, yiigle paper merges, and
+    meta.language reports it (no en->both upgrade needed)."""
+    oa = _paper(doi="10.1/oa", title="深度学习 医学", year=2024, cites=50)
+    yi = _paper(doi="10.1/yi", title="深度学习 影像", year=2023, cites=8, sources=["yiigle"])
+    targets = _oa_targets({"cited_by_count:desc": [oa], "publication_date:desc": [], "relevance_score:desc": []})
+    targets.append(_cn_stub("yiigle_helper", [yi]))
+    with _patched(*targets):
+        env = agent_search.run_agent_search(
+            "深度学习 医学", _cfg_lang("auto"), per_strategy=5, with_yiigle=True, now_year=2026
+        )
+    assert env["ok"] is True
+    assert {p["doi"] for p in env["data"]} == {"10.1/oa", "10.1/yi"}
+    lang = env["meta"]["language"]
+    assert lang["scope_used"] == "zh"          # Chinese query -> zh, no upgrade
+    assert lang["query_lang"] == "zh"
+    assert lang["chinese_sources_used"] == ["yiigle"]
+    print("OK  with_yiigle_on_chinese_query_merges")
+
+
+def test_config_search_language_zh_adopted_in_pipeline():
+    """config.search_language='zh' with no --lang => scope_source 'config'."""
+    p = _paper(doi="10.1/x", title="alpha topic", abstract="alpha topic", year=2024, cites=5)
+    targets = _oa_targets({"cited_by_count:desc": [p], "publication_date:desc": [], "relevance_score:desc": []})
+    with _patched(*targets):
+        env = agent_search.run_agent_search("alpha topic", _cfg_lang("zh"), per_strategy=5, now_year=2026)
+    lang = env["meta"]["language"]
+    assert lang["scope_used"] == "zh"
+    assert lang["scope_source"] == "config"
+    assert lang["ambiguous"] is False
+    print("OK  config_search_language_zh_adopted_in_pipeline")
+
+
+def test_chinese_source_empty_degrades_gracefully():
+    """When NSSD returns nothing, the run still succeeds; chinese_sources_used still
+    reports it (it was queried) and a warning notes the empty return."""
+    oa = _paper(doi="10.1/oa", title="alpha topic", abstract="alpha topic", year=2024, cites=100)
+    targets = _oa_targets({"cited_by_count:desc": [oa], "publication_date:desc": [], "relevance_score:desc": []})
+    targets.append(_cn_stub("nssd_helper", []))  # NSSD returns nothing
+    with _patched(*targets):
+        env = agent_search.run_agent_search(
+            "alpha topic", _cfg_lang("auto"), per_strategy=5, with_nssd=True, now_year=2026
+        )
+    assert env["ok"] is True
+    assert {p["doi"] for p in env["data"]} == {"10.1/oa"}
+    assert env["meta"]["language"]["chinese_sources_used"] == ["nssd"]
+    assert any("nssd returned 0 papers" in w for w in env["meta"]["warnings"])
+    print("OK  chinese_source_empty_degrades_gracefully")
+
+
+def test_chinese_source_only_results_when_primary_empty():
+    """If the primary source returns nothing but --with-nssd yields papers, the run
+    still succeeds on the Chinese source alone (no false E_NO_RESULTS)."""
+    nssd_p = _paper(doi="10.1/nssd", title="alpha topic", abstract="alpha topic",
+                    year=2023, cites=3, sources=["nssd"])
+    targets = _oa_targets({"cited_by_count:desc": [], "publication_date:desc": [], "relevance_score:desc": []})
+    targets.append(_cn_stub("nssd_helper", [nssd_p]))
+    with _patched(*targets):
+        env = agent_search.run_agent_search(
+            "alpha topic", _cfg_lang("zh"), per_strategy=5, with_nssd=True, now_year=2026
+        )
+    assert env["ok"] is True
+    assert {p["doi"] for p in env["data"]} == {"10.1/nssd"}
+    assert env["meta"]["counts"]["after_dedup"] == 1
+    print("OK  chinese_source_only_results_when_primary_empty")
+
+
+# ===========================================================================
+# v2.3.0 G3 review fixes: #1 warn / #6 year_max / #8 --primary-source /
+# #9 CJK floor scoring / #10 saturation rebase / #11 counts split / #17 paper_id
+# ===========================================================================
+
+
+# --- #9: CJK-aware tokenisation + coverage (English path byte-identical) ---------
+
+
+def test_cjk_tokenize_and_coverage():
+    """#9: a CJK query gets character 2-gram terms (query-grounded); the English
+    path is unchanged; CJK coverage is substring-based."""
+    assert agent_search._tokenize_query("情绪调节") == ["情绪", "绪调", "调节"]
+    # single-char CJK run yields the char itself.
+    assert agent_search._tokenize_query("茶") == ["茶"]
+    # English path: no CJK grams added -> byte-identical to the latin-only behaviour.
+    assert agent_search._tokenize_query("emotion regulation") == ["emotion", "regulation"]
+    # mixed latin + CJK.
+    mixed = agent_search._tokenize_query("深度学习 cnn")
+    assert "cnn" in mixed and "深度" in mixed and "学习" in mixed
+    # coverage: CJK bigram substring match.
+    assert agent_search._coverage(["情绪", "调节"], "青少年情绪与调节策略") == 1.0
+    assert agent_search._coverage(["情绪"], "认知负荷研究") == 0.0
+    # English coverage unchanged (token membership, not substring).
+    assert agent_search._coverage(["cat"], "this is a category of things") == 0.0
+    print("OK  cjk_tokenize_and_coverage")
+
+
+def test_relevance_cjk_query_is_grounded():
+    """#9: a Chinese query now scores ABOVE the old citation+recency-only 0.25 floor
+    when the paper's title/abstract carry the query characters."""
+    terms = agent_search._tokenize_query("情绪调节 青少年")
+    on = _paper(title="青少年情绪调节的神经机制", abstract="情绪调节 青少年",
+                year=2026, cites=100)
+    rel = agent_search.compute_relevance(on, terms, now_year=2026)
+    assert rel["components"]["title_coverage"] > 0
+    assert rel["components"]["abstract_coverage"] > 0
+    assert rel["score"] > 0.25  # would be <=0.25 under the latin-only tokeniser
+    # An off-topic Chinese paper stays low (no false grounding).
+    off = _paper(title="市场经济与货币政策", abstract="通货膨胀", year=2026, cites=100)
+    rel_off = agent_search.compute_relevance(off, terms, now_year=2026)
+    assert rel_off["components"]["title_coverage"] == 0.0
+    print("OK  relevance_cjk_query_is_grounded")
+
+
+def test_min_relevance_guard_when_no_terms():
+    """#9: a query that tokenises to NOTHING (no groundable terms) must not be
+    filtered to empty by --min-relevance; saturation marks the distribution N/A."""
+    assert agent_search._tokenize_query("of the") == []  # all stopwords/short
+    p = _paper(doi="10.1/x", title="anything", abstract="x", year=2024, cites=5)
+    targets = _oa_targets({"cited_by_count:desc": [p], "publication_date:desc": [], "relevance_score:desc": []})
+    with _patched(*targets):
+        env = agent_search.run_agent_search("of the", _cfg(), per_strategy=5,
+                                            min_relevance=0.9, now_year=2026)
+    assert env["ok"] is True
+    assert len(env["data"]) == 1  # NOT filtered out despite min_relevance=0.9
+    sat = env["meta"]["saturation"]
+    assert sat["score_distribution"] is None
+    assert "not applicable" in sat["score_distribution_note"]
+    print("OK  min_relevance_guard_when_no_terms")
+
+
+# --- #6: year_max honoured for Chinese sources ----------------------------------
+
+
+def test_year_max_filters_chinese_sources():
+    """#6: year_max is applied client-side to Chinese-source results (their helpers
+    only take year_min). Unknown-year records are kept (not provably over ceiling)."""
+    old = _paper(doi="10.1/old", title="alpha topic", year=2010, cites=3, sources=["nssd"])
+    new = _paper(doi="10.1/new", title="alpha topic", year=2024, cites=3, sources=["nssd"])
+    unk = _paper(doi="10.1/unk", title="alpha topic", year=None, cites=1, sources=["nssd"])
+    oa = _paper(doi="10.1/oa", title="alpha topic", abstract="alpha topic", year=2020, cites=100)
+    targets = _oa_targets({"cited_by_count:desc": [oa], "publication_date:desc": [], "relevance_score:desc": []})
+    targets.append(_cn_stub("nssd_helper", [old, new, unk]))
+    with _patched(*targets):
+        env = agent_search.run_agent_search(
+            "alpha topic", _cfg_lang("auto"), per_strategy=5, with_nssd=True,
+            year_max=2015, now_year=2026,
+        )
+    dois = {p["doi"] for p in env["data"]}
+    assert "10.1/new" not in dois   # 2024 > 2015 -> dropped
+    assert "10.1/old" in dois       # 2010 <= 2015 -> kept
+    assert "10.1/unk" in dois       # unknown year -> kept
+    print("OK  year_max_filters_chinese_sources")
+
+
+# --- #8: --primary-source transient override ------------------------------------
+
+
+def test_primary_source_flag_overrides_config_to_ss():
+    """#8: --primary-source semantic_scholar transiently routes to SS even when
+    config.primary_source is openalex; config is NOT mutated (single-use)."""
+    ss_paper = _paper(doi="10.1/ss", title="alpha topic", abstract="alpha topic",
+                      year=2024, cites=42, sources=["semantic_scholar"])
+    cfg = _cfg(primary="openalex", ss_key="KEY")
+    with _patched(*_ss_primary_targets([ss_paper])):
+        env = agent_search.run_agent_search(
+            "alpha topic", cfg, per_strategy=5, primary_source="semantic_scholar",
+            issn_backfill=False, now_year=2026,
+        )
+    assert env["ok"] is True
+    assert env["meta"]["source_used"] == "semantic_scholar"
+    assert env["data"][0]["doi"] == "10.1/ss"
+    assert cfg.primary_source == "openalex"  # transient: config untouched
+    print("OK  primary_source_flag_overrides_config_to_ss")
+
+
+def test_primary_source_flag_overrides_config_to_openalex():
+    """#8 reverse: override openalex wins over config semantic_scholar — and rescues
+    a keyless SS config for this run (no E_CONFIG, since SS is never selected)."""
+    p = _paper(doi="10.1/oa", title="alpha topic", abstract="alpha topic", year=2024, cites=5)
+    targets = _oa_targets({"cited_by_count:desc": [p], "publication_date:desc": [], "relevance_score:desc": []})
+    cfg = _cfg(primary="semantic_scholar", ss_key="")  # no SS key
+    with _patched(*targets):
+        env = agent_search.run_agent_search("alpha topic", cfg, per_strategy=5,
+                                            primary_source="openalex", now_year=2026)
+    assert env["ok"] is True
+    assert env["meta"]["source_used"] == "openalex"
+    assert cfg.primary_source == "semantic_scholar"  # transient: config untouched
+    print("OK  primary_source_flag_overrides_config_to_openalex")
+
+
+# --- #1: CJK query under en scope warns (no headless translation) ---------------
+
+
+def test_cjk_query_under_en_scope_warns():
+    """#1: a Chinese query forced to en scope (--lang en) warns that the agent path
+    does not translate; a zh scope does NOT warn."""
+    p = _paper(doi="10.1/x", title="alpha", abstract="alpha", year=2024, cites=5)
+    targets = _oa_targets({"cited_by_count:desc": [p], "publication_date:desc": [], "relevance_score:desc": []})
+    with _patched(*targets):
+        env = agent_search.run_agent_search("情绪调节", _cfg_lang("auto"), per_strategy=5,
+                                            lang="en", now_year=2026)
+    assert env["meta"]["language"]["scope_used"] == "en"
+    assert env["meta"]["language"]["query_lang"] == "zh"
+    assert any("does not translate" in w for w in env["meta"]["warnings"])
+    with _patched(*targets):
+        env2 = agent_search.run_agent_search("情绪调节", _cfg_lang("auto"), per_strategy=5,
+                                             lang="zh", now_year=2026)
+    assert not any("does not translate" in w for w in env2["meta"]["warnings"])
+    print("OK  cjk_query_under_en_scope_warns")
+
+
+# --- #17: paper_id join key emitted on engaged path, absent on default (R-19) ----
+
+
+def test_paper_id_emitted_only_when_engaged():
+    """#17: paper_id (a @property) is serialised into data[] ONLY on an engaged
+    (Chinese/lang) envelope; the default English envelope omits it (R-19)."""
+    oa = _paper(doi="10.1/oa", title="alpha topic", abstract="alpha topic", year=2024, cites=100)
+    nssd_p = _paper(title="alpha topic beta", abstract="alpha topic beta", year=2023,
+                    cites=3, sources=["nssd"])
+    nssd_p.source_native_id = "NSSD-42"  # the non-obvious paper_id fallback #17 targets
+    targets = _oa_targets({"cited_by_count:desc": [oa], "publication_date:desc": [], "relevance_score:desc": []})
+    targets.append(_cn_stub("nssd_helper", [nssd_p]))
+    with _patched(*targets):
+        env = agent_search.run_agent_search("alpha topic", _cfg_lang("auto"), per_strategy=5,
+                                            with_nssd=True, now_year=2026)
+    assert all("paper_id" in p for p in env["data"])
+    by_doi = {p.get("doi"): p for p in env["data"]}
+    assert by_doi["10.1/oa"]["paper_id"] == "10.1/oa"           # doi is top priority
+    nssd_out = [p for p in env["data"] if p.get("doi") is None][0]
+    assert nssd_out["paper_id"] == "NSSD-42"                    # source_native_id fallback
+
+    # Default English envelope: NO paper_id key (byte-identical default, R-19).
+    with _patched(*_oa_targets({"cited_by_count:desc": [oa], "publication_date:desc": [], "relevance_score:desc": []})):
+        env_def = agent_search.run_agent_search("alpha topic", _cfg(), per_strategy=5, now_year=2026)
+    assert all("paper_id" not in p for p in env_def["data"])
+    print("OK  paper_id_emitted_only_when_engaged")
+
+
+# --- #10 + #11: saturation rebased to primary strategies + Chinese count split ---
+
+
+def test_saturation_excludes_chinese_and_counts_split():
+    """#10: the marginal-yield saturation is computed on the PRIMARY strategies only
+    (a Chinese source appended last does not become per_strategy_new[-1]). #11: the
+    raw count is split into primary vs Chinese."""
+    oa1 = [_paper(doi=f"10.1/oa{i}", title="alpha topic", abstract="alpha topic",
+                  year=2024, cites=100 - i) for i in range(12)]
+    targets = _oa_targets({
+        "cited_by_count:desc": oa1,
+        "publication_date:desc": oa1,   # all dups -> last PRIMARY strategy adds 0 new
+        "relevance_score:desc": oa1,
+    })
+    nssd_ps = [_paper(doi=f"10.1/nssd{i}", title="alpha topic", year=2023, cites=1,
+                      sources=["nssd"]) for i in range(5)]
+    targets.append(_cn_stub("nssd_helper", nssd_ps))
+    with _patched(*targets):
+        env = agent_search.run_agent_search("alpha topic", _cfg_lang("auto"),
+                                            per_strategy=12, with_nssd=True, now_year=2026)
+    sat = env["meta"]["saturation"]
+    # per_strategy_new is PRIMARY-only (3 entries) — NOT 4 with the NSSD list.
+    assert len(sat["per_strategy_new_papers"]) == 3
+    # marginal yield reads the primary last strategy (0), not the NSSD 5-new tail.
+    assert sat["last_strategy_marginal_yield"] == 0.0
+    assert sat["excludes_chinese_sources"] is True
+    assert "chinese_sources_note" in sat
+    counts = env["meta"]["counts"]
+    assert counts["retrieved_raw_chinese"] == 5
+    assert counts["retrieved_raw_primary"] == counts["retrieved_raw"] - 5
+    print("OK  saturation_excludes_chinese_and_counts_split")
+
+
 # ---------------------------------------------------------------------------
 # Runner (mirrors the other test modules' `python3 -m` style).
 # ---------------------------------------------------------------------------
@@ -753,6 +1183,28 @@ def main() -> int:
         test_verify_refs_empty_and_bad_input,
         test_verify_refs_source_init_failure_degrades,
         test_load_refs_file_shapes,
+        test_query_has_cjk_detection,
+        test_resolve_language_flag_wins_over_config,
+        test_resolve_language_config_adopted_silently,
+        test_resolve_language_auto_english_not_engaged,
+        test_resolve_language_auto_chinese_is_ambiguous,
+        test_resolve_language_with_flag_upgrades_en_to_both,
+        test_default_english_run_has_no_language_key,
+        test_lang_zh_flag_emits_language_meta_without_chinese_sources,
+        test_with_nssd_merges_results_and_reports,
+        test_with_yiigle_on_chinese_query_merges,
+        test_config_search_language_zh_adopted_in_pipeline,
+        test_chinese_source_empty_degrades_gracefully,
+        test_chinese_source_only_results_when_primary_empty,
+        test_cjk_tokenize_and_coverage,
+        test_relevance_cjk_query_is_grounded,
+        test_min_relevance_guard_when_no_terms,
+        test_year_max_filters_chinese_sources,
+        test_primary_source_flag_overrides_config_to_ss,
+        test_primary_source_flag_overrides_config_to_openalex,
+        test_cjk_query_under_en_scope_warns,
+        test_paper_id_emitted_only_when_engaged,
+        test_saturation_excludes_chinese_and_counts_split,
     ]
     failed = []
     for t in tests:

@@ -44,7 +44,23 @@ crossref_email: ""
 
 output_dir: "./paper-search-results"
 default_tier: "standard"        # quick | standard | deep | audit
-language: "en"                  # en | zh — affects helper script messages, not data
+language: "en"                  # en | zh — REPORT UI chrome language (auto-detected), not data. ORTHOGONAL to search_language below.
+
+
+# ============================================================================
+# Language routing (中文文献轨道 — additive; 留空/缺省 = auto = v2.2 行为)
+# ============================================================================
+# 检索的"语言空间":查英文文献、中文文献还是两者。
+#   auto (factory) — 英文 query → en(与既往逐字节一致);中文 query → 按
+#                    query 内显式信号走,无信号则问一次(答案可持久化到这里)。
+#   en   — 永不进入中文空间;中文 query 被规划为英文检索式(会告知一行)。
+#   zh   — 中文 query 走中文空间(OpenAlex 中文底座 + 学科信号路由 NSSD/yiigle)。
+#   both — 中文 query 双空间并查、联邦去重。
+# 注意与 `language:`(报告 UI 语言,自动检测)无关——那是"报告用什么语言说话",
+# 这是"去哪片文献海里找"。旧 config 无此键 → 默认 auto → 行为不变(与
+# primary_source 的 additive 先例一致)。SSOT:references/source_routing.md
+# §"Language scope"。
+search_language: auto            # auto | en | zh | both
 
 
 # ============================================================================

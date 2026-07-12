@@ -108,9 +108,11 @@ For Audit tier, also add journal whitelist (e.g. `Cochrane`, `medical_top`).
 
 The `double-sort` CLI does strategies 1/2/3 automatically and boosts rank when a paper appears in ≥ 2 strategies — this is the recommended default for Standard+.
 
-## Cross-language query handling (中英混合)
+## Cross-language query handling (中英混合 — search_language-aware)
 
-When the user writes in Chinese or mixes Chinese + English, expand both directions:
+**The language *space* is decided before you get here.** Axis 2 of the three-axis model — `search_language` ∈ `en | zh | both | auto` — is resolved earlier in **STEP 1** (the search-language-space sub-step, whose SSOT is `source_routing.md` §"Language scope"; priority: per-query flags > in-query markers > config > `auto`-then-ask), *before* you phrase the query here. (STEP 2 then routes supplemental sources *within* the fixed space — it does not decide the space either.) By the time you plan the query the space is a concrete one of **en / zh / both**. This section only says how to *phrase* the query once the space is known — it does not decide the space.
+
+The CN→EN table below is the **English-side expansion vocabulary**: it applies whenever the English space is in play (space `en`, or the English half of `both`). It is never a mandate to translate Chinese away when the space is `zh`.
 
 | Chinese term | English mapping |
 |--------------|-----------------|
@@ -129,7 +131,13 @@ When the user writes in Chinese or mixes Chinese + English, expand both directio
 | 心理治疗 | psychotherapy |
 | 神经影像 | neuroimaging |
 
-**Rule**: in your search query, use the **English** terms (OpenAlex indexes English-language metadata most reliably). Keep Chinese in your understanding of the user's intent but translate before retrieval. Mention this to the user in one sentence: *"I'll search in English since 'working memory training' has more OpenAlex coverage than '工作记忆训练'."*
+**Phrasing rule by space:**
+
+- **`en` space — and the `auto`→en branch, which is the default for every English query:** in your search query, use the **English** terms (OpenAlex indexes English-language metadata most reliably). Keep Chinese in your understanding of the user's intent but translate before retrieval. Mention this to the user in one sentence: *"I'll search in English since 'working memory training' has more OpenAlex coverage than '工作记忆训练'."* **This branch is byte-for-byte the v2.2 behavior (R-19)** — a pure-English query never leaves it, and a Chinese query only reaches it when the space resolved to `en`.
+- **`zh` space:** do **NOT** translate. Keep the **Chinese terms** as the retrieval query — OpenAlex has a multilingual base and NSSD/yiigle consume Chinese directly. You may still normalise wording (strip stopwords, split into concept blocks) but the retrieval terms stay Chinese. The CN→EN table is not applied here.
+- **`both` space:** build **two** query sets — one English (per the `en` rule) and one Chinese (per the `zh` rule) — and run each in its own space; STEP 5 federates the union. The PRISMA-S logger already records multiple strategy sets, so both are logged.
+
+**Markers that selected the space are not search terms.** Phrases that routed the space (`CSSCI`, `中文文献`, `SSCI`, `知网`, …) are filter/routing conditions — strip them from the topic before retrieval, exactly like `rank_intent` strips "中科院一区" (see `source_routing.md` §"Language scope"). Searching for the literal string "CSSCI" would return papers *about* CSSCI, not papers *on* your topic.
 
 ## Year filter heuristics
 

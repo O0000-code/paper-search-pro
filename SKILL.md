@@ -1,11 +1,11 @@
 ---
 name: paper-search-pro
-description: "Find academic papers across 5 sources (OpenAlex / Semantic Scholar / CrossRef / PubMed / arXiv) with adjustable depth — Quick scan (5 min) to Audit prep (3 hr). Use when the user wants to find papers, run a literature search, gather references, scope a research topic, or filter results by journal tier (中科院分区/一区/几区, Q1, JCR/SJR quartile, 影响因子/impact factor, 期刊分区, 顶刊/top journal, '按分区筛'). Triggers on search verbs ('find papers', 'literature search', 'papers about X'), review types ('scoping review', 'systematic review', 'SR prep', 'literature review', 'lit review', 'help me write a lit review'), Chinese ('找文献', '找论文', '论文搜索', '学术检索', '文献检索', '文献综述', '综述前期', '求文献'). Outputs Shadcn HTML report + BibTeX/RIS/CSV + PRISMA-S log. Do NOT use for: concept explanations ('what is X' / 'X 是什么', e.g. '影响因子怎么算'), writing ('帮我写' / 'help me write a paragraph'), single-paper interpretation or PDF download with metadata (use paper-downloader-portable), or when the user already has a literature set (use literature-set-review)."
+description: "Find academic papers across up to 7 sources (OpenAlex / Semantic Scholar / CrossRef / PubMed / arXiv for English, plus native-Chinese retrieval via NSSD 国家哲社文献中心 + yiigle 中华医学期刊) with adjustable depth — Quick scan (5 min) to Audit prep (3 hr). Use when the user wants to find papers, run a literature search, gather references, scope a research topic, search Chinese-language / 中文原生 literature (中文文献/中文核心/CSSCI/C刊/国内研究/国内文献/中华××期刊/心理学报/经济研究), or filter results by journal tier (中科院分区/一区/几区, Q1, JCR/SJR quartile, 影响因子/impact factor, 期刊分区, 顶刊/top journal, '按分区筛'). Triggers on search verbs ('find papers', 'literature search', 'papers about X'), review types ('scoping review', 'systematic review', 'SR prep', 'literature review', 'lit review', 'help me write a lit review'), Chinese ('找文献', '找论文', '论文搜索', '学术检索', '文献检索', '文献综述', '综述前期', '求文献', '中文文献', '中文核心', 'CSSCI', 'C刊', '国内研究', '找中文的'). Outputs Shadcn HTML report + BibTeX/RIS/CSV + PRISMA-S log. Do NOT use for: concept explanations ('what is X' / 'X 是什么', e.g. '影响因子怎么算'), writing ('帮我写' / 'help me write a paragraph'), single-paper interpretation or PDF download with metadata (use paper-downloader-portable), or when the user already has a literature set (use literature-set-review)."
 license: Apache-2.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task
 metadata:
   author: Bo
-  version: 2.2.0
+  version: 2.3.0
   vendored-from: futurehouse/paper-qa (Apache 2.0)
 ---
 
@@ -45,6 +45,10 @@ One command runs the whole deterministic core — multi-strategy retrieve → de
 heuristic relevance score (computed for every paper) → saturation signal → quota
 snapshot → per-paper journal metric — and prints **one JSON envelope** (no HTML,
 no PRISMA, no LLM classification SubAgent). The human path below is unaffected.
+That command gives you a deterministic **floor**, not the finished job — agent mode
+is *not* meant to stop at the machine output; `references/agent_mode.md` is where you
+layer your own semantic judgement on top to reach human-recipe quality (the command
+guarantees the floor; you supply the quality).
 
 📖 **Read `references/agent_mode.md`** for the full envelope schema, every flag
 (`--verify`, `--min-relevance`, `--quartile`, `--min-impact`, …), the relevance
@@ -153,6 +157,20 @@ UI_LANG=$(PYTHONPATH=$PSP_HOME python3 -m scripts.detect_language "$USER_QUERY")
 
 The detector routes Japanese / Korean / European queries to **English** (the bundle ships only EN + ZH dictionaries; English is the international academic default). 📖 The exact Unicode rule and why kana is checked before Han live in `references/runtime_bootstrap.md`.
 
+**Determine the search language space** (`search_language`, axis 2 — *which literature ocean*, distinct from `UI_LANG` above which is only *report chrome*). 📖 The parsing SSOT is `references/source_routing.md` §"Language scope"; resolve the space here, before phrasing the query, because it changes how STEP 3's query is built. This is **additive and opt-in — a pure English query resolves to the `en` space with zero new prompts or behavior (R-19)**; everything below fires only for Chinese queries or explicit signals.
+
+- Read the persisted default `config.search_language` (auto | en | zh | both) and apply the priority ladder **flags > in-query markers > config > auto**. CJK presence is the mechanical fact from `detect_language` above; markers (`CSSCI`, `中文文献`, `SSCI`, `知网`, …) and non-signals (`中科院一区`, topic-about-China) are your semantic judgment per the §"Language scope" tables.
+- **`auto` + a Chinese (CJK) query + no language marker + no persisted value → ask ONE question before retrieving** (this is the human path's job; the CLI/agent path passes through instead). Two sentences, offer to persist, and don't re-ask later this session:
+
+  > 你用中文提问——文献要英文、中文,还是都要?顺便可以说"以后都这样",我就记成默认、下次不再问。
+
+  - "中文" / "都要" → enter that space (STEP 2 discipline routing takes over; report one line there).
+  - "英文" → v2.2 behavior (Chinese topic planned as an English query), report one line.
+  - "无所谓 / 都行" → **this run uses `both`** (Recall > Precision), not persisted; if the same user answers "无所谓" a second time, add one light offer to set `both` as default, then never ask again.
+  - Only an explicit "以后都…" persists to `config.search_language` (single answers never auto-persist).
+- **If a rank ambiguity (bare "Q1") also fired this run, merge both questions into ONE message** — ask language + platform together, never in two rounds (over-asking is a red line).
+- Once the space is known, phrase the query per `references/query_planner.md` §"Cross-language query handling": **`zh` keeps Chinese search terms (no translation)**, `en` uses the English terms (v2.2 behavior), `both` builds two sets.
+
 Apply PICO / SPIDER / PEO depending on domain:
 - Medical/clinical → PICO (Population/Intervention/Comparator/Outcome)
 - Qualitative → SPIDER
@@ -180,17 +198,30 @@ Then act on the parse:
 
 Even Quick tier needs a lightweight version of this step — never skip silently. Output: 1-3 search strategies (concept blocks + year range + work type filter). Write to `"$SEARCH_DIR/query_plan.json"` so PRISMA-S logger can pick it up later (STEP 13).
 
-### STEP 2 — Detect source routing
+### STEP 2 — Route supplemental sources within the STEP-1 language space
 
 📖 BEFORE THIS STEP, read: `references/source_routing.md`.
 
-Decide which L2/L3 sources to enable beyond OpenAlex baseline:
-- Medical signals (RCT, PRISMA, MeSH, clinical, disease names) → enable PubMed
-- CS/preprint signals (preprint, arXiv, NeurIPS, transformer, "最新", 2024+) → enable arXiv
-- Cross-domain (e.g. "AI in radiology") → enable both
-- Pure social science / humanities → OpenAlex only
+**You make these routing calls by judging the query's domain — the reference's keyword tables are calibration examples, not a match list** (mechanical facts — CJK detection, explicit `--flags` — stay deterministic). Within the language space fixed in STEP 1, route the per-discipline boosters:
 
-Tell the user what you decided ("I detected medical + CS signals — also searching PubMed and arXiv"). User can override with explicit instruction.
+- **English space** (`en`, or the English half of `both`) — unchanged from v2.2:
+  - Medical signals (RCT, PRISMA, MeSH, clinical, disease names) → enable PubMed
+  - CS/preprint signals (preprint, arXiv, NeurIPS, transformer, "最新", 2024+) → enable arXiv
+  - Cross-domain (e.g. "AI in radiology") → enable both
+  - Pure social science / humanities → OpenAlex only
+  - *(Judgment call: a core AI/CS query may also raise the primary engine to Semantic Scholar — see `source_routing.md` §"AI / CS queries → consider Semantic Scholar as primary".)*
+- **Chinese space** (`zh`, or the Chinese half of `both`) — route the Chinese boosters the same way, by discipline:
+  - Social-science / humanities signal → add **NSSD** (国家哲社文献中心; carries the CSSCI 收录标识 OpenAlex has ≈0 coverage of)
+  - Medical signal → add **yiigle** (中华医学期刊全文数据库); PubMed still covers MEDLINE-indexed 中华 journals, so the two are complementary
+  - Pure sci-tech with neither → Chinese side runs on OpenAlex only (sci-tech Chinese core journals mostly register DOIs, so OpenAlex covers them well)
+
+**Report one line** (axis-3 style — a statement, not a question; 22 §6.3). For an English-only run this is the existing PubMed/arXiv notice, unchanged (*"I detected medical + CS signals — also searching PubMed and arXiv. Override with `--no-pubmed`."*). For a Chinese space, e.g.:
+
+> 本次按「中英都要」检索;中文侧检测到社科主题,已加 NSSD(国家哲社文献中心)。想去掉说 `--no-nssd`,只查一边说"只要英文/中文"。
+
+**Coverage honesty rides with the notice:** if the zh space has a social-science topic but the user declined NSSD, add that OpenAlex hits ≈0 on CSSCI flagship journals (经济研究 / 管理世界 …), so that layer is missing. User can override any of this with an explicit instruction (a per-query override wins over everything).
+
+**On the `--flag` shorthands above (`--no-nssd`, `--no-pubmed`, `--source …`):** on this human path they are **natural-language override *notation*** — a compact way to write what the user can *say* ("去掉 NSSD" / "只查 OpenAlex"), which you (the LLM) interpret. They are **not executable CLI flags** — no script parses them here. The only real, script-parsed flags live on the agent/headless path (`agent_search`), and there the Chinese-source control is opt-**in**: `--with-nssd` / `--with-yiigle` (there is no `--no-nssd` / `--source` there). See `references/agent_mode.md`.
 
 ### STEP 3 — Retrieve from OpenAlex (deep)
 
@@ -252,6 +283,34 @@ Subcommand reference:
 - `arxiv_helper search <query> --limit M --sort submitted|relevance|lastUpdated [--all-cats]`
 - `arxiv_helper get <arxiv_id>`
 
+**NSSD / yiigle — Chinese boosters (ONLY when STEP 1-2 put this run in the `zh` space, and only the one(s) the discipline routing selected):**
+
+Each is an independent primary source for the Chinese space (same role as `ss_helper --search`) and emits the **same `UnifiedPaperEntity` shape** as openalex.json, so STEP 5 federates them identically. Keep the query in **Chinese** (do NOT translate — query_planner §Cross-language) and write to `raw/nssd.json` / `raw/yiigle.json`:
+
+```bash
+# NSSD — Chinese social-sciences & humanities (adds the CSSCI-tier layer OpenAlex lacks)
+PYTHONPATH=$PSP_HOME \
+  python3 -m scripts.nssd_helper --search "<中文检索式>" \
+    --n 50 --year-min 2018 \
+    > "$SEARCH_DIR/raw/nssd.json"
+
+# yiigle — Chinese medical (中华医学期刊全文数据库; native-Chinese titles + abstracts)
+PYTHONPATH=$PSP_HOME \
+  python3 -m scripts.yiigle_helper --search "<中文检索式>" \
+    --n 50 --year-min 2018 \
+    > "$SEARCH_DIR/raw/yiigle.json"
+```
+
+Both degrade gracefully to `[]` on any network / HTTP failure (they never raise) — an empty file just federates to nothing. Both take **only** 题录 + 摘要 (compliance: no full-text download, no caching) and print their source attribution to stderr. `--year-min` filters client-side; drop it to keep all years.
+
+**config `search_language: en` but a Chinese query arrived (hard boundary 2):** do NOT enable Chinese boosters, but say one line — never a silent translation (22 §6.4):
+
+> 按你的默认(只查英文),我把中文主题规划成英文检索式了。想要中文文献这次说一声即可,想改默认说"以后…"。
+
+**User names 知网 / CNKI / 万方 / 维普 (marker hit + compliance):** these are closed subscription databases PSP does not scrape. Say one line, offer the substitute, don't re-argue (22 §6.5):
+
+> PSP 不接知网/万方(合规原因,不做封闭库抓取)。中文侧用 OpenAlex 中文底座 + NSSD(社科,含 CSSCI 标识)/yiigle(医学)覆盖;如需知网全文,结果里的题录可去知网人工检索。继续吗?
+
 ### STEP 5 — Federate (dedup + merge)
 
 📖 BEFORE THIS STEP, read: `references/source_routing.md` §"Field priority table".
@@ -267,7 +326,7 @@ PYTHONPATH=$PSP_HOME \
     --output "$SEARCH_DIR/kg.json"
 ```
 
-Pass only the input files you actually produced — skip ones that were not enabled by STEP 2. This handles DOI normalization (arXiv X→x case), version stripping, E5b guard (same title+year but different DOIs are kept separate), and field-priority merge.
+Pass only the input files you actually produced — skip ones that were not enabled by STEP 2. **If STEP 4 ran the Chinese boosters, add `"$SEARCH_DIR/raw/nssd.json"` / `"$SEARCH_DIR/raw/yiigle.json"` to the same `--input-files` list** — they carry the identical entity shape and federate exactly like the others (CJK-safe dedup is handled by the Phase 0 canonical-key fix, so distinct Chinese titles don't collapse). For an English-only run those files don't exist, so the call is byte-identical to v2.2 (R-19). This handles DOI normalization (arXiv X→x case), version stripping, E5b guard (same title+year but different DOIs are kept separate), and field-priority merge.
 
 `--as-list` exists but is only for consumers that want a sorted list (by citation_count); do not use it in this pipeline.
 
@@ -580,7 +639,7 @@ You won't read all of these every run, and shouldn't. Read a step's reference wh
 | `setup.md` | core | STEP 0 — config + 5-key acquisition |
 | `runtime_bootstrap.md` | cond | STEP 0/1 — only if `$PSP_HOME` env injection failed, or you need the full install-path list / language-routing rationale |
 | `query_planner.md` | core | STEP 1 — PICO / SPIDER / PEO frameworks |
-| `source_routing.md` | core | STEP 2 routing + STEP 5 field-priority merge |
+| `source_routing.md` | core | STEP 1 language scope (§"Language scope" SSOT) + STEP 2 routing + STEP 5 field-priority merge |
 | `openalex_helper_cheatsheet.md` | core | STEP 3 + STEP 9 — subcommands, params, gotchas |
 | `pubmed_helper_cheatsheet.md` | cond | STEP 4 — only if PubMed enabled |
 | `arxiv_helper_cheatsheet.md` | cond | STEP 4 — only if arXiv enabled |

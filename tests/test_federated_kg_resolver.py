@@ -17,6 +17,8 @@ sys.path.insert(0, str(SKILL_ROOT))
 
 from scripts.types import Author, UnifiedPaperEntity  # noqa: E402
 from scripts.federated_kg_resolver import (  # noqa: E402
+    _paper_to_dict,
+    _papers_from_payload,
     canonical_key,
     federated_dedup,
     is_same_physical_paper,
@@ -515,6 +517,130 @@ def test_0_4_existing_venue_not_overridden():
     oa = UnifiedPaperEntity(doi="10.1/j", title="Y", year=2020, venue="Nature", sources=["openalex"])
     ss = UnifiedPaperEntity(doi="10.1/j", title="Y", year=2020, venue="Nature Portfolio", sources=["semantic_scholar"])
     assert list(federated_dedup([oa], [ss]).values())[0].venue == "Nature"
+
+
+# ============================================================================
+# #4 — Chinese-native original text wins over English on a DOI collision
+# ============================================================================
+
+def _zh_paper(**kw):
+    kw.setdefault("sources", ["nssd"])
+    return UnifiedPaperEntity(**kw)
+
+
+def _oa_paper(**kw):
+    kw.setdefault("sources", ["openalex"])
+    return UnifiedPaperEntity(**kw)
+
+
+def test_4_chinese_title_survives_english_openalex_collision():
+    """#4: OA (English-translated) + NSSD (Chinese original) share a DOI. The
+    Chinese title / abstract / authors / venue must win — in BOTH merge orders."""
+    def make_pair():
+        oa = _oa_paper(
+            doi="10.1000/econ.2024",
+            title="Digital Economy and Income Gap",
+            abstract="An English abstract from OpenAlex.",
+            authors=[Author(name="Zhang San")],
+            venue="Economic Research Journal",
+            year=2024,
+            citation_count=12,
+        )
+        zh = _zh_paper(
+            doi="10.1000/econ.2024",
+            title="数字经济与收入差距",
+            abstract="中文摘要原文。",
+            authors=[Author(name="张三")],
+            venue="经济研究",
+            year=2024,
+            source_native_id="nssd:JJYJ2024005009",
+        )
+        return oa, zh
+
+    # OA first (English is `existing`, Chinese arrives as `new` → must override)
+    oa, zh = make_pair()
+    merged = list(federated_dedup([oa], [zh]).values())[0]
+    assert merged.title == "数字经济与收入差距"
+    assert merged.abstract == "中文摘要原文。"
+    assert merged.authors[0].name == "张三"
+    assert merged.venue == "经济研究"
+    # English-only fields still merge (OA citation_count preserved).
+    assert merged.citation_count == 12
+    assert set(merged.sources) == {"openalex", "nssd"}
+
+    # NSSD first (Chinese is `existing`, English arrives as `new` → must NOT clobber)
+    oa, zh = make_pair()
+    merged = list(federated_dedup([zh], [oa]).values())[0]
+    assert merged.title == "数字经济与收入差距"
+    assert merged.abstract == "中文摘要原文。"
+    assert merged.authors[0].name == "张三"
+    assert merged.venue == "经济研究"
+
+
+def test_4_english_only_collision_unchanged_r19():
+    """#4 R-19: with no Chinese source, the OpenAlex-preferred overwrite behavior
+    is exactly as before — English `new` OpenAlex title/authors replace a
+    non-OpenAlex `existing`."""
+    ss = UnifiedPaperEntity(
+        doi="10.1/x", title="Foo (SS variant)", authors=[Author(name="J. Smith")],
+        venue="ArXiv preprint", sources=["semantic_scholar"],
+    )
+    oa = UnifiedPaperEntity(
+        doi="10.1/x", title="Foo", authors=[Author(name="Jane Smith", is_first=True)],
+        venue="Nature", sources=["openalex"],
+    )
+    merged = list(federated_dedup([ss], [oa]).values())[0]
+    # OpenAlex preferred for title/authors (unchanged behavior).
+    assert merged.title == "Foo"
+    assert merged.authors[0].name == "Jane Smith"
+    # venue: first-non-empty wins (SS was first) — unchanged.
+    assert merged.venue == "ArXiv preprint"
+
+
+def test_4_chinese_venue_does_not_backfill_english_only_pool():
+    """#4 R-19 boundary: a purely English merge never sees the zh branches, so a
+    missing venue still backfills from whichever source has it (0.4 behavior)."""
+    oa = UnifiedPaperEntity(doi="10.1/r", title="X", venue=None, sources=["openalex"])
+    ss = UnifiedPaperEntity(doi="10.1/r", title="X", venue="CVPR", sources=["semantic_scholar"])
+    assert list(federated_dedup([oa], [ss]).values())[0].venue == "CVPR"
+
+
+# ============================================================================
+# #3 — issn merged + round-tripped through serialization
+# ============================================================================
+
+def test_3_issn_merged_from_any_source():
+    """#3: issn must merge (first non-empty) so a source that carries it fills a
+    record whose first-seen source lacked it."""
+    ss = UnifiedPaperEntity(doi="10.1/j", title="X", issn=None, sources=["semantic_scholar"])
+    oa = UnifiedPaperEntity(doi="10.1/j", title="X", issn="0033-2909", sources=["openalex"])
+    merged = list(federated_dedup([ss], [oa]).values())[0]
+    assert merged.issn == "0033-2909"
+    # Existing issn is never clobbered by a later empty one.
+    oa2 = UnifiedPaperEntity(doi="10.1/k", title="Y", issn="1939-1471", sources=["openalex"])
+    cr = UnifiedPaperEntity(doi="10.1/k", title="Y", issn=None, sources=["crossref"])
+    assert list(federated_dedup([oa2], [cr]).values())[0].issn == "1939-1471"
+
+
+def test_3_issn_round_trips_through_serialization():
+    """#3: _paper_to_dict must emit issn (when set) and _papers_from_payload must
+    read it back — the resolver previously dropped it, breaking the human-path
+    journal_rank ISSN join end to end."""
+    p = UnifiedPaperEntity(doi="10.1/j", title="X", issn="0033-2909", sources=["openalex"])
+    d = _paper_to_dict(p)
+    assert d["issn"] == "0033-2909"
+    restored = _papers_from_payload([d])[0]
+    assert restored.issn == "0033-2909"
+
+
+def test_3_issn_absent_stays_byte_identical_r19():
+    """#3 R-19: an issn-less record must NOT gain an "issn" key in kg.json (the
+    conditional emit keeps arXiv/PubMed-only records byte-identical)."""
+    p = UnifiedPaperEntity(arxiv_id="2401.12345", title="X", sources=["arxiv"])
+    d = _paper_to_dict(p)
+    assert "issn" not in d
+    # And a payload with no issn key decodes to issn=None (no crash).
+    assert _papers_from_payload([{"doi": "10.1/z", "title": "Z"}])[0].issn is None
 
 
 if __name__ == "__main__":
