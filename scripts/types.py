@@ -188,6 +188,14 @@ class UnifiedPaperEntity:
     ss_paper_id: Optional[str] = None     # SS hex paperId
     pmid: Optional[str] = None
     pmcid: Optional[str] = None
+    # Source-native stable ID for records that carry no DOI / arXiv / PMID /
+    # OpenAlex / SS identifier (e.g. NSSD ``nssd:JJYJ2024005009`` or yiigle
+    # ``yiigle:...``). Additive / optional (v2.2.1 Phase 0, 0.2): defaults to None
+    # so canonical_key / paper_id / serialization stay byte-identical (R-19). The
+    # ('native', id) key branch and the paper_id fallback are reached ONLY when
+    # this is set — which no OA / SS / CrossRef / PubMed / arXiv record does — so
+    # every existing English record behaves exactly as before.
+    source_native_id: Optional[str] = None
 
     # Core metadata
     title: str = ""
@@ -232,6 +240,13 @@ class UnifiedPaperEntity:
     openalex_url: Optional[str] = None
     pdf_url: Optional[str] = None
     pmc_url: Optional[str] = None
+    # Additional open-access copy URLs parsed from OpenAlex ``locations[]``
+    # (v2.2.1 Phase 0, 0.3 — additive). ``pdf_url`` above still holds the single
+    # best OA URL (open_access.oa_url); this is the fuller multi-copy list (e.g.
+    # publisher OA + PMC + repository). Empty list for papers with no OA copies,
+    # so a non-OA record is byte-identical to pre-0.3 (R-19); the display path
+    # (_render_paper) does not emit it, so the deliverable is unchanged.
+    oa_locations: List[str] = field(default_factory=list)
 
     # Journal influence / quartile (v2.2 Feature A, additive — default None so
     # existing serialization is byte-compatible). Populated by sjr_helper +
@@ -253,13 +268,20 @@ class UnifiedPaperEntity:
 
     @property
     def paper_id(self) -> str:
-        """Stable identifier across sources. Priority: DOI > arxiv > openalex_id > pmid > ss_paper_id > title-hash."""
+        """Stable identifier across sources. Priority: DOI > arxiv > openalex_id >
+        pmid > ss_paper_id > source_native_id > title-hash.
+
+        ``source_native_id`` sits just above the title-hash fallback (0.2): it only
+        applies to records lacking every standard ID (e.g. NSSD / yiigle), so any
+        record with a DOI / arXiv / OpenAlex / PMID / SS id keeps its prior
+        paper_id byte-for-byte (R-19)."""
         return (
             self.doi
             or (f"arxiv:{self.arxiv_id}" if self.arxiv_id else None)
             or self.openalex_id
             or (f"pmid:{self.pmid}" if self.pmid else None)
             or self.ss_paper_id
+            or self.source_native_id
             or f"untitled_{hash(self.title)}"
         )
 

@@ -144,6 +144,54 @@ def test_per_page_constraint():
     return f"per_page={_PER_PAGE}"
 
 
+def test_0_3_oa_locations_parsed_from_locations():
+    """0.3 (pure): _to_entity collects ALL open-access copy URLs from
+    locations[], de-duplicated, while pdf_url keeps the single best oa_url.
+    Non-OA locations are ignored; a paper with no OA copies yields []."""
+    work = {
+        "id": "https://openalex.org/W1",
+        "title": "Highly accurate protein structure prediction with AlphaFold",
+        "open_access": {
+            "is_oa": True,
+            "oa_url": "https://www.nature.com/articles/s41586-021-03819-2.pdf",
+        },
+        "locations": [
+            {
+                "is_oa": True,
+                "pdf_url": "https://www.nature.com/articles/s41586-021-03819-2.pdf",
+                "landing_page_url": "https://nature.com/x",
+            },
+            {"is_oa": True, "landing_page_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8371605/"},
+            {"is_oa": True, "pdf_url": "https://repo.example.edu/alphafold.pdf"},
+            {"is_oa": False, "landing_page_url": "https://paywalled.example.com"},
+            # duplicate of the first — must be de-duplicated
+            {"is_oa": True, "pdf_url": "https://www.nature.com/articles/s41586-021-03819-2.pdf"},
+        ],
+    }
+    e = _to_entity(work)
+    assert len(e.oa_locations) == 3, f"expected 3 OA copies, got {e.oa_locations}"
+    assert e.oa_locations[0] == "https://www.nature.com/articles/s41586-021-03819-2.pdf"
+    assert "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8371605/" in e.oa_locations
+    # pdf_url (single best OA url) is unchanged.
+    assert e.pdf_url == "https://www.nature.com/articles/s41586-021-03819-2.pdf"
+    return f"oa_locations={len(e.oa_locations)}"
+
+
+def test_0_3_no_oa_copies_yields_empty():
+    """0.3 R-19: a paper with only non-OA locations gets an empty oa_locations
+    list — no change to the pre-0.3 shape for closed-access papers."""
+    work = {
+        "id": "https://openalex.org/W2",
+        "title": "Closed",
+        "locations": [{"is_oa": False, "landing_page_url": "https://paywall.example"}],
+    }
+    e = _to_entity(work)
+    assert e.oa_locations == []
+    # Also: entity with no locations key at all must not crash.
+    assert _to_entity({"title": "X"}).oa_locations == []
+    return "non-OA -> []"
+
+
 # =============================================================================
 # v2.2 --json-envelope (R-14) — pure-Python wrapper + subprocess CLI behavior
 # =============================================================================

@@ -309,6 +309,22 @@ def _to_entity(w: dict) -> UnifiedPaperEntity:
     # Open access
     oa = w.get("open_access") or {}
 
+    # 0.3 (additive): collect ALL open-access copy URLs across locations[], not
+    # just the single best open_access.oa_url below. A paper (e.g. AlphaFold2)
+    # often has several OA copies — publisher OA + PMC + a repository. We keep the
+    # single best URL in pdf_url (unchanged) and the fuller de-duplicated list in
+    # oa_locations. Empty list for papers with no OA copies (R-19: non-OA papers
+    # unchanged). Prefer each location's pdf_url, else its landing_page_url.
+    oa_locations: List[str] = []
+    _seen_oa: set = set()
+    for loc in w.get("locations") or []:
+        if not (loc.get("is_oa") or loc.get("oa_url")):
+            continue
+        url = loc.get("pdf_url") or loc.get("landing_page_url") or loc.get("oa_url")
+        if url and url not in _seen_oa:
+            _seen_oa.add(url)
+            oa_locations.append(url)
+
     return UnifiedPaperEntity(
         doi=_strip_doi_prefix(w.get("doi")),
         arxiv_id=_extract_arxiv_id(w),
@@ -333,6 +349,7 @@ def _to_entity(w: dict) -> UnifiedPaperEntity:
         doi_url=w.get("doi"),
         openalex_url=w.get("id"),
         pdf_url=oa.get("oa_url"),
+        oa_locations=oa_locations,
         sources=["openalex"],
     )
 

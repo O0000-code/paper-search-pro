@@ -374,5 +374,148 @@ def test_merge_paper_fields_preserves_oa_authors():
     assert merged.authors[0].orcid == "0000-0001"
 
 
+# ============================================================================
+# v2.2.1 Phase 0 — 0.1 CJK title normalization (bug: DOI-less zh titles collapse)
+# ============================================================================
+
+import re as _re  # noqa: E402
+
+
+def _old_normalize_title(title):
+    """The pre-0.1 normalize_title (strips ALL non-a-z0-9, i.e. every CJK char).
+
+    Kept here purely so the R-19 byte-identity assertion below compares against
+    the exact prior behavior for Latin/English input."""
+    if not title:
+        return ""
+    s = title.lower()
+    s = _re.compile(r"\([^)]*\)\s*$").sub("", s)
+    return _re.compile(r"[^a-z0-9]").sub("", s)
+
+
+def test_0_1_normalize_title_english_byte_identical():
+    """0.1 R-19: for every non-CJK title the CJK-additive regex must be
+    byte-identical to the old strip-everything regex (accented Latin, Cyrillic,
+    Greek, punctuation are all still removed exactly as before)."""
+    samples = [
+        "Attention Is All You Need",
+        "Attention is all you need (Vaswani 2017)",
+        "Deep Residual Learning for Image Recognition!",
+        "Naïve Bayes and the café problem",
+        "BERT: Pre-training of Deep Bidirectional Transformers",
+        "Über die Quantentheorie (Einstein, 1917)",
+        "Мир и война",            # Cyrillic — must still be stripped (not CJK)
+        "Ω-theory of α-particles",  # Greek — must still be stripped
+        "",
+        None,
+    ]
+    for s in samples:
+        assert normalize_title(s) == _old_normalize_title(s), f"byte drift on {s!r}"
+
+
+def test_0_1_cjk_titles_preserved_and_distinct():
+    """0.1: three DISTINCT Chinese titles must yield three distinct, non-empty
+    normalized forms (previously all collapsed to "")."""
+    zh = ["数字经济与收入差距", "深度学习在图像识别中的应用", "中国农村金融发展研究"]
+    norms = [normalize_title(t) for t in zh]
+    assert all(norms), "a Chinese title collapsed to empty (0.1 regression)"
+    assert len(set(norms)) == 3, "distinct Chinese titles collided (0.1 regression)"
+    # Japanese kana + Korean hangul are also preserved.
+    assert normalize_title("ディープラーニング") == "ディープラーニング"
+    assert normalize_title("딥러닝 연구") == "딥러닝연구"
+
+
+def test_0_1_three_chinese_papers_dedup_to_three():
+    """0.1 end-to-end: three DOI-less Chinese papers (same year) must NOT merge.
+
+    Before the fix all three shared the ("title", "", year) key and silently
+    collapsed to one entry (real case: 《经济研究》 2024 merged with an unrelated
+    《燕山大学学报》 2024 paper)."""
+    p1 = UnifiedPaperEntity(title="数字经济与收入差距", year=2024, sources=["nssd"])
+    p2 = UnifiedPaperEntity(title="人工智能与就业结构", year=2024, sources=["nssd"])
+    p3 = UnifiedPaperEntity(title="乡村振兴与共同富裕", year=2024, sources=["nssd"])
+    kg = federated_dedup([p1, p2, p3])
+    assert len(kg) == 3, "distinct Chinese papers collapsed (0.1 regression)"
+
+
+# ============================================================================
+# v2.2.1 Phase 0 — 0.2 source_native_id in canonical_key / paper_id
+# ============================================================================
+
+def test_0_2_native_id_key_active():
+    """0.2: a DOI-less record with a source_native_id keys off ('native', id),
+    sitting above the (title, year) fallback."""
+    p = UnifiedPaperEntity(
+        title="数字经济与收入差距",
+        year=2024,
+        source_native_id="nssd:JJYJ2024005009",
+        sources=["nssd"],
+    )
+    assert canonical_key(p) == ("native", "nssd:JJYJ2024005009")
+    assert p.paper_id == "nssd:JJYJ2024005009"
+
+
+def test_0_2_same_title_different_native_id_no_merge():
+    """0.2: two DOI-less records with the SAME title+year but different native
+    IDs must remain distinct (native id resolves the would-be title collision)."""
+    a = UnifiedPaperEntity(title="研究", year=2024, source_native_id="nssd:A", sources=["nssd"])
+    b = UnifiedPaperEntity(title="研究", year=2024, source_native_id="nssd:B", sources=["nssd"])
+    kg = federated_dedup([a, b])
+    assert len(kg) == 2
+
+
+def test_0_2_absent_native_id_preserves_old_behavior():
+    """0.2 R-19: with no source_native_id, canonical_key / paper_id are exactly
+    the prior values — DOI, arXiv, and title-year fallbacks all unchanged."""
+    doi_p = UnifiedPaperEntity(doi="10.1/x", title="Attention Is All You Need", year=2017)
+    assert canonical_key(doi_p) == ("doi", "10.1/x")
+    assert doi_p.paper_id == "10.1/x"
+
+    title_p = UnifiedPaperEntity(title="Some Paper", year=2020)
+    key = canonical_key(title_p)
+    assert key[0] == "title" and key[2] == 2020
+
+    # Same native id merges (fills across sources) — sanity for the merge line.
+    n1 = UnifiedPaperEntity(title="X", year=2024, source_native_id="nssd:Q", sources=["nssd"])
+    n2 = UnifiedPaperEntity(
+        title="X", year=2024, source_native_id="nssd:Q", tldr="t", sources=["semantic_scholar"]
+    )
+    kg = federated_dedup([n1], [n2])
+    assert len(kg) == 1
+
+
+# ============================================================================
+# v2.2.1 Phase 0 — 0.4 venue backfill (OA missing venue → SS venue) regression
+# ============================================================================
+
+def test_0_4_venue_backfilled_from_ss_when_openalex_missing():
+    """0.4: when the OpenAlex record has no venue (common for CS conference
+    papers) but a Semantic Scholar record carries it, the merged paper keeps the
+    SS venue — regardless of merge order. This locks the behavior the resolver's
+    non-empty backfill already provides."""
+    oa = UnifiedPaperEntity(
+        doi="10.1/resnet", title="Deep Residual Learning", year=2016,
+        venue=None, sources=["openalex"],
+    )
+    ss = UnifiedPaperEntity(
+        doi="10.1/resnet", title="Deep Residual Learning", year=2016,
+        venue="CVPR", sources=["semantic_scholar"],
+    )
+    assert list(federated_dedup([oa], [ss]).values())[0].venue == "CVPR"  # OA first
+    assert list(federated_dedup([ss], [oa]).values())[0].venue == "CVPR"  # SS first
+    # Empty-string venue on OA is treated as missing too.
+    oa_empty = UnifiedPaperEntity(doi="10.1/r2", title="X", year=2016, venue="", sources=["openalex"])
+    ss2 = UnifiedPaperEntity(doi="10.1/r2", title="X", year=2016, venue="CVPR", sources=["semantic_scholar"])
+    assert list(federated_dedup([oa_empty], [ss2]).values())[0].venue == "CVPR"
+
+
+def test_0_4_existing_venue_not_overridden():
+    """0.4: a paper that already has a venue is never clobbered by another
+    source's venue (non-CS / venue-present papers are unaffected)."""
+    oa = UnifiedPaperEntity(doi="10.1/j", title="Y", year=2020, venue="Nature", sources=["openalex"])
+    ss = UnifiedPaperEntity(doi="10.1/j", title="Y", year=2020, venue="Nature Portfolio", sources=["semantic_scholar"])
+    assert list(federated_dedup([oa], [ss]).values())[0].venue == "Nature"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

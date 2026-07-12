@@ -34,7 +34,27 @@ from .types import UnifiedPaperEntity
 # ============================================================================
 
 _ARXIV_DOI_VER_RE = re.compile(r"(10\.48550/arxiv\.[\w\.\-]+?)v\d+$", re.IGNORECASE)
-_TITLE_NORMALIZE_RE = re.compile(r"[^a-z0-9]")
+# 0.1: keep CJK code points so distinct Chinese/Japanese/Korean titles do NOT all
+# collapse to "" (which made every DOI-less Chinese paper share the same
+# ("title", "", year) key and silently merge). We strip everything that is not
+# ASCII a-z0-9 OR a CJK code point, so Latin behavior is byte-identical (accented
+# Latin like "naïve"/"café" is still stripped — those chars are all < U+3000, far
+# below every CJK range here) while CJK titles survive intact (R-19). Ranges
+# (validated on live NSSD data, 13_prototype_validation.md §Live证据 3):
+#   一-鿿  CJK Unified Ideographs      (main Chinese)
+#   㐀-䶿  CJK Extension A
+#   豈-﫿  CJK Compatibility Ideographs
+#   ぀-ヿ  Hiragana + Katakana         (Japanese kana)
+#   가-힯  Hangul Syllables            (Korean)
+_TITLE_NORMALIZE_RE = re.compile(
+    "[^a-z0-9"
+    "\u4e00-\u9fff"  # CJK Unified Ideographs (main Chinese)
+    "\u3400-\u4dbf"  # CJK Extension A
+    "\uf900-\ufaff"  # CJK Compatibility Ideographs
+    "\u3040-\u30ff"  # Hiragana + Katakana (Japanese kana)
+    "\uac00-\ud7af"  # Hangul Syllables (Korean)
+    "]"
+)
 _TITLE_TRAILING_PAREN_RE = re.compile(r"\([^)]*\)\s*$")
 
 
@@ -114,6 +134,12 @@ def canonical_key(paper: UnifiedPaperEntity) -> CanonicalKey:
         return ("openalex", oid)
     if paper.ss_paper_id:
         return ("ss", paper.ss_paper_id)
+    # 0.2: source-native ID (e.g. NSSD/yiigle) sits ABOVE the (title, year)
+    # fallback so DOI-less Chinese papers get a stable per-record key instead of
+    # colliding on a shared normalized title. Only reached when no standard ID is
+    # present, so records with DOI/arXiv/PMID/OpenAlex/SS keys are unaffected (R-19).
+    if paper.source_native_id:
+        return ("native", paper.source_native_id)
     if paper.title and paper.year:
         return ("title", normalize_title(paper.title), paper.year)
     # Last resort: title hash (papers with no usable ID + no year)
@@ -187,6 +213,11 @@ def merge_paper_fields(
     existing.ss_paper_id = _pick_non_empty(existing.ss_paper_id, new.ss_paper_id)
     existing.pmid = _pick_non_empty(existing.pmid, new.pmid)
     existing.pmcid = _pick_non_empty(existing.pmcid, new.pmcid)
+    # 0.2: source-native ID — any non-empty (only NSSD/yiigle set it; None for
+    # every OA/SS/CrossRef/PubMed/arXiv record, so this is a no-op for them).
+    existing.source_native_id = _pick_non_empty(
+        existing.source_native_id, new.source_native_id
+    )
 
     # ---- title: OpenAlex preferred, else any non-empty ----
     # Sanity: empty new.title never overrides an existing non-empty title.
@@ -288,6 +319,10 @@ def merge_paper_fields(
     existing.openalex_url = _pick_non_empty(existing.openalex_url, new.openalex_url)
     existing.pdf_url = _pick_non_empty(existing.pdf_url, new.pdf_url)
     existing.pmc_url = _pick_non_empty(existing.pmc_url, new.pmc_url)
+    # 0.3: extra OA copy URLs (OpenAlex locations[]) — keep existing if set, else
+    # take new. Empty on both sides for non-OA papers, so this is a no-op there.
+    if not existing.oa_locations and new.oa_locations:
+        existing.oa_locations = new.oa_locations
 
     # ---- Skill-internal: keep existing RCS if set, else take new ----
     if existing.rcs is None and new.rcs is not None:
@@ -380,6 +415,7 @@ def _papers_from_payload(payload) -> List[UnifiedPaperEntity]:
             ss_paper_id=d.get("ss_paper_id"),
             pmid=d.get("pmid"),
             pmcid=d.get("pmcid"),
+            source_native_id=d.get("source_native_id"),  # 0.2 (None when absent)
             title=d.get("title", "") or "",
             abstract=d.get("abstract"),
             authors=authors,
@@ -413,7 +449,7 @@ def _papers_from_payload(payload) -> List[UnifiedPaperEntity]:
 
 
 def _paper_to_dict(p: UnifiedPaperEntity) -> Dict:
-    return {
+    d: Dict = {
         "doi": p.doi,
         "arxiv_id": p.arxiv_id,
         "openalex_id": p.openalex_id,
@@ -463,6 +499,12 @@ def _paper_to_dict(p: UnifiedPaperEntity) -> Dict:
         "sources": p.sources,
         "discovery_path": p.discovery_path,
     }
+    # 0.2: emit source_native_id ONLY when set (None-不-emit) so kg.json for every
+    # existing DOI-bearing record is byte-identical; only NSSD/yiigle records
+    # (which set it) gain the key.
+    if p.source_native_id:
+        d["source_native_id"] = p.source_native_id
+    return d
 
 
 def _canonical_key_str(key: CanonicalKey) -> str:
