@@ -1,0 +1,136 @@
+{
+  "_meta": {
+    "purpose": "邻近 n 值换算表 (13_design_spec §5.1)。canonical intent = max_gap (k = 两词间最多间隔词数)；绝不让 LLM 逐次口算 (A-3)。proximity.py 读本表做 host↔host 的 n 值换算。",
+    "canonical_intent": "max_gap",
+    "conversion_rule": "给定 canonical k=max_gap → gap 家族输出 n=k；gap_plus_one 家族输出 n=k+1",
+    "check_equation": "Ovid adj2 (gap_plus_one, k=1) ≡ EBSCO N1 (gap, k=1)，均 ≤1 间隔词 (A1 §2.4 官方旁证)",
+    "lookup_algorithm": "给定一张卡的 operator_shell key：若 key ∈ families.*.hosts → 用该家族 n_formula；否则用 operator_shells[key].n_semantics；unordered=null 表示该宿主无邻近算符 → 按 fallback 降级。",
+    "verified_date": "2026-07-16",
+    "_verify_at_build_removed": "原 §5.1 的 verify_at_build=['wos_n_semantics','scopus_w_n_semantics'] 已由 A1 §2.2 (WOS, Clarivate 官方一手逐字) + §2.3 (Scopus, 三源交叉锁定) 定点核实完成，故本表移除该键。",
+    "sources": [
+      "13_design_spec §5.1 (Decisional 结构)",
+      "A1 §2 (WOS NEAR/Scopus W/n gap 定点核实 + Ovid adj2≡EBSCO N1 等式)",
+      "A2 §1.4 (ClinicalTrials.gov Essie 无 proximity, live 实测)",
+      "R4 逐卡 (pubmed/cnki/ieee/embase_com/cochrane/acm/wanfang/eric 语法)"
+    ]
+  },
+  "families": {
+    "gap_plus_one": {
+      "hosts": ["cochrane", "ovid", "embase_com"],
+      "n_formula": "n = max_gap + 1",
+      "note": "A1 已核实 (Ovid adjN: adj2 = 最多 1 间隔词；Cochrane/Embase.com 同族)"
+    },
+    "gap": {
+      "hosts": ["ebsco", "proquest", "scopus", "wos"],
+      "n_formula": "n = max_gap",
+      "note": "A1 已核实 (WOS NEAR/x 与 Scopus W/n 均 = 两词间最大间隔词数，/0 = 相邻)"
+    }
+  },
+  "operator_shells": {
+    "pubmed": {
+      "unordered": "\"{terms}\"[{field}:~{n}]",
+      "field": ["ti", "tiab", "ad"],
+      "n_semantics": "gap",
+      "constraints": ["quotes_required", "phrase_exclusive", "no_truncation", "closes_ATM"],
+      "note": "邻近与截词互斥、必须加引号、词序无关 (A-9)；live 实测 [tiab:~3]=3974 vs 精确短语=526 (R4 §2.1C)。standalone platform (不在 families)，n 语义在此。"
+    },
+    "wos": {
+      "unordered": "NEAR/{n}",
+      "same": "SAME",
+      "bare_near_default_gap": 15,
+      "illegal": ["AND_inside_NEAR_parens"],
+      "constraints": ["all_fields_operator_cap_49"],
+      "note": "family=gap (见 families)。裸 NEAR=NEAR/15；NEAR/0=相邻；含 NEAR 的查询不能同括号用 AND (A1 §2.2 Clarivate 官方一手)。"
+    },
+    "scopus": {
+      "unordered": "W/{n}",
+      "ordered": "PRE/{n}",
+      "n_range": [0, 255],
+      "note": "family=gap (见 families)。W/0=相邻 (A1 §2.3 三源锁定)。★2025 秋布尔优先级改 AND NOT > AND > OR，多算符务必显式括号消歧。"
+    },
+    "ebsco": {
+      "unordered": "N{n}",
+      "ordered": "W{n}",
+      "constraints": ["truncation_allowed_inside_proximity"],
+      "note": "family=gap (见 families)。N=near 无序、W=within 有序；n = 词间间隔。宿主共享：PsycINFO/CINAHL/EconLit/MEDLINE/ERIC-on-EBSCO。"
+    },
+    "proquest": {
+      "unordered": "NEAR/{n}",
+      "ordered": "PRE/{n}",
+      "alt_syntax": "N/n, P/n",
+      "note": "family=gap (见 families)。ProQuest N/n = NEAR/n (gap)；本卡集仅作 econlit/cab/eric 的 hosts_note 替代宿主，无独立卡。"
+    },
+    "embase_com": {
+      "unordered": "NEAR/{n}",
+      "ordered": "NEXT/{n}",
+      "must_parenthesize": true,
+      "note": "family=gap_plus_one (见 families)。★与 WoS 同名 NEAR/n 但不同族——n 值必须查表勿手算 (A-3)。邻近两侧词/词组必须用括号包住否则报错。"
+    },
+    "ovid": {
+      "unordered": "adj{n}",
+      "ordered_adjacent": "adj",
+      "note": "family=gap_plus_one (见 families)。adj(无数字)=严格相邻同序；adj1=相邻任意序；adj2 ≡ EBSCO N1 (A1 §2.4)。宿主共享：Embase/MEDLINE/PsycINFO/ERIC/CAB/EconLit-on-Ovid。"
+    },
+    "cochrane": {
+      "unordered": "NEAR/{n}",
+      "ordered_adjacent": "NEXT",
+      "note": "family=gap_plus_one (见 families)。NEXT=相邻同序；短语不支持截词→需变体改用 NEXT。A-7：CENTRAL 禁叠 RCT/研究设计过滤器。"
+    },
+    "cnki": {
+      "unordered": "/NEAR {n}",
+      "ordered_prev": "/PREV {n}",
+      "ordered_aft": "/AFT {n}",
+      "same_sentence": "/SEN {n}",
+      "same_para": "/PRG {n}",
+      "freq": "$N",
+      "field": ["FT", "TI", "AB"],
+      "n_semantics": "gap",
+      "constraints": ["single_field_two_values_only", "half_width_only"],
+      "note": "standalone platform。位置算符仅对单字段(TI/AB/FT，尤 FT 全文)内两个值限定、不接多值；全英文半角、检索值用半角单引号包住。"
+    },
+    "ieee": {
+      "unordered": "NEAR/{n}",
+      "ordered": "ONEAR/{n}",
+      "n_semantics": "gap",
+      "n_semantics_note": "文档默认读法 (terms within # words = gap)；本轮未做 payload 实测，精度关键时 build 轮实测复核 (A-3)。",
+      "constraints": ["no_wildcard_with_NEAR", "command_search_only", "advanced_page_unsupported"],
+      "note": "standalone platform。ONEAR 有序(前词在前)；NEAR/ONEAR 仅 Global/Command Search 可用，Advanced 页不支持；* 不能与 NEAR 共用。"
+    },
+    "cabi": {
+      "unordered": "\"{terms}\"~{n}",
+      "n_semantics": "gap",
+      "constraints": ["phrase_exclusive", "no_truncation_inside_quotes"],
+      "note": "standalone platform (CABI Digital Library, Atypon/Literatum)。Lucene phrase-slop：\"a b\"~n，n = max words separating (CABI 官方，A1 §1.3)；引号内截词报错。"
+    },
+    "acm": {
+      "unordered": null,
+      "fallback": "AND_or_phrase",
+      "note": "★ACM UI 实质无邻近算符 (Radboud 官方指引 'Proximity search is not available') → 跨库翻译降级为 AND/引号短语 (R4 卡10)。"
+    },
+    "clinicaltrials_gov": {
+      "unordered": null,
+      "fallback": "phrase_or_EXPANSION_Relaxation",
+      "note": "★Essie 无位置/tilde 算符 (A2 §1.4 官方文档全篇无 proximity，live 实测无 NEAR)；相邻用引号短语、放宽相邻用 EXPANSION[Relaxation]。"
+    },
+    "wanfang": {
+      "unordered": null,
+      "fallback": "AND_or_phrase",
+      "note": "官方文档未开放位置/邻近算符 (R4 卡13)；相邻靠精确(英文双引号)与 and/空格。"
+    },
+    "eric": {
+      "unordered": null,
+      "fallback": "defer_to_subscription_host",
+      "note": "免费站 eric.ed.gov 邻近算符支持弱/不稳定 (行为异于宿主)；邻近以 EBSCO/Ovid/ProQuest 宿主为准 (R4 卡11)。"
+    },
+    "scifinder": {
+      "unordered": null,
+      "fallback": "phrase_or_CAS_Lexicon",
+      "note": "文本参考检索无 NEAR/位置算符 (A2 §3)；相邻用引号短语，语义靠 CAS Lexicon Precision Search。"
+    },
+    "sinomed": {
+      "unordered": null,
+      "fallback": "AND_or_phrase",
+      "note": "无西式 NEAR/位置算符 (A2 §2)；快速检索自动同义扩展；注意 SinoMed 有 ?/% 通配 (≠CNKI)。"
+    }
+  }
+}

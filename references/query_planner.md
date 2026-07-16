@@ -23,17 +23,20 @@ Use for: drug trials, behavioral interventions, surgical comparisons, dietary st
 | **Outcome** | Measured how? (HbA1c reduction, weight loss, adverse events) |
 
 **Example 1 — diabetes RCT search**:
-- P: "adults" OR "type 2 diabetes" OR "T2D"
+- P (population): "adults" OR "adult"
+- Condition: "type 2 diabetes" OR "T2D" OR "T2DM" — *a disease is a separate concept from the population; AND across blocks, never OR into P (see `search_export/methodology.md` §2.1)*
 - I: "metformin"
 - C: ("placebo" OR "sulfonylurea" OR "standard care") — often omit for OpenAlex (too restrictive)
-- O: ("HbA1c" OR "glycemic control") AND ("RCT" OR "randomized")
-- Combined: `metformin AND "type 2 diabetes" AND ("HbA1c" OR "glycemic control") AND ("RCT" OR "randomized")`
+- O: "HbA1c" OR "glycemic control"
+- Study design: attach a **validated** RCT filter (Cochrane HSSS) on Boolean-library export — see `search_export/filters_library.md`. *Never self-author a `("RCT" OR "randomized")` filter — a two-word text filter misses trials whose title/abstract omit those words (methodology §4.2).*
+- Combined: `("adults" OR "adult") AND ("type 2 diabetes" OR "T2D") AND metformin AND ("HbA1c" OR "glycemic control")` — append the validated RCT filter when exporting to PubMed/Ovid.
 
 **Example 2 — IBS dietary intervention** (audit-tier from SKILL.md Example 4):
-- P: "adults" + "IBS" + "irritable bowel syndrome"
+- P (population): "adults" OR "adult"
+- Condition: "IBS" OR "irritable bowel syndrome" — *disease is its own block, AND'd with population*
 - I: "low-FODMAP" OR "fiber" OR "dietary"
 - C: any control
-- O: "symptom severity" + "quality of life" + "abdominal pain"
+- O: "symptom severity" OR "quality of life" OR "abdominal pain"
 
 **Example 3 — telehealth elderly hypertension**:
 - P: "elderly" OR "older adults" OR "geriatric"
@@ -54,11 +57,12 @@ Use for: qualitative studies, mixed methods, user-experience research, psycholog
 | **Research type** | Qualitative / quantitative / mixed |
 
 **Example — attachment + HRI in elderly care** (from SKILL.md Example 3):
-- S: "elderly" + "older adults" + "long-term care residents"
-- PI: "attachment" + "human-robot interaction" + "companion robot"
-- D: ("interview" OR "ethnography" OR "case study" OR "RCT")
-- E: "loneliness" + "wellbeing" + "social bonding"
-- R: qualitative + quantitative (don't filter)
+- S: "elderly" OR "older adults" OR "long-term care residents"
+- PI (phenomenon): "attachment" OR "bonding"
+- PI (technology): "human-robot interaction" OR "companion robot" OR "social robot" — *the psychological phenomenon and the technology are distinct concepts → AND across, not OR within one block (methodology §2.1)*
+- D: "interview" OR "ethnography" OR "case study" OR "RCT"
+- E: "loneliness" OR "wellbeing" OR "social bonding"
+- R: qualitative or quantitative — don't filter (mixed-method)
 
 ## PEO — Population, Exposure, Outcome
 
@@ -85,10 +89,10 @@ When the user's intent is exploratory ("what research exists on prospect theory?
 3. Combine via OR within block, AND across blocks
 
 **Example — "working memory training in elderly"**:
-- Concept 1 — working memory: `("working memory" OR "WM" OR "executive function" OR "cognitive training")`
-- Concept 2 — training: `(training OR intervention OR program OR exercise)`
+- Concept 1 — working memory (object): `("working memory" OR "WM" OR "executive function")`
+- Concept 2 — training (intervention): `(training OR intervention OR program OR exercise OR "cognitive training")` — *"cognitive training" is an intervention, not a cognitive object; it belongs in the training block, not Concept 1 (methodology §2.1)*
 - Concept 3 — elderly: `(elderly OR "older adults" OR aging OR geriatric OR "65+")`
-- Combined: `(working memory OR cognitive training) AND (training OR intervention) AND (elderly OR older adults)`
+- Combined: `("working memory" OR "executive function") AND (training OR intervention OR "cognitive training") AND (elderly OR "older adults")`
 
 ## Multi-strategy combination (when to use multiple strategies)
 
@@ -152,4 +156,4 @@ The CN→EN table below is the **English-side expansion vocabulary**: it applies
 
 - Don't filter by `language=english` at the OpenAlex level — too restrictive, drops Chinese-Japanese-Korean studies that have English abstracts.
 - Don't add `AND "human"` to medical queries — half the relevant papers don't have "human" in title/abstract; rely on OpenAlex topic clustering instead.
-- Don't combine more than 4 AND blocks — recall craters. If you have 5+ concepts, split into 2 strategies and merge.
+- Don't combine more than 4 AND blocks — recall craters. If you have 5+ concepts, split into 2 strategies and merge. **This ceiling is an OpenAlex relevance-engine heuristic, not a Boolean-library rule** — Boolean-library exports routinely AND 5–8 concept blocks (see `search_export/methodology.md` §2.2); do not inherit this ≤4 cap when exporting a professional search string, and it does not constrain the 5-block SPIDER example above.
