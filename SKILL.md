@@ -1,6 +1,6 @@
 ---
 name: paper-search-pro
-description: "Find academic papers across up to 7 sources (OpenAlex / Semantic Scholar / CrossRef / PubMed / arXiv for English, plus native-Chinese retrieval via NSSD 国家哲社文献中心 + yiigle 中华医学期刊) with adjustable depth — Quick scan (5 min) to Audit prep (3 hr). Use when the user wants to find papers, run a literature search, gather references, scope a research topic, search Chinese-language / 中文原生 literature (中文文献/中文核心/CSSCI/C刊/国内研究/国内文献/中华××期刊/心理学报/经济研究), or filter results by journal tier (中科院分区/一区/几区, Q1, JCR/SJR quartile, 影响因子/impact factor, 期刊分区, 顶刊/top journal, '按分区筛'). Triggers on search verbs ('find papers', 'literature search', 'papers about X'), review types ('scoping review', 'systematic review', 'SR prep', 'literature review', 'lit review', 'help me write a lit review'), Chinese ('找文献', '找论文', '论文搜索', '学术检索', '文献检索', '文献综述', '综述前期', '求文献', '中文文献', '中文核心', 'CSSCI', 'C刊', '国内研究', '找中文的'). Outputs Shadcn HTML report + BibTeX/RIS/CSV + PRISMA-S log. Do NOT use for: concept explanations ('what is X' / 'X 是什么', e.g. '影响因子怎么算'), writing ('帮我写' / 'help me write a paragraph'), single-paper interpretation or PDF download with metadata (use paper-downloader-portable), or when the user already has a literature set (use literature-set-review)."
+description: "Find academic papers across up to 7 sources (OpenAlex / Semantic Scholar / CrossRef / PubMed / arXiv for English, plus native-Chinese retrieval via NSSD 国家哲社文献中心 + yiigle 中华医学期刊) with adjustable depth — Quick scan (5 min) to Audit prep (3 hr). Use when the user wants to find papers, run a literature search, gather references, scope a research topic, search Chinese-language / 中文原生 literature (中文文献/中文核心/CSSCI/C刊/国内研究/国内文献/中华××期刊/心理学报/经济研究), or filter results by journal tier (中科院分区/一区/几区, Q1, JCR/SJR quartile, 影响因子/impact factor, 期刊分区, 顶刊/top journal, '按分区筛'), or export paste-ready professional search strategies / 检索式 for external databases (PubMed / WOS / Scopus / Embase / 知网 CNKI / 万方 / SinoMed — '写检索式', '导出检索式', 'WOS 检索式', '知网专业检索', 'search strategy', 'boolean search strategy'). Triggers on search verbs ('find papers', 'literature search', 'papers about X'), review types ('scoping review', 'systematic review', 'SR prep', 'literature review', 'lit review', 'help me write a lit review'), Chinese ('找文献', '找论文', '论文搜索', '学术检索', '文献检索', '文献综述', '综述前期', '求文献', '中文文献', '中文核心', 'CSSCI', 'C刊', '国内研究', '找中文的'). Outputs Shadcn HTML report + BibTeX/RIS/CSV + PRISMA-S log. Do NOT use for: concept explanations ('what is X' / 'X 是什么', e.g. '影响因子怎么算'), writing ('帮我写' / 'help me write a paragraph'), single-paper interpretation or PDF download with metadata (use paper-downloader-portable), or when the user already has a literature set (use literature-set-review)."
 license: Apache-2.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task
 metadata:
@@ -307,9 +307,11 @@ Both degrade gracefully to `[]` on any network / HTTP failure (they never raise)
 
 > 按你的默认(只查英文),我把中文主题规划成英文检索式了。想要中文文献这次说一声即可,想改默认说"以后…"。
 
-**User names 知网 / CNKI / 万方 / 维普 (marker hit + compliance):** these are closed subscription databases PSP does not scrape. Say one line, offer the substitute, don't re-argue (22 §6.5):
+**User names 知网 / CNKI / 万方 / 维普 (marker hit + compliance):** these are closed subscription databases PSP does not scrape. Say one line, offer the substitute + the export, don't re-argue (22 §6.5):
 
-> PSP 不接知网/万方(合规原因,不做封闭库抓取)。中文侧用 OpenAlex 中文底座 + NSSD(社科,含 CSSCI 标识)/yiigle(医学)覆盖;如需知网全文,结果里的题录可去知网人工检索。继续吗?
+> PSP 不抓知网/万方（合规，不做封闭库抓取）；中文侧用 OpenAlex 中文底座 + NSSD(社科,含 CSSCI 标识)/yiigle(医学)覆盖。但可以**把你的知网专业检索式写好**——按 CNKI 专业检索语法（`SU %=` 相关匹配、块内 OR/块间 AND、全英文半角、检索值单引号）生成可直接**粘贴进「专业检索」框**的检索式，粘贴即查。中文医学题另可给 SinoMed（CMeSH 受控词双轨）。要导出吗？
+
+"要导出吗?" accepted = an explicit-ask trigger for STEP 11.5 — run the export at any tier.
 
 ### STEP 5 — Federate (dedup + merge)
 
@@ -501,6 +503,45 @@ Save to `"$SEARCH_DIR/summary.md"`.
 - **Persisting the default** (only on an explicit "以后都用 X"): set `rank.default_platform` in `~/.paper-search-pro/config.yaml`. Tier档位 is never persisted — only the platform default is.
 - **R-04 naming in the summary bullet too:** 中科院"区" and SJR quartile are **分区 / quartile**; only JCR IF(2024) is an **影响因子 / Impact Factor**. The OpenAlex 2yr-mean-citedness figure is "期刊影响力" (open), never a JIF.
 
+### STEP 11.5 — Export search strategies (opt-in — never on the default path)
+
+**Trigger matrix — decide silently, before anything else:**
+
+| Run | Export behavior |
+|------|-----------------|
+| Quick / Standard | **Does not run. Do not mention it, do not ask** — go straight to STEP 12. This silent skip is the one exception to Rule C: announcing it would itself disturb the untouched default path (R-19). |
+| Deep | Offer once, one light sentence: *"要不要顺带导出各平台可粘贴的专业检索式?"* Accepted → run; declined or unanswered → skip without further mention. |
+| Audit | **Runs by default** — it is the deliverable behind the Audit disclaimer's promise (Example 4). |
+| Explicit ask, any tier | "给我 WOS 检索式" / "我要去知网查" / "导出检索式" / STEP 4's 知网 offer accepted → run immediately, whatever the tier. |
+
+📖 BEFORE THIS STEP (when it triggers), read: `references/search_export/methodology.md` — the rulebook for every semantic judgment below. Add `references/search_export/chinese_methodology.md` whenever the zh/both space exports CNKI / 万方 / SinoMed (Chinese strategies are NOT word-for-word translations of Western boolean).
+
+**Layer 1 — semantics. This is YOUR work (main agent); the script only assembles syntax:**
+
+1. **Rebuild concept blocks** from `"$SEARCH_DIR/query_plan.json"` under methodology.md's block discipline — within-block OR = synonyms of ONE concept only; blocks joined by AND; default 2 blocks (P+I), C/O only when core and consistently reported in titles/abstracts; NOT banned. Do not copy query_plan blocks as-is: this rebuild is where mixed-concept blocks get fixed.
+2. **Expand synonyms & entry terms** per block — spelling variants (tumour/tumor), abbreviation + full form (MBSR + "mindfulness-based stress reduction"), related terms. **On a zh / both run, also fill each block's `free_text_zh` with the Chinese synonyms** (简繁 / 别名 / 全称–缩略 variants — Chinese has no truncation, so enumerate explicitly): the CJK hosts (CNKI / 万方 / SinoMed) read **only** `free_text_zh`, and a block without it makes every Chinese strategy be honestly withheld — English words are never rendered into a Chinese database.
+3. **Controlled-vocab candidates per platform** — judge MeSH / Emtree / CINAHL / APA / CMeSH independently per library; never symbol-translate one thesaurus into another. Prefer the MeSH already backfilled into the KG by STEP 4 (real descriptors from real hits).
+4. **Trim the platform set by discipline** from the Audit full set (PubMed, WOS, Scopus, Embase, Cochrane CENTRAL, PsycINFO, CINAHL, ERIC, IEEE Xplore, ACM DL, EconLit, CNKI, 万方, SinoMed, ClinicalTrials.gov) — a medical topic doesn't need IEEE/ACM; a social-science topic doesn't need Cochrane/SinoMed. **zh / both runs always include CNKI + 万方 + SinoMed.**
+5. **Register follows the tier** (audit = recall-leaning, controlled + free-text double-track). Need a study-design filter (e.g. RCT)? 📖 `references/search_export/filters_library.md` — use a canned validated filter verbatim; never write your own, and never add one on CENTRAL.
+6. **PRESS six-domain self-review** of 1–5 before any syntax exists. 📖 `references/search_export/press_checklist.md`.
+
+Write the outcome to `"$SEARCH_DIR/concept_model.json"` in the generator's wrapper shape: `{topic, framework, register, language_space, search_id, platforms, concept_model: {blocks (free_text + free_text_zh on zh/both + controlled_vocab_candidates), operator_logic, omitted_blocks + reasons, register_notes}}`.
+
+**Layers 2+3 — mechanical assembly + verification (the script's job; never hand-assemble per-host syntax):**
+
+```bash
+PYTHONPATH=$PSP_HOME \
+  python3 -m scripts.search_export.generate \
+    --concept-model "$SEARCH_DIR/concept_model.json" \
+    --out "$SEARCH_DIR"
+```
+
+Optional flags (verified against argparse): `--platforms pubmed,wos,cnki` (csv) overrides the wrapper's `platforms`; `--topic` / `--framework` / `--register` / `--language-space` / `--search-id` override the wrapper's run-level fields; `--no-verify-vocab` skips the MeSH/ERIC free-API check (terms stamped unverified); `--live-verify-links` live-GETs each A-tier link for a fresh `verified_http`/date.
+
+Emits `search_strategies.md` (paste-ready, per platform) + `search_strategies.json`. Under the hood it reads the per-host syntax cards (`references/search_export/syntax_cards/<host>.md`) and the proximity conversion table (n-values are never hand-computed — not by you either), builds clickable deep links only for the free A-tier platforms (PubMed / ERIC / ClinicalTrials.gov; no link ever circumvents a login or captcha wall), API-verifies MeSH/ERIC terms, leaves Emtree/CINAHL/APA/CMeSH flagged 待人工核对, and lints every strategy — **a linter-rejected string is withheld, never emitted**. Downstream pickup: STEP 12a auto-discovers `search_strategies.json` beside `report_data.json` and folds it in (no extra flag); for STEP 13, append `--search-strategies "$SEARCH_DIR/search_strategies.json"` to the `prisma_s_logger` command so PRISMA-S items 8/1/9/10 are enriched from it.
+
+**Check before handing over** (the honesty gate): every platform block carries its three-state label — 🟩机械已验 / 🟨语法已验·词表待核 / 🟦结构参考 — plus its review points; subscription-wall platforms stay "URL 结构已考证、执行需机构登录"; CNKI / 万方 / SinoMed are delivered as paste-into-检索框 strategies, not URLs. Relay the global review points to the user, and keep the quality claim at "专业初稿 + 标注复核点" — never "可署名直用 / 馆员级".
+
 ### STEP 12 — Render the report
 
 📖 BEFORE THIS STEP, read: `references/output_files.md`.
@@ -648,6 +689,11 @@ You won't read all of these every run, and shouldn't. Read a step's reference wh
 | `citation_chasing.md` | cond | STEP 9 — only if expanding citations |
 | `ss_helper_cheatsheet.md`, `crossref_helper_cheatsheet.md` | cond | STEP 10 — only if enriching top-N |
 | `summary_writer.md` | core | STEP 11 |
+| `search_export/methodology.md` | cond | STEP 11.5 — only when strategy export triggers (Audit default / explicit ask / accepted Deep offer); the layer-1 semantic rulebook |
+| `search_export/chinese_methodology.md` | cond | STEP 11.5 — zh/both track only (CNKI / 万方 / SinoMed strategies; not a translation of Western boolean) |
+| `search_export/press_checklist.md` | cond | STEP 11.5 — PRESS six-domain self-review of the concept model |
+| `search_export/filters_library.md` | cond | STEP 11.5 — only when a study-design filter is wanted (canned validated filters; never self-written) |
+| `search_export/syntax_cards/<host>.md` | cond | STEP 11.5 — per-host syntax facts, machine-read by the generator/linter; open one yourself only when hand-tuning a single platform's strategy |
 | `journal_metrics.md` (SSOT) | cond | STEP 1 / STEP 10-11 — only if the user wants journal partitions (中科院 / JCR / SJR) or SJR metrics; ISSN join, attribution, R-04 naming |
 | `output_files.md` | core | STEP 12 — output dir layout (PWD-relative) |
 | `prisma_s_checklist.md` | core | STEP 13 |
@@ -680,4 +726,8 @@ You: Pick Deep tier ("proper literature review article" + "real depth"). Cross-d
 
 User: "Need help — preparing a systematic review on dietary interventions for IBS in adults. Inclusion criteria: RCTs, adult populations (≥18), low-FODMAP or fiber-based interventions, English-language, published 2010-present."
 
-You: Pick Audit tier ("systematic review" + PICO + IC). **Show limitations warning first** ("This is not a PRISMA replacement — it's SR-prep assist. Cochrane Library + Embase still needed for full SR rigor."). Get user confirmation. STEP 4 use `pubmed_helper search-mesh "Irritable Bowel Syndrome" --pub-type "Randomized Controlled Trial"` for independent MeSH search. STEP 3 also call `openalex_helper journal-list --preset Cochrane`. STEP 10 add CrossRef enrichment for funder + clinical-trial-number. Render with PRISMA flow chart in STEP 12.
+You: Pick Audit tier ("systematic review" + PICO + IC). **Show limitations warning first and get user confirmation** — the Audit disclaimer is a deliver-on-it promise, fulfilled by STEP 11.5 (which Audit runs by default). At delivery it reads:
+
+> 这是 SR 前期助手，不是 PRISMA 替代。我已为你写好各平台**可粘贴的专业检索式初稿**（含逐库三态验证状态 + 复核点标注）；注册制 SR 仍需你在订阅库执行、**人工核对受控词**（Emtree/CINAHL/APA/CMeSH 无免费查表途径，已标黄），并补 **ClinicalTrials.gov（MECIR C27 强制，已给字段检索式+深链）+ ICTRP/灰色文献**。
+
+(Up front, before the run, phrase the same promise in future tense — "我会为你写好…".) STEP 4 use `pubmed_helper search-mesh "Irritable Bowel Syndrome" --pub-type "Randomized Controlled Trial"` for independent MeSH search. STEP 3 also call `openalex_helper journal-list --preset Cochrane`. STEP 10 add CrossRef enrichment for funder + clinical-trial-number. STEP 11.5 exports the per-platform strategies (Audit default). Render with PRISMA flow chart in STEP 12.

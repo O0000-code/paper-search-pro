@@ -14,8 +14,15 @@ Endpoint (verified live 2026-07-12, no login / no signature / no WAF cookie):
              X-Requested-With: XMLHttpRequest
              (ordinary browser User-Agent)
     body:    search=<PQ>&pageNum=1&pageSize=N&sort=
-    PQ (keyword-style, OR over 3 field codes — title / subject / abstract):
-             (IKTE="<term>" OR IKST="<term>" OR IKSE="<term>")
+    PQ (keyword-style; each concept block ORs its synonyms across 3 field codes
+        — title IKTE / subject IKST / abstract IKSE — and blocks are ANDed):
+             single concept:  (IKTE="<t>" OR IKST="<t>" OR IKSE="<t>")
+             two concepts:     (IKTE="A" OR IKST="A" OR IKSE="A")
+                               AND (IKTE="B" OR IKST="B" OR IKSE="B")
+        The multi-block form recovers recall a single-string query loses: the
+        endpoint tokenises a multi-word IKxx="a b" value and forces both tokens
+        into the SAME field, dropping records that split the concepts across
+        fields (live-verified 519 vs 222, A3_nssd_verification.md 2026-07-16).
     response {"result": bool, "code": 200, "data": {"total": int, "rows": [...]}}
 
 Field mapping (row -> UnifiedPaperEntity), all verified against live rows:
@@ -109,6 +116,12 @@ _MAX_PAGE_SIZE = 100
 # Hard cap on paged requests so a huge result set can never run away.
 _MAX_PAGES = 5
 
+# Field codes the keyword PQ addresses, in the canonical order title → subject →
+# abstract. Each concept block ORs its synonyms across all three; the byte order
+# of this tuple is load-bearing for R-19 (a single-token query must reproduce the
+# pre-v2.4 "(IKTE=… OR IKST=… OR IKSE=…)" string exactly).
+_FIELD_CODES = ("IKTE", "IKST", "IKSE")
+
 # ISSN form "XXXX-XXXX" with an optional trailing check-digit X (e.g.
 # "1674-344X"). An ISBN-10/13 (with or without hyphens) never matches this, so
 # 集刊 rows whose ``issn`` slot actually holds an ISBN are rejected.
@@ -127,13 +140,59 @@ _CJK_NAME_RE = re.compile(r"^[一-鿿㐀-䶿·・]+$")
 # ---------------------------------------------------------------------------
 
 
-def _build_pq(query: str) -> str:
-    """Build the NSSD keyword PQ (OR over title / subject / abstract codes).
+def _strip_term(term: object) -> str:
+    """Trim a term and strip embedded double quotes (half/full-width) so they can
+    never break the ``IKxx="..."`` PQ delimiters.
+
+    This is byte-for-byte the sanitisation the pre-v2.4 single-string
+    ``_build_pq`` applied (``.strip()`` then drop " “ ”), factored out so every
+    synonym in every block is sanitised identically."""
+    return (str(term) if term is not None else "").strip().replace('"', "").replace("“", "").replace("”", "")
+
+
+def _block_clause(synonyms: List[str]) -> str:
+    """Assemble ONE concept block into ``(IKTE="s1" OR IKST="s1" OR IKSE="s1"
+    OR IKTE="s2" OR ...)`` — every synonym ORed across the 3 field codes.
+
+    Empty / quote-only synonyms are dropped; an empty block yields ``""`` (the
+    caller filters those out so no stray ``()`` reaches the PQ)."""
+    ors = [
+        f'{fc}="{s}"'
+        for syn in synonyms
+        if (s := _strip_term(syn))
+        for fc in _FIELD_CODES
+    ]
+    return "(" + " OR ".join(ors) + ")" if ors else ""
+
+
+def _build_pq(query: str = "", blocks: Optional[List[List[str]]] = None) -> str:
+    """Build the NSSD keyword PQ. Two entry modes (D-20: semantics to the LLM,
+    string assembly to code):
+
+    * ``blocks`` — a list of concept blocks, each a list of synonyms. Concept
+      boundaries and synonym generation are the UPSTREAM LLM's job (the
+      ``query_plan`` concept blocks); this function only MECHANICALLY assembles
+      "OR the synonyms across 3 field codes inside a block, AND the blocks":
+      ``(block1) AND (block2) AND ...``. Live-verified to recover ~519 hits for
+      数字经济 × 共同富裕 vs the 222 the single-string form returned
+      (A3_nssd_verification.md, 2026-07-16). When ``blocks`` is given ``query`` is
+      ignored (the caller has already done the splitting).
+
+    * ``query`` (fallback, ``blocks is None``) — mechanically split on
+      whitespace, each token becoming a single-synonym block. This uses ONLY the
+      whitespace boundaries the caller already supplied — it does NOT do semantic
+      concept recognition (that stays with the LLM). A SINGLE-token query yields
+      ONE block whose output is BYTE-FOR-BYTE identical to the pre-v2.4
+      single-string ``_build_pq`` (R-19 zero regression); a multi-token query
+      gains the cross-field AND recall the old single-string form lost.
 
     Embedded double quotes are stripped so they cannot break the PQ delimiters.
     """
-    term = (query or "").strip().replace('"', "").replace("“", "").replace("”", "")
-    return f'(IKTE="{term}" OR IKST="{term}" OR IKSE="{term}")'
+    if blocks is None:
+        # Mechanical fallback: whitespace tokens -> one single-synonym block each.
+        blocks = [[tok] for tok in (query or "").split()]
+    clauses = [c for b in blocks if (c := _block_clause(b))]
+    return " AND ".join(clauses)
 
 
 def _clean_str(v: object) -> Optional[str]:
@@ -300,11 +359,14 @@ def _fetch_page(
     page_num: int,
     page_size: int,
     session=None,
+    blocks: Optional[List[List[str]]] = None,
 ) -> Optional["tuple[List[Dict], int]"]:
     """Fetch one page. Returns (rows, total), or None on any failure.
 
     ``session`` (a requests-like object with ``.post``) is injected by tests so
     no network is touched; production passes None and uses ``requests``.
+    ``blocks`` (optional concept blocks) is forwarded to ``_build_pq``; None
+    keeps the whitespace-fallback / single-string behaviour.
     """
     if session is not None:
         sess = session
@@ -315,7 +377,7 @@ def _fetch_page(
 
     body = urlencode(
         {
-            "search": _build_pq(query),
+            "search": _build_pq(query, blocks=blocks),
             "pageNum": page_num,
             "pageSize": page_size,
             "sort": "",
@@ -375,6 +437,7 @@ def search(
     n: int = 25,
     year_min: Optional[int] = None,
     session=None,
+    blocks: Optional[List[List[str]]] = None,
 ) -> List[UnifiedPaperEntity]:
     """Independent NSSD primary search — returns UnifiedPaperEntity[].
 
@@ -384,11 +447,20 @@ def search(
                    filter). Records with an unparseable year are dropped when a
                    ``year_min`` is set.
     ``session``  : injected requests-like object (tests); None uses ``requests``.
+    ``blocks``   : optional concept blocks (list of synonym lists) built by the
+                   upstream LLM's ``query_plan``. When given, the PQ is the
+                   multi-concept "block-internal OR × cross-block AND" form (P2-5
+                   recall fix) and ``query`` is only the fallback label; when None
+                   the flat ``query`` is whitespace-split — a single-token query
+                   is byte-identical to pre-v2.4 (R-19).
 
     Any failure degrades gracefully to whatever was collected (empty on total
     failure); never raises.
     """
-    if not query or not query.strip():
+    # Nothing to search? (empty query AND no usable block terms.) Bail before any
+    # network call. Using _build_pq here keeps the "is there anything to search"
+    # test in one place and correctly admits a blocks-only call with empty query.
+    if not _build_pq(query, blocks=blocks):
         return []
 
     target = max(1, int(n))
@@ -400,7 +472,7 @@ def search(
     seen: set = set()
 
     for page in range(1, _MAX_PAGES + 1):
-        result = _fetch_page(query, page, page_size, session=session)
+        result = _fetch_page(query, page, page_size, session=session, blocks=blocks)
         if result is None:
             break
         rows, total = result
@@ -450,6 +522,39 @@ def _to_dict(entity: UnifiedPaperEntity) -> Dict:
     return out
 
 
+def _cli_resolve_blocks(
+    blocks_json: Optional[str], block_flags: Optional[List[str]]
+) -> Optional[List[List[str]]]:
+    """Resolve the CLI ``--blocks`` / ``--block`` flags into a concept-block
+    structure, or None (fall back to whitespace-splitting ``--search``).
+
+    * ``--blocks`` — a JSON list-of-lists, e.g. ``[["数字经济","数据要素"],["共同富裕"]]``.
+    * ``--block`` — repeatable; each occurrence is one block, synonyms
+      ``'|'``-separated (e.g. ``--block "数字经济|数据要素" --block 共同富裕``).
+
+    ``--blocks`` (JSON) wins when both are given. Malformed / wrong-shaped JSON
+    degrades to None with a stderr note (never raises), matching the module's
+    graceful-degradation contract."""
+    if blocks_json:
+        import json
+
+        try:
+            parsed = json.loads(blocks_json)
+        except Exception as exc:
+            print(f"[nssd_helper] ignoring --blocks (bad JSON: {exc})", file=sys.stderr)
+            return None
+        if isinstance(parsed, list) and parsed and all(isinstance(b, list) for b in parsed):
+            return [[str(s) for s in b] for b in parsed]
+        print(
+            "[nssd_helper] ignoring --blocks (want a non-empty JSON list-of-lists)",
+            file=sys.stderr,
+        )
+        return None
+    if block_flags:
+        return [flag.split("|") for flag in block_flags]
+    return None
+
+
 if __name__ == "__main__":
     import argparse
     import json
@@ -464,8 +569,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--search",
         metavar="QUERY",
-        required=True,
-        help="keyword query (Chinese) — searched over title / subject / abstract.",
+        default=None,
+        help=(
+            "keyword query (Chinese) — searched over title / subject / abstract. "
+            "Whitespace-split into concept blocks unless --block/--blocks is given. "
+            "Optional only when --block/--blocks supplies the concepts."
+        ),
     )
     parser.add_argument(
         "--n", type=int, default=25, help="max results to return (default 25)."
@@ -476,11 +585,34 @@ if __name__ == "__main__":
         help="minimum publication year, inclusive (client-side filter).",
     )
     parser.add_argument(
+        "--block",
+        action="append",
+        metavar="SYN1|SYN2|...",
+        help=(
+            "One concept block (repeatable). Synonyms within a block are "
+            "'|'-separated and ORed across title/subject/abstract; separate "
+            "--block flags are ANDed. Semantic concept-splitting is the caller's "
+            "job — this only assembles. Overrides whitespace-splitting of --search."
+        ),
+    )
+    parser.add_argument(
+        "--blocks",
+        metavar="JSON",
+        help=(
+            'Concept blocks as a JSON list-of-lists, e.g. '
+            '\'[["数字经济","数据要素"],["共同富裕"]]\'. Takes precedence over --block.'
+        ),
+    )
+    parser.add_argument(
         "--output-file", help="write JSON here (defaults to stdout)."
     )
     args = parser.parse_args()
 
-    results = search(args.search, n=args.n, year_min=args.year_min)
+    blocks = _cli_resolve_blocks(args.blocks, args.block)
+    if not (args.search and args.search.strip()) and blocks is None:
+        parser.error("provide --search QUERY and/or --block/--blocks")
+
+    results = search(args.search or "", n=args.n, year_min=args.year_min, blocks=blocks)
     output = [_to_dict(p) for p in results]
     payload = json.dumps(output, indent=2, ensure_ascii=False)
     if args.output_file:

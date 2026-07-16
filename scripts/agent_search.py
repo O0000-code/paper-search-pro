@@ -631,6 +631,7 @@ def _retrieve_chinese(
     year_min: Optional[int],
     year_max: Optional[int],
     n: int,
+    nssd_blocks: Optional[List[List[str]]] = None,
 ) -> Tuple[List[List[UnifiedPaperEntity]], List[str]]:
     """Query the explicit Chinese supplemental sources and return their result
     lists (one per source) for federated dedup, plus warnings.
@@ -640,6 +641,16 @@ def _retrieve_chinese(
     _dedup_with_yield exactly like an openalex/ss strategy. Every helper degrades
     gracefully (never raises); we still guard per source so one failing source
     never kills the run.
+
+    ``nssd_blocks`` (P2-5): optional concept blocks (synonym lists) forwarded ONLY
+    to NSSD, whose PQ has real field codes + boolean operators. When None (today's
+    default — the caller has no query_plan blocks yet) NSSD still receives the flat
+    query: a single-token query posts a body byte-identical to pre-v2.4, but a
+    multi-word query is whitespace-split into ANDed concept blocks (the P2-5 recall
+    fix — NOT byte-identical, by design). A later wave populates blocks from
+    ``query_plan.json``. Blocks are NEVER pushed to yiigle: that
+    endpoint has no boolean operators, so synonyms would only add AND-terms and
+    shrink recall (A3_nssd_verification.md §2 / yiigle_helper docstring).
 
     #6: the Chinese helpers only accept ``year_min`` (their forms expose no
     reliable year-max param), so we apply the recency CEILING client-side here —
@@ -652,8 +663,14 @@ def _retrieve_chinese(
     for src in chinese_sources:
         try:
             if src == "nssd":
-                batch = nssd_helper.search(query, n=n, year_min=year_min)
+                # blocks -> NSSD only (real field codes + booleans). None => the flat
+                # query still fires: single-token byte-identical to pre-v2.4, multi-word
+                # whitespace-split into ANDed blocks (P2-5 recall fix, not byte-identical).
+                batch = nssd_helper.search(
+                    query, n=n, year_min=year_min, blocks=nssd_blocks
+                )
             elif src == "yiigle":
+                # Never pass blocks/synonyms to yiigle (no booleans; see docstring).
                 batch = yiigle_helper.search(query, n=n, year_min=year_min)
             else:  # pragma: no cover - guarded by the flag parser
                 continue
@@ -1329,6 +1346,9 @@ def run_agent_search(
     with_nssd: bool = False,
     with_yiigle: bool = False,
     primary_source: Optional[str] = None,
+    with_strategies: bool = False,
+    zh_blocks: Optional[List[List[str]]] = None,
+    strategy_platforms: Optional[List[str]] = None,
     now_year: int = _CURRENT_YEAR,
 ) -> Dict:
     """Run the full deterministic agent pipeline and return the envelope dict.
@@ -1409,6 +1429,26 @@ def run_agent_search(
       per-query 引擎 choice (e.g. force SS for one query the AI judged SS-better).
       None => the config-driven routing, byte-for-byte unchanged (R-19). SS-as-
       primary still requires a key (E_CONFIG otherwise, R-06).
+
+    Search-strategy export (v2.4 STEP 11.5 — agent path, §3.3):
+    - ``with_strategies`` (the opt-in --with-strategies flag, mirrors --with-nssd/
+      --with-yiigle's opt-IN convention): when True, the envelope gains a top-level
+      ``search_strategies`` field carrying the **mechanical floor** only — per-host
+      syntax assembly + A-tier deep links + MeSH existence check + the linter gate,
+      built from the cleaned query (and ``zh_blocks`` when given). It does NOT do the
+      LLM-quality layer (concept-block re-composition, synonym expansion, PRESS
+      self-review) — those are the calling agent's job under agent_mode.md ("command
+      保证 floor，你供 quality"). When False the envelope is byte-identical (R-19),
+      modulo the ``zh_blocks`` bullet's multi-word P2-5 exception below (orthogonal
+      to this flag).
+    - ``zh_blocks`` (the repeatable --zh-block flag): concept blocks (each a synonym
+      list) forwarded to NSSD via ``_retrieve_chinese(nssd_blocks=...)`` to fire the
+      P2-5 synonym OR-expansion, AND reused as the strategy floor's concept blocks.
+      None (default) => NSSD gets the flat query: single-token stays byte-identical
+      to pre-v2.4, but multi-word is whitespace-split into ANDed blocks (the P2-5
+      recall fix, not byte-identical); the floor falls back to a single whole-query block.
+    - ``strategy_platforms``: override the floor's host set (default: pubmed + wos,
+      plus cnki when zh is in scope / --zh-block is given).
     """
     warnings: List[str] = []
 
@@ -1513,9 +1553,15 @@ def run_agent_search(
     # any adaptive-deepening rounds below (re-appended on every re-dedup).
     chinese_results: List[List[UnifiedPaperEntity]] = []
     if lang_plan.chinese_sources:
+        # v2.4 C3 seam wired: --zh-block populates ``zh_blocks`` which is forwarded
+        # to NSSD (real field codes + booleans) to fire the P2-5 synonym OR-
+        # expansion. When None (no --zh-block) NSSD still gets the flat query: single-
+        # token byte-identical to pre-v2.4, multi-word whitespace-split into ANDed blocks
+        # (P2-5 recall fix, not byte-identical). Blocks are NEVER passed to yiigle (handled inside
+        # _retrieve_chinese: it has no booleans, synonyms would only shrink recall).
         chinese_results, cn_warn = _retrieve_chinese(
             search_query, lang_plan.chinese_sources, year_min=year_min,
-            year_max=year_max, n=cur_per_strategy,
+            year_max=year_max, n=cur_per_strategy, nssd_blocks=zh_blocks,
         )
         warnings.extend(cn_warn)
         strategy_results = strategy_results + chinese_results
@@ -2017,7 +2063,112 @@ def run_agent_search(
     if lang_plan.engaged:
         meta["language"] = _language_meta(lang_plan)
 
-    return _ok_envelope(data, meta)
+    envelope = _ok_envelope(data, meta)
+
+    # v2.4 STEP 11.5 (agent path, §3.3): attach the MECHANICAL FLOOR search-strategy
+    # export ONLY when --with-strategies is set. Added AFTER the ok envelope so the
+    # default path (no flag) is byte-identical to v2.2 (R-19). Never raises — a floor
+    # failure degrades to a warning, never poisons the search result.
+    if with_strategies:
+        try:
+            envelope["search_strategies"] = _build_strategy_floor(
+                search_query, lang_plan, zh_blocks, strategy_platforms, config,
+            )
+        except Exception as exc:  # floor is a bonus; never let it kill the envelope
+            warnings.append(f"search-strategy floor failed: {exc}")
+
+    return envelope
+
+
+# ===========================================================================
+# Search-strategy export — mechanical floor (agent path, §3.3)
+# ===========================================================================
+
+
+def _mechanical_floor_concept_model(
+    search_query: str, zh_blocks: Optional[List[List[str]]]
+) -> Dict:
+    """Build a floor concept_model with NO synonym expansion / NO concept re-composition.
+
+    - ``zh_blocks`` given -> each caller-supplied block becomes one concept block
+      (its synonym list = free_text); this is the caller providing structure, not the
+      floor inventing it.
+    - else -> a single block holding the cleaned query verbatim (the most honest
+      mechanical form: the floor does not decompose concepts — that is layer-1 LLM
+      work the calling agent supplies, D-20)."""
+    if zh_blocks:
+        # zh_blocks are by definition Chinese terms from the caller, so they feed
+        # BOTH tracks: free_text (latin-rendering hosts) and free_text_zh (cjk
+        # hosts, D-a — without this the floor's CNKI strategy is withheld for
+        # "missing Chinese terms"; Gate2 FG1 §3.2 handover, applied by lead).
+        blocks = [
+            {"id": f"B{i + 1}", "role": "concept",
+             "free_text": [t for t in blk if str(t).strip()],
+             "free_text_zh": [t for t in blk if str(t).strip()]}
+            for i, blk in enumerate(zh_blocks)
+        ]
+        blocks = [b for b in blocks if b["free_text"]]
+        logic = " AND ".join(f"(B{i + 1})" for i in range(len(blocks)))
+    else:
+        blocks = [{"id": "B1", "role": "concept", "free_text": [search_query]}]
+        logic = "(B1)"
+    return {
+        "blocks": blocks,
+        "operator_logic": logic or "(B1)",
+        "register_notes": [
+            "mechanical floor: no synonym expansion, no concept re-composition "
+            "(agent path §3.3 — the calling agent supplies the LLM-quality layer)",
+        ],
+    }
+
+
+def _floor_platforms(
+    explicit: Optional[List[str]], lang_plan: "_LanguagePlan",
+    zh_blocks: Optional[List[List[str]]],
+) -> List[str]:
+    if explicit:
+        return explicit
+    plats = ["pubmed", "wos"]
+    zh_engaged = (
+        getattr(lang_plan, "query_lang", "en") == "zh"
+        or getattr(lang_plan, "scope_used", "en") in ("zh", "both")
+        or bool(zh_blocks)
+    )
+    if zh_engaged:
+        plats.append("cnki")
+    return plats
+
+
+def _build_strategy_floor(
+    search_query: str,
+    lang_plan: "_LanguagePlan",
+    zh_blocks: Optional[List[List[str]]],
+    strategy_platforms: Optional[List[str]],
+    config,
+) -> Dict:
+    """Produce the mechanical-floor ``search_strategies`` record for the envelope.
+
+    Lazy-imports the STEP 11.5 generator so the default (no-flag) agent path pays no
+    extra import cost (R-19 spirit). The floor = per-host syntax assembly + A-tier
+    deep links + MeSH existence check + linter gate; it deliberately withholds the
+    LLM-quality layer (§3.3). ``live_verify_links=False`` keeps it network-light."""
+    from .search_export import generate as _gen  # lazy: only on --with-strategies
+
+    cm = _mechanical_floor_concept_model(search_query, zh_blocks)
+    platforms = _floor_platforms(strategy_platforms, lang_plan, zh_blocks)
+    scope = getattr(lang_plan, "scope_used", "en") or "en"
+    record = _gen.generate(
+        cm, platforms,
+        topic=search_query, framework="open-ended", register="quick",
+        language_space=scope, config=config, verify_vocab=True,
+        live_verify_links=False,
+    )
+    record["floor_notice"] = (
+        "MECHANICAL FLOOR ONLY (agent path §3.3): syntax assembly + A-tier deep "
+        "links + MeSH check + linter. NO synonym expansion / concept re-composition "
+        "/ PRESS self-review — supply those per references/agent_mode.md."
+    )
+    return record
 
 
 # ===========================================================================
@@ -2186,6 +2337,36 @@ def _main_cli() -> int:
         "meta.language.chinese_sources_used. Explicit-only.",
     )
     parser.add_argument(
+        "--with-strategies",
+        action="store_true",
+        help="Attach a v2.4 STEP 11.5 search-strategy export (MECHANICAL FLOOR) to "
+        "the envelope under a top-level 'search_strategies' field: per-host syntax "
+        "assembly + A-tier deep links + MeSH existence check + linter gate. Opt-in "
+        "(mirrors --with-nssd/--with-yiigle). Does NOT do the LLM-quality layer "
+        "(concept re-composition / synonym expansion / PRESS) — the calling agent "
+        "supplies that (agent_mode.md). Omit to keep the envelope byte-identical "
+        "(sole exception: multi-word zh NSSD splitting, see --zh-block).",
+    )
+    parser.add_argument(
+        "--zh-block",
+        action="append",
+        default=None,
+        metavar="SYN1|SYN2|...",
+        help="A Chinese concept block: '|'-separated synonyms (repeat --zh-block per "
+        "concept). Forwarded to NSSD to fire the P2-5 synonym OR-expansion (real "
+        "field codes + booleans) AND reused as the --with-strategies floor's concept "
+        "blocks. Omit and NSSD still fires the flat query (single-token byte-identical "
+        "to pre-v2.4; multi-word whitespace-split into ANDed blocks — the P2-5 recall "
+        "fix). NEVER pushed to yiigle (no booleans there).",
+    )
+    parser.add_argument(
+        "--strategy-platforms",
+        default=None,
+        help="Comma-separated host override for --with-strategies (e.g. "
+        "pubmed,wos,cnki). Default: pubmed,wos (+cnki when zh is in scope / a "
+        "--zh-block is given).",
+    )
+    parser.add_argument(
         "--no-issn-backfill",
         action="store_true",
         help="On the SS-primary path, do NOT recover missing ISSNs via free "
@@ -2257,6 +2438,19 @@ def _main_cli() -> int:
         if args.keep_tiers
         else None
     )
+    # --zh-block (repeatable, '|'-separated synonyms) -> list of concept blocks.
+    zh_blocks = (
+        [[s.strip() for s in blk.split("|") if s.strip()] for blk in args.zh_block]
+        if args.zh_block
+        else None
+    )
+    if zh_blocks:
+        zh_blocks = [b for b in zh_blocks if b]  # drop empty blocks
+    strategy_platforms = (
+        [p.strip() for p in args.strategy_platforms.split(",") if p.strip()]
+        if args.strategy_platforms
+        else None
+    )
 
     try:
         envelope = run_agent_search(
@@ -2282,6 +2476,9 @@ def _main_cli() -> int:
             with_nssd=args.with_nssd,
             with_yiigle=args.with_yiigle,
             primary_source=args.primary_source,
+            with_strategies=args.with_strategies,
+            zh_blocks=zh_blocks,
+            strategy_platforms=strategy_platforms,
         )
     except Exception as exc:  # absolute backstop — never leak a traceback to stdout
         envelope = _error_envelope(

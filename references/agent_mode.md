@@ -15,10 +15,11 @@ is unaffected by anything here (R-19).
 3. **The command** (`agent_search`) + the deterministic discipline it bakes in.
 4. **Reaching human-mode quality** — score RCS yourself · iterate to saturation · expand citations · pick the engine (AI→SS) · language space + `meta.language`.
 5. **JSON envelope schema** + error/exit codes.
-6. **Flags** — full reference (`--lang`, `--primary-source`, `--with-nssd/-yiigle`, `--verify`, rank filters).
+6. **Flags** — full reference (`--lang`, `--primary-source`, `--with-nssd/-yiigle`, `--zh-block`, `--with-strategies`, `--verify`, rank filters).
 7. **Relevance scoring** — the FLOOR heuristic & what it is NOT (Latin-only tokeniser; SS caveat).
 8. **`--verify` / `--verify-refs`** — existence & anti-hallucination checks.
-9. **Source selection** (engine axis) · **Multi-platform journal partitions** (中科院/JCR/SJR).
+9. **`--with-strategies`** — search-strategy export: the mechanical floor in the envelope, the quality layer on you.
+10. **Source selection** (engine axis) · **Multi-platform journal partitions** (中科院/JCR/SJR).
 
 ---
 
@@ -369,6 +370,9 @@ Process **exit code mirrors `error.code`** so a non-LLM caller can branch on `$?
 | `--lang {en,zh,both}` | choice / none | **Language axis.** The language SPACE to search. Omit → `config.search_language` (non-`auto` adopted silently) → `auto`. Explicit wins (`meta.language.scope_source: flags`). The agent path never asks/guesses. |
 | `--with-nssd` | flag / off | **Supplemental (zh) axis.** Also query NSSD (国家哲社文献中心, Chinese social sciences) and MERGE its results into the candidate pool. Requires zh in scope (an `en` scope is upgraded to `both`). Explicit-only — no discipline auto-routing. Reported in `meta.language.chinese_sources_used`. |
 | `--with-yiigle` | flag / off | **Supplemental (zh) axis.** Also query yiigle (中华医学期刊全文数据库, Chinese medicine) and MERGE its results. Same zh-scope requirement + reporting as `--with-nssd`. |
+| `--zh-block SYN1\|SYN2\|…` | repeatable / none | **Chinese concept blocks (zh axis).** Each flag = ONE concept block as `\|`-separated synonyms; repeat per concept. Forwarded to NSSD as a real multi-block boolean expression (field codes + synonym OR-expansion — the P2-5 recall fix); **never pushed to yiigle** (no boolean support there). Omit → NSSD still gets the flat query: a **single-token** zh query stays byte-identical to v2.3, but a **multi-word** query is whitespace-split into ANDed concept blocks (the P2-5 recall fix, 222→519) — **not** byte-identical, by design. Doubles as the `--with-strategies` floor's concept blocks. |
+| `--with-strategies` | flag / off | **Search-strategy export (opt-in).** Adds a `search_strategies` field to the envelope carrying the MECHANICAL FLOOR only: per-host syntax assembly from the cards, proximity n-value conversion, A-tier deep links (PubMed / ERIC / ClinicalTrials.gov), MeSH/ERIC free-API verification, linter verdicts. No LLM semantics inside (no concept rebuild / synonym expansion / PRESS). Without the flag the envelope is byte-identical to before (R-19) — sole authorized exception: the multi-word zh NSSD splitting in the `--zh-block` row (P2-5, independent of this flag). See the dedicated section below. |
+| `--strategy-platforms LIST` | csv / none | **Companion to `--with-strategies`.** Override the floor's host set. Default when omitted: `pubmed,wos` — plus `cnki` when zh is engaged (zh query / zh-or-both scope / `--zh-block` given). |
 | `--verify` | flag / off | Attach per-paper existence + abstract + cross-source consistency markers (see below). |
 | `--quartile Q1,Q2` | csv / none | OPT-IN filter on `journal_rank.sjr.best_quartile` (the single layer); keep only these SJR quartiles. The partition is always attached. Needs cached journal-rank data (`journal_rank fetch` → `ranks/`). SJR分区, **NOT** JCR (R-04). For 区/category control use `--rank-platform`. |
 | `--min-impact X` | float / none | Drop papers whose OPEN journal impact (`journal_rank.openalex.mean_citedness_2yr`, OpenAlex 2yr mean citedness) is below `X`. **NOT** the JCR Impact Factor (R-09); relative use only. |
@@ -536,6 +540,64 @@ file, `E_NO_RESULTS` for an empty ref list).
 
 > Use this before writing any citation list: feed your drafted references in, drop
 > every `exists: false` ruling, and correct titles/years/DOIs from `canonical`.
+
+---
+
+## `--with-strategies` — search-strategy export (floor in the envelope, quality on you)
+
+v2.4 adds an exportable deliverable: paste-ready professional search strategies for
+external platforms (PubMed / WOS / Scopus / Embase / CNKI / 万方 / SinoMed …) — the
+agent-path analogue of the human recipe's STEP 11.5. The division of labour is the
+same one this whole file is built on: **the command guarantees the floor; you supply
+the quality.**
+
+- **Default (no flag): nothing changes.** The envelope carries no `search_strategies`
+  field and stays byte-identical to before (R-19; the one authorized exception is
+  orthogonal to this flag — a multi-word zh query's NSSD call is whitespace-split
+  into ANDed blocks since v2.4, the P2-5 recall fix — see `--zh-block`).
+- **`--with-strategies` = the mechanical floor.** The envelope gains a top-level
+  `search_strategies` field — a full record in the `search_strategies.json` shape
+  (`schema_version` / `topic` / `register` / `concept_model` / `strategies[]` /
+  `supplementary` / `global_review_points`) — holding only what deterministic code
+  can produce on its own: per-host syntax assembly, proximity n-value conversion
+  from the table, deep links for the free A-tier platforms (PubMed / ERIC /
+  ClinicalTrials.gov — never a URL that circumvents a login/captcha wall), MeSH/ERIC
+  existence verification via free APIs, and linter verdicts (a linter-rejected
+  string is withheld, never emitted). Strategy objects carry `platform` / `host` /
+  `strategy_string` / `deep_link` / `vocab_verification_status` /
+  `controlled_vocab_terms` / `linter` / `review_points`. The floor is honest about
+  being the floor: its `concept_model` is just the cleaned query as a single block —
+  or your `--zh-block` blocks verbatim — with **no invented synonyms**; `register`
+  is stamped `quick`; PRESS domains are pending-review placeholders; and a
+  `floor_notice` string states in-band that the LLM-quality layer was deliberately
+  withheld. Floor hosts default to `pubmed,wos` (+ `cnki` when zh is engaged);
+  override with `--strategy-platforms`. What the floor does NOT contain — because no
+  LLM runs inside the command — is every semantic judgement that makes a strategy
+  professional: concept-block rebuild, synonym / entry-term expansion, per-platform
+  controlled-vocab candidates, discipline-based platform trimming, PRESS self-review.
+- **Reaching human quality (two ways, pick one):**
+  1. **Feed the generator your own semantics.** Do the layer-1 work yourself per
+     `references/search_export/methodology.md` (plus
+     `references/search_export/chinese_methodology.md` for the zh track): rebuild
+     the concept blocks under the block discipline, expand synonyms, propose
+     controlled-vocab candidates per platform, trim the platform set; write the
+     result as a `concept_model.json` (wrapper shape: `{topic, framework, register,
+     language_space, search_id, platforms, concept_model}`); then run
+     `PYTHONPATH=$PSP_HOME python3 -m scripts.search_export.generate
+     --concept-model <file> --out <dir>` to get the full two-file
+     deliverable (`search_strategies.md` + `.json`).
+  2. **Or walk the human path end-to-end** — SKILL.md STEP 11.5 is a recipe, not a
+     UI feature; nothing in it needs a human in the loop except the trigger.
+- **The honesty contract is unchanged at either rung:** three-state vocab labels
+  (only MeSH/ERIC can ever be 🟩机械已验; Emtree/CINAHL/APA/CMeSH stay 🟨 flagged
+  "待人工核对" — never fake-verified), quality claim capped at "专业初稿 + 标注复核点",
+  subscription walls marked "执行需机构登录", CNKI/万方/SinoMed delivered as
+  paste-into-检索框 strategies rather than URLs.
+
+📖 The methodology family lives in `references/search_export/`: `methodology.md`
+(the semantic rulebook), `chinese_methodology.md` (CNKI/万方/SinoMed are not
+word-for-word Western boolean), `press_checklist.md`, `filters_library.md`,
+`syntax_cards/<host>.md` (per-host syntax facts, machine-read by the generator).
 
 ---
 

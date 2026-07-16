@@ -36,11 +36,19 @@ def build_prisma_s_log(
     wall_clock_seconds: Optional[float] = None,
     max_hops: int = 0,
     max_citation_seeds: int = 0,
+    search_strategies: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Return a dict keyed by PRISMA-S item numbers 1-16.
 
     The classified KG is the primary source. Optional fields fill in items that
     cannot be reconstructed from the KG alone (e.g. wall-clock timing).
+
+    ``search_strategies`` (v2.4 STEP 11.5, spec §2.2): the parsed
+    ``search_strategies.json`` record. When given, items 8/1/9/10 are ENRICHED with
+    the per-platform export strategies (paste-ready boolean expressions + databases
+    + limits + filters). This is purely ADDITIVE (R-19): when None — the default,
+    and the only state Quick/Standard ever reach — every item is byte-identical to
+    the pre-v2.4 log.
     """
     query_plan = query_plan or []
     discovery_curve_snapshots = discovery_curve_snapshots or []
@@ -55,7 +63,7 @@ def build_prisma_s_log(
     )
     coverage = _estimate_coverage_from_snapshots(discovery_curve_snapshots)
 
-    return {
+    log: Dict[str, Any] = {
         "1_database_information": {
             "databases": sources_used,
             "primary": "OpenAlex"
@@ -159,6 +167,75 @@ def build_prisma_s_log(
         },
     }
 
+    # v2.4 STEP 11.5 (additive, R-19): enrich items 8/1/9/10 with the per-platform
+    # export strategies ONLY when an export ran. Untouched otherwise -> byte-identical.
+    if search_strategies is not None:
+        _enrich_with_search_strategies(log, search_strategies)
+    return log
+
+
+def _enrich_with_search_strategies(
+    log: Dict[str, Any], search_strategies: Dict[str, Any]
+) -> None:
+    """Fold the STEP 11.5 export's per-platform strategies into items 8/1/9/10.
+
+    Mutates ``log`` in place, appending only. Each strategy's ``prisma_s`` block
+    (item8_boolean_expression / item1_database / item9_limits / item10_filter) is
+    surfaced so the PRISMA-S log reproduces the exact paste-ready per-database
+    strategies (item 8 is where reviewers expect the full search). A strategy whose
+    boolean expression was WITHHELD by the linter (None) contributes no expression
+    but is still listed as an attempted platform (honest)."""
+    strategies = search_strategies.get("strategies") or []
+    if not strategies:
+        return
+
+    item8 = log["8_full_search_strategies"]
+    item1 = log["1_database_information"]
+    item9 = log["9_limits_and_restrictions"]
+    item10 = log["10_search_filters"]
+
+    export_platforms: List[str] = []
+    export_limits: List[Dict[str, Any]] = []
+    export_filters: List[Any] = []
+    for s in strategies:
+        if not isinstance(s, dict):
+            continue
+        prisma = s.get("prisma_s") or {}
+        platform = s.get("platform")
+        expr = prisma.get("item8_boolean_expression")
+        # item 8: append the paste-ready per-database boolean expression.
+        item8.setdefault("boolean_expressions", []).append({
+            "text": expr,
+            "platform": platform,
+            "host": prisma.get("item1_database"),
+            "source": "search_export",
+            "type": "platform_search_strategy",
+            "vocab_verification_status": s.get("vocab_verification_status"),
+            "withheld": expr is None,
+        })
+        export_platforms.append(prisma.get("item1_database") or platform)
+        export_limits.append({"platform": platform, "limits": prisma.get("item9_limits")})
+        filt = prisma.get("item10_filter")
+        if filt:
+            export_filters.append({"platform": platform, "filter": filt})
+
+    # item 8 marker so consumers can find the export-sourced strategies.
+    item8["search_export"] = {
+        "generated_at": search_strategies.get("generated_at"),
+        "register": search_strategies.get("register"),
+        "quality_claim": search_strategies.get("quality_claim"),
+        "platforms": [s.get("platform") for s in strategies if isinstance(s, dict)],
+        "ref": search_strategies.get("prisma_s_item8_ref"),
+    }
+    # items 1 / 9 / 10: additive sub-keys (never overwrite the existing fields).
+    item1["export_platforms"] = export_platforms
+    item9["export_limits"] = export_limits
+    if export_filters:
+        item10["export_filters"] = export_filters
+        item10.setdefault("validated_filters_used", []).extend(
+            f["filter"] for f in export_filters
+        )
+
 
 # =============================================================================
 # Helpers
@@ -247,8 +324,13 @@ def write_execution_log(
     max_wallclock_s: Optional[float] = None,
     papers_evaluated: Optional[int] = None,
     rounds_completed: Optional[int] = None,
+    search_strategies: Optional[Dict[str, Any]] = None,
 ) -> Path:
-    """Compose the full execution log (PRISMA-S + snapshots + errors + stop)."""
+    """Compose the full execution log (PRISMA-S + snapshots + errors + stop).
+
+    ``search_strategies`` (v2.4 STEP 11.5): parsed search_strategies.json, threaded
+    to ``build_prisma_s_log`` to enrich items 8/1/9/10. Additive / None-default (R-19).
+    """
     output_path = Path(output_path)
     prisma = build_prisma_s_log(
         kg,
@@ -264,6 +346,7 @@ def write_execution_log(
         wall_clock_seconds=wall_clock_seconds,
         max_hops=max_hops,
         max_citation_seeds=max_citation_seeds,
+        search_strategies=search_strategies,
     )
     log = {
         "prisma_s": prisma,
@@ -426,6 +509,16 @@ if __name__ == "__main__":
         type=Path,
         help="Optional path to errors.json (list of error dicts).",
     )
+    parser.add_argument(
+        "--search-strategies",
+        type=Path,
+        help=(
+            "Optional path to a v2.4 STEP 11.5 search_strategies.json. When given, "
+            "PRISMA-S items 8/1/9/10 are enriched with the per-platform export "
+            "strategies (paste-ready boolean expressions). Additive; omit to keep "
+            "the log byte-identical to the pre-v2.4 output (R-19)."
+        ),
+    )
     args = parser.parse_args()
 
     # KG path resolution: explicit --kg wins; otherwise search for kg_classified.json
@@ -470,6 +563,17 @@ if __name__ == "__main__":
     if snapshots and isinstance(snapshots[-1], dict):
         last_ts = snapshots[-1].get("timestamp")
 
+    search_strategies = None
+    if getattr(args, "search_strategies", None):
+        if args.search_strategies.exists():
+            search_strategies = _read_json(args.search_strategies)
+        else:
+            print(
+                f"prisma_s_logger: --search-strategies not found at "
+                f"{args.search_strategies}; skipping export enrichment.",
+                file=sys.stderr,
+            )
+
     write_execution_log(
         args.output,
         kg=kg,
@@ -481,5 +585,6 @@ if __name__ == "__main__":
         output_paths=output_paths if isinstance(output_paths, dict) else {},
         errors=errors if isinstance(errors, list) else [],
         last_event_ts=last_ts,
+        search_strategies=search_strategies if isinstance(search_strategies, dict) else None,
     )
     print(f"prisma_s_logger: wrote execution log to {args.output}")

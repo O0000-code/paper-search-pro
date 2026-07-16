@@ -23,6 +23,18 @@ KEY TRAP: ``isAggregations`` MUST be "N" — with "Y" the API returns only aggre
 facets and an EMPTY ``infos`` list (this is what earlier misread as "records need
 login"). We always send "N".
 
+NO BOOLEAN / NO SYNONYM PUSH-DOWN: this endpoint has NO field codes and NO boolean
+operators — it tokenises ``queryString`` and ANDs the CJK tokens across its wide
+fields (title/abstract/keywords), so a raw multi-word query is already the correct
+tokenised cross-field AND (no NSSD-style single-string recall bug to fix here).
+Live-verified 2026-07-16 (A3_nssd_verification.md §2): "糖尿病 OR 消渴" returned 57 —
+the co-occurrence of both LITERAL tokens, not the 48 847-record union — i.e. ``OR``
+is swallowed as an ordinary token. Therefore a concept block's SYNONYMS MUST NEVER
+be pushed down to yiigle: every extra synonym only ADDS an AND-term and SHRINKS
+recall (the opposite of the intended OR expansion). Send only a block's primary
+term(s); synonym OR expansion belongs to NSSD's PQ (nssd_helper._build_pq), which
+has real field codes + boolean operators.
+
 Response shape:
     {"code":200,"data":{"result":{"searchTotal":N,"infos":[ <record>, ... ]}}}
 
@@ -203,6 +215,11 @@ def _fetch_page(
         "searchType": "pt",
         "page": page,
         "pageSize": page_size,
+        # Raw query passed through verbatim: yiigle tokenises + cross-field ANDs it
+        # (already correct — no NSSD-style single-string bug). NEVER inject synonym
+        # OR here: yiigle has no boolean operators, so "OR" is a literal token and
+        # extra synonyms only add AND-terms and shrink recall (see module docstring
+        # "NO BOOLEAN / NO SYNONYM PUSH-DOWN", A3_nssd_verification.md §2).
         "queryString": query,
         "searchText": query,
         "isAggregations": "N",  # CRITICAL: "N" returns records; "Y" returns only facets

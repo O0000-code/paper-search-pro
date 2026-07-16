@@ -34,6 +34,28 @@ def _dump(path: Path, obj: Any) -> Path:
     return path
 
 
+def _load_search_strategies(
+    output_dir: Path, explicit_path: Optional[Path]
+) -> Optional[Any]:
+    """Load a v2.4 STEP 11.5 ``search_strategies.json`` if one exists (spec §2.2).
+
+    Reads ``explicit_path`` when given, else auto-discovers
+    ``output_dir/search_strategies.json`` ("存在才读"). Returns None when absent or
+    unreadable — the fold is skipped and ``report_data.json`` stays byte-identical
+    to the pre-v2.4 output (R-19). Never raises."""
+    path = (
+        Path(explicit_path)
+        if explicit_path is not None
+        else Path(output_dir) / "search_strategies.json"
+    )
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
 def _resolve_wall_clock(
     *,
     wall_clock_seconds: Optional[float],
@@ -85,6 +107,7 @@ def materialize(
     stop_reason: Optional[str] = None,
     started_at: Optional[str] = None,
     kg_source_path: Optional[Path] = None,
+    search_strategies_path: Optional[Path] = None,
 ) -> Dict[str, Path]:
     """Write chart_data / paper_list / metadata / prisma_log + report_data.
 
@@ -106,6 +129,13 @@ def materialize(
             a graceful fallback for wall_clock when neither
             `wall_clock_seconds` nor `started_at` is provided (uses
             now - kg.json mtime). P0-7 graceful fallback.
+        search_strategies_path: optional path to a v2.4 STEP 11.5
+            ``search_strategies.json``. When None, ``output_dir /
+            search_strategies.json`` is auto-discovered ("存在才读", spec §2.2).
+            When the file exists it is folded VERBATIM into ``report_data.json``
+            under a NEW top-level ``search_strategies`` key. This is purely
+            ADDITIVE (R-19): when no export ran — the Quick/Standard default — the
+            key is absent and ``report_data.json`` is byte-identical to before.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -163,6 +193,14 @@ def materialize(
         "prisma_log": prisma_log,
         "summary": summary or "",
     }
+
+    # v2.4 STEP 11.5 (additive, R-19): fold a search_strategies.json into
+    # report_data under a NEW top-level key when one exists. Appended AFTER the
+    # five original keys, so when no export ran the dict — and therefore the
+    # serialized report_data.json — is byte-identical to the pre-v2.4 output.
+    search_strategies = _load_search_strategies(output_dir, search_strategies_path)
+    if search_strategies is not None:
+        report_data["search_strategies"] = search_strategies
 
     return {
         "chart_data": _dump(output_dir / "chart_data.json", chart_data),
@@ -754,6 +792,17 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
+        "--search-strategies",
+        type=Path,
+        default=None,
+        help=(
+            "Optional path to a v2.4 STEP 11.5 search_strategies.json. Folded "
+            "verbatim into report_data.json under a new top-level "
+            "'search_strategies' key (additive; R-19). Defaults to auto-discovering "
+            "<output_dir>/search_strategies.json when present."
+        ),
+    )
+    parser.add_argument(
         "--output",
         required=True,
         type=Path,
@@ -795,6 +844,7 @@ if __name__ == "__main__":
         # --started-at is passed, fall back to kg.json mtime so metadata
         # carries a non-zero (approximate) wall_clock.
         kg_source_path=args.kg,
+        search_strategies_path=args.search_strategies,
     )
     # If --output names a file other than report_data.json, point it there.
     if args.output.name != "report_data.json":

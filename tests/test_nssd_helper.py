@@ -594,3 +594,194 @@ def test_live_smoke():
     assert e.title
     assert e.source_native_id and e.source_native_id.startswith("nssd:")
     assert e.sources == ["nssd"]
+
+
+# ===========================================================================
+# P2-5: multi-concept block PQ + whitespace fallback + R-19 byte identity
+# (design: A3_nssd_verification.md — 数字经济 × 共同富裕 recovers 519 vs 222)
+# ===========================================================================
+
+from urllib.parse import parse_qs  # noqa: E402
+
+
+def _legacy_build_pq(query: str) -> str:
+    """The EXACT pre-v2.4 single-string ``_build_pq`` — frozen here as the
+    byte-for-byte oracle the new whitespace-fallback path MUST reproduce for
+    single-token queries (R-19 zero regression)."""
+    term = (query or "").strip().replace('"', "").replace("“", "").replace("”", "")
+    return f'(IKTE="{term}" OR IKST="{term}" OR IKSE="{term}")'
+
+
+# The live-verified two-concept target (A3 D-row, total≈519). This is the exact
+# string the reproducible curl in A3_nssd_verification.md §附 posts.
+_D_STRING = (
+    '(IKTE="数字经济" OR IKST="数字经济" OR IKSE="数字经济") '
+    'AND (IKTE="共同富裕" OR IKST="共同富裕" OR IKSE="共同富裕")'
+)
+
+
+# ---- R-19: single-token PQ is byte-identical to the frozen legacy formula ----
+# Byte-identity is SCOPED TO SINGLE-TOKEN queries only. A multi-word query is an
+# AUTHORIZED behaviour change (whitespace-split into ANDed blocks — the P2-5 recall
+# fix), asserted by the P2-5 section below. This is the Gate-2 D-c honesty split:
+# single-token stays byte-identical, multi-word deliberately DIFFERS (not a regression).
+
+
+@pytest.mark.parametrize(
+    "q",
+    [
+        "数字经济",
+        "情绪调节",
+        "乡村振兴",
+        "x",
+        "  数字经济  ",   # leading/trailing whitespace, still ONE token
+        '数字"经济',       # embedded half-width quote -> stripped both ways
+        "数字“经济”",      # embedded full-width quotes -> stripped both ways
+    ],
+)
+def test_build_pq_single_token_byte_identical_to_legacy(q):
+    assert nssd_helper._build_pq(q) == _legacy_build_pq(q)
+
+
+# ---- P2-5: whitespace fallback + explicit blocks both reach the multiblock PQ ----
+
+
+def test_build_pq_whitespace_fallback_recovers_multiblock():
+    # AUTHORIZED behaviour change (P2-5 recall fix, NOT byte-identical to v2.3): a
+    # two-word query is whitespace-split into two ANDed blocks — the exact string A3
+    # live-verified to recover ~519 hits (vs 222 for the old single-phrase form).
+    assert nssd_helper._build_pq("数字经济 共同富裕") == _D_STRING
+
+
+def test_build_pq_multiword_differs_from_legacy_by_design():
+    """Gate-2 D-c honesty pin: for a MULTI-WORD query the new PQ deliberately
+    DIFFERS from the frozen pre-v2.4 single-phrase formula — this is the authorized
+    P2-5 recall fix (A3: 222→519), not a regression. Byte-identity claims are scoped
+    to single-token queries only (the parametrized family above)."""
+    q = "数字经济 共同富裕"
+    assert nssd_helper._build_pq(q) != _legacy_build_pq(q)   # the authorized DIFF
+    assert nssd_helper._build_pq(q) == _D_STRING              # ...to the live-verified form
+
+
+def test_build_pq_blocks_two_concepts_equals_live_D_string():
+    assert nssd_helper._build_pq(blocks=[["数字经济"], ["共同富裕"]]) == _D_STRING
+
+
+def test_build_pq_blocks_with_synonyms_or_within_and_across():
+    pq = nssd_helper._build_pq(blocks=[["数字经济", "数据要素"], ["共同富裕"]])
+    assert pq == (
+        '(IKTE="数字经济" OR IKST="数字经济" OR IKSE="数字经济" '
+        'OR IKTE="数据要素" OR IKST="数据要素" OR IKSE="数据要素") '
+        'AND (IKTE="共同富裕" OR IKST="共同富裕" OR IKSE="共同富裕")'
+    )
+
+
+def test_build_pq_blocks_take_precedence_over_query():
+    # When blocks are supplied, the flat query is ignored (caller already split).
+    assert nssd_helper._build_pq("忽略我", blocks=[["数字经济"]]) == _legacy_build_pq("数字经济")
+
+
+def test_build_pq_strips_quotes_inside_block_synonyms():
+    assert nssd_helper._build_pq(blocks=[['数字"经济']]) == _legacy_build_pq("数字经济")
+
+
+def test_build_pq_drops_empty_synonyms_and_empty_blocks():
+    assert nssd_helper._build_pq(blocks=[["数字经济", "", "  "]]) == _legacy_build_pq("数字经济")
+    assert nssd_helper._build_pq(blocks=[]) == ""
+    assert nssd_helper._build_pq(blocks=[[""], ["  "]]) == ""
+
+
+def test_build_pq_empty_query_is_empty_string():
+    assert nssd_helper._build_pq("") == ""
+    assert nssd_helper._build_pq("   ") == ""
+    assert nssd_helper._build_pq(None) == ""
+
+
+def test_block_clause_helper():
+    assert nssd_helper._block_clause(["A"]) == '(IKTE="A" OR IKST="A" OR IKSE="A")'
+    assert nssd_helper._block_clause([]) == ""
+    assert nssd_helper._block_clause(["", "  "]) == ""
+    assert nssd_helper._block_clause(["A", "", "B"]) == (
+        '(IKTE="A" OR IKST="A" OR IKSE="A" OR IKTE="B" OR IKST="B" OR IKSE="B")'
+    )
+
+
+# ---- CLI flag resolution (--block / --blocks) ----
+
+
+def test_cli_resolve_blocks_json():
+    assert nssd_helper._cli_resolve_blocks(
+        '[["数字经济","数据要素"],["共同富裕"]]', None
+    ) == [["数字经济", "数据要素"], ["共同富裕"]]
+
+
+def test_cli_resolve_blocks_repeated_flag_pipe_delimited():
+    assert nssd_helper._cli_resolve_blocks(
+        None, ["数字经济|数据要素", "共同富裕"]
+    ) == [["数字经济", "数据要素"], ["共同富裕"]]
+
+
+def test_cli_resolve_blocks_json_wins_over_flag():
+    assert nssd_helper._cli_resolve_blocks('[["A"]]', ["B|C"]) == [["A"]]
+
+
+def test_cli_resolve_blocks_bad_json_degrades_to_none():
+    assert nssd_helper._cli_resolve_blocks("{not json", None) is None
+
+
+def test_cli_resolve_blocks_wrong_shape_degrades_to_none():
+    assert nssd_helper._cli_resolve_blocks('["A","B"]', None) is None  # flat list
+    assert nssd_helper._cli_resolve_blocks("[]", None) is None          # empty list
+
+
+def test_cli_resolve_blocks_coerces_inner_values_to_str():
+    assert nssd_helper._cli_resolve_blocks("[[1, 2]]", None) == [["1", "2"]]
+
+
+def test_cli_resolve_blocks_none_when_neither_given():
+    assert nssd_helper._cli_resolve_blocks(None, None) is None
+
+
+# ---- search() end-to-end: the PQ actually posted (urlencoded body) ----
+
+
+def _posted_pq(sess) -> str:
+    """Decode the ``search=`` PQ the helper actually posted."""
+    return parse_qs(sess.calls[0]["data"])["search"][0]
+
+
+def test_search_single_token_posts_legacy_byte_identical_body():
+    # End-to-end R-19: the posted body for a single-token query is byte-identical
+    # to the frozen legacy PQ.
+    sess = _FakeSession(pages=[_ok([ROW_JOURNAL])])
+    nssd_helper.search("情绪调节", n=5, session=sess)
+    assert _posted_pq(sess) == _legacy_build_pq("情绪调节")
+
+
+def test_search_multiword_query_posts_multiblock_body():
+    # End-to-end P2-5: a multi-word query posts the MULTIBLOCK body — NOT byte-identical
+    # to the pre-v2.4 single-phrase body (the authorized recall fix; D-c honesty split).
+    sess = _FakeSession(pages=[_ok([ROW_JOURNAL])])
+    nssd_helper.search("数字经济 共同富裕", n=5, session=sess)
+    assert _posted_pq(sess) == _D_STRING
+
+
+def test_search_blocks_posts_multiblock_body():
+    sess = _FakeSession(pages=[_ok([ROW_JOURNAL])])
+    nssd_helper.search("", n=5, blocks=[["数字经济"], ["共同富裕"]], session=sess)
+    assert _posted_pq(sess) == _D_STRING
+
+
+def test_search_blocks_only_empty_query_still_fires():
+    # A blocks-only call with an empty query must NOT bail — it has terms to search.
+    sess = _FakeSession(pages=[_ok([ROW_JOURNAL])])
+    out = nssd_helper.search("", n=5, blocks=[["数字经济"]], session=sess)
+    assert len(out) == 1
+    assert sess.calls  # a request WAS made
+
+
+def test_search_no_terms_bails_without_request():
+    # Empty query AND no usable block terms -> no network call (nothing to do).
+    sess = _FakeSession(pages=[_ok([ROW_JOURNAL])])
+    assert nssd_helper.search("", n=5, blocks=[[""]], session=sess) == []
+    assert sess.calls == []
