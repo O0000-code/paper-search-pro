@@ -90,7 +90,7 @@ _PLATFORM_ALIASES: Dict[str, str] = {
 _HTTP_TIMEOUT = 30
 _USER_AGENT = (
     "paper-search-pro/2.4 "
-    "(https://github.com/anthropic/paper-search-pro; deep-link verify)"
+    "(https://github.com/O0000-code/paper-search-pro; deep-link verify)"
 )
 
 _PUBMED_WEB = "https://pubmed.ncbi.nlm.nih.gov/?term={q}"

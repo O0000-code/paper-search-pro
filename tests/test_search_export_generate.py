@@ -555,6 +555,42 @@ def test_operator_logic_missing_defaults_to_and_with_note():
     assert any("未声明 operator_logic" in rp for rp in s["review_points"])
 
 
+def test_operator_logic_bare_ids_honoured():
+    """Gate3 finding A (blind test): a caller-agent naturally writes bare
+    ``"B1 AND B2 AND B3"`` (digits, no parens) — the unambiguous all-AND intent.
+    The old tokenizer failed to match digit-bearing bare ids and withheld the
+    WHOLE strategy silently. It must now parse, identically to the parenthesised
+    form, WITHOUT weakening D-b (mixed/NOT still withhold — asserted below)."""
+    cm = {
+        "blocks": [
+            {"id": "B1", "role": "population", "free_text": ["college students"]},
+            {"id": "B2", "role": "intervention", "free_text": ["mindfulness"]},
+            {"id": "B3", "role": "outcome", "free_text": ["anxiety"]},
+        ],
+        "operator_logic": "B1 AND B2 AND B3",
+    }
+    s = g.build_strategy("wos", cm, esearch_fn=fake_mesh_esearch)
+    assert s["strategy_string"], "bare-id all-AND logic must NOT be withheld"
+    assert s["linter"]["passed"]
+    # parenthesised form produces the identical string (no logic change)
+    paren = g.build_strategy(
+        "wos", dict(cm, operator_logic="(B1) AND (B2) AND (B3)"),
+        esearch_fn=fake_mesh_esearch,
+    )
+    assert s["strategy_string"] == paren["strategy_string"]
+    # D-b still holds for genuinely ambiguous bare logic
+    mixed = g.build_strategy(
+        "wos", dict(cm, operator_logic="B1 AND B2 OR B3"),
+        esearch_fn=fake_mesh_esearch,
+    )
+    assert mixed["strategy_string"] is None
+    notword = g.build_strategy(
+        "wos", dict(cm, operator_logic="B1 NOT B2"),
+        esearch_fn=fake_mesh_esearch,
+    )
+    assert notword["strategy_string"] is None
+
+
 # ===========================================================================
 # Gate2 FG1 #5 — bilingual channel (D-a): cjk hosts read free_text_zh ONLY
 # ===========================================================================
@@ -1056,6 +1092,7 @@ ALL_TESTS = [
     test_operator_logic_or_honoured,
     test_operator_logic_declared_order_and_unreferenced_note,
     test_operator_logic_unparseable_withholds,
+    test_operator_logic_bare_ids_honoured,
     test_operator_logic_missing_defaults_to_and_with_note,
     test_cjk_host_withholds_without_free_text_zh,
     test_bilingual_channels_no_cross_pollution,

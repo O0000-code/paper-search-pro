@@ -520,11 +520,15 @@ def _parse_operator_logic(logic, block_ids: List[str]):
     """Parse the declared block-level logic ``"(P) AND (I) AND (O)"`` (Gate2 D-b).
 
     Returns ``(ordered_ids, op_word, error, note)``. Only the flat mechanical
-    subset is parsed: parenthesised block ids joined by ONE uniform operator
-    (AND | OR). Anything else — mixed operators, NOT/other operators, nesting,
-    unknown or duplicate ids — returns an ``error`` and the caller withholds the
-    strategy (机械层绝不静默改写逻辑). Missing/empty logic falls back to
-    AND-joining all blocks (the A-1 domain default) with an honest note."""
+    subset is parsed: block ids — **parenthesised ``(P)`` OR bare ``B1``** —
+    joined by ONE uniform operator (AND | OR). Anything else — mixed operators,
+    NOT/other operators, nesting, unknown or duplicate ids — returns an ``error``
+    and the caller withholds the strategy (机械层绝不静默改写逻辑). Missing/empty
+    logic falls back to AND-joining all blocks (the A-1 domain default) with an
+    honest note. Accepting bare ids (e.g. ``"B1 AND B2 AND B3"``, unambiguously
+    the same all-AND intent as the parenthesised form) closes a blind-test
+    withhold trap (Gate3 finding A) without weakening D-b: genuinely ambiguous
+    logic still hits the error branches below."""
     if logic is None or not str(logic).strip():
         return (
             list(block_ids), "AND", None,
@@ -533,18 +537,26 @@ def _parse_operator_logic(logic, block_ids: List[str]):
     s = str(logic).strip()
     if s.count("(") != s.count(")"):
         return None, None, f"operator_logic 括号不配平：{s!r}", None
+    _bool_ops = ("AND", "OR", "NOT")
     ids: List[str] = []
     ops: List[str] = []
     expect = "id"
-    for m in re.finditer(r"\(\s*([^()]+?)\s*\)|([A-Za-z]+)", s):
+    # A token is a parenthesised group ``(X)`` or a bare identifier ``B1`` /
+    # ``P`` (letter-led, digits allowed). Classification is by position: in an
+    # id-slot a bare token is a block id (an operator keyword there is malformed);
+    # in an op-slot a bare token is the operator (validated against AND/OR below).
+    for m in re.finditer(r"\(\s*([^()]+?)\s*\)|([A-Za-z][A-Za-z0-9_]*)", s):
         if m.group(1) is not None:
             if expect != "id":
                 return None, None, f"operator_logic 不可机械解析：{s!r}", None
             ids.append(m.group(1))
             expect = "op"
-        else:
-            if expect != "op":
+        elif expect == "id":
+            if m.group(2).upper() in _bool_ops:
                 return None, None, f"operator_logic 不可机械解析：{s!r}", None
+            ids.append(m.group(2))
+            expect = "op"
+        else:
             ops.append(m.group(2).upper())
             expect = "id"
     if expect == "id" or not ids:

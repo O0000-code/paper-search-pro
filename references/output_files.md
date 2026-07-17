@@ -41,6 +41,9 @@ Main agent generates this once at start, never changes mid-search.
 ├── summary.md                   # Executive summary written by main agent
 ├── execution_log.json           # PRISMA-S 16-item + stop reason + errors
 ├── curve.json                   # Discovery curve + saturation estimate + CI
+├── concept_model.json           # STEP 11.5 only — platform-independent concept model (layer-1 LLM output)
+├── search_strategies.md         # STEP 11.5 only — paste-ready per-platform search strategies (WOS / Embase / CNKI / …)
+├── search_strategies.json       # STEP 11.5 only — structured strategies (folds into report_data + PRISMA-S item 8)
 ├── raw/                         # Per-source raw dumps (for re-runs / forensics)
 │   ├── openalex.json
 │   ├── pubmed.json              # only if PubMed enabled

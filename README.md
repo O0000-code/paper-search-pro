@@ -14,14 +14,14 @@
 <br/>
 Built natively for Claude Code; runs in Codex and any agent that loads the SKILL.md format.
 <br/>
-Five open sources + native-Chinese search · four tiers · journal partitions · single-file Shadcn report.
+Five open sources + native-Chinese search · four tiers · journal partitions · paste-ready search strategies for WOS / Scopus / Embase / 知网 · single-file Shadcn report.
 
 <br/>
 
 <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache_2.0-000?style=flat-square" alt="Apache 2.0"/></a>
 <a href="SKILL.md"><img src="https://img.shields.io/badge/agent-Skill-000?style=flat-square" alt="Agent Skill"/></a>
 <img src="https://img.shields.io/badge/Python-3.10+-000?style=flat-square" alt="Python 3.10+"/>
-<img src="https://img.shields.io/badge/version-2.3.0-000?style=flat-square" alt="v2.3.0"/>
+<img src="https://img.shields.io/badge/version-2.4.0-000?style=flat-square" alt="v2.4.0"/>
 
 </div>
 
@@ -40,6 +40,8 @@ Five open sources + native-Chinese search · four tiers · journal partitions ·
 ## What it does
 
 You ask your agent for papers; this Skill runs a real multi-source literature search across **OpenAlex · Semantic Scholar · CrossRef · PubMed · arXiv** — plus native-Chinese sources **NSSD** (社会科学) and **yiigle** (中华医学) when you query in Chinese — classifies relevance via parallel LLM SubAgents, and writes a self-contained HTML report you can open in any browser. No external LLM keys — your agent **is** the LLM.
+
+For the databases it *can't* self-containedly reach (Web of Science, Scopus, Embase, 知网 CNKI, 万方, SinoMed …), it does the next best thing: on an Audit run or when you ask ("给我 WOS 检索式" / "我要去知网查"), it writes you a **paste-ready professional search strategy** per platform — correct field tags, controlled vocabulary + free-text double-track, per-host syntax — distilled from the Cochrane Handbook / PRESS / PRISMA-S, with each strategy carrying a three-state verification label and its review points. It's a professional first draft with flagged review points, not a sign-off-ready deliverable — and it never scrapes a closed database.
 
 ```text
 In your agent's chat, after install:
