@@ -24,7 +24,9 @@ module as the ``concept_model`` input (D-20: "语义判断交 LLM、机械事实
 
 Outputs (into ``$OUT``)
 -----------------------
-- ``search_strategies.md``   — human-first, content-over-form (13 spec §1.1).
+- ``search_strategies.md``   — user-facing product doc: platform + link +
+  paste-ready strategy + plain-language review notes (35 号产品化契约); all
+  audit detail lives in the JSON, internal codes never surface in the MD.
 - ``search_strategies.json`` — the structured record (13 spec §2.1), pre-wired to
   fold into ``report_data.json`` (data_materialization) and to enrich PRISMA-S item
   8/1/9/10 (prisma_s_logger).
@@ -1053,115 +1055,487 @@ def generate(
 
 
 # ---------------------------------------------------------------------------
-# Markdown rendering (human-first, content-over-form; 13 §1.1)
+# Markdown rendering — product layout (35_md_product_redesign.md 契约)
+#
+# The MD is the USER-FACING deliverable: platform + link + paste-ready string +
+# plain-language "使用前请核对" only. All audit detail (PRESS domains, linter
+# findings, per-term vocab statuses, tier codes) stays in search_strategies.json;
+# internal codes never appear in the MD (契约验收 4 grep guard).
 # ---------------------------------------------------------------------------
 
-def _md_escape_block(s: Optional[str]) -> str:
-    return s if s else "(withheld — 见复核点)"
+#: 平台排序表（契约渲染规则 1，写死）：知名平台在前、中文靠后；未知宿主排各版末尾。
+#: 键是语法卡 stem（syntax_card_ref 的文件名）——排序是呈现层决策，不是平台语法真值。
+_EN_PLATFORM_ORDER = [
+    "pubmed", "wos", "scopus", "embase_com", "embase_ovid", "cochrane_central",
+    "psycinfo_ovid", "psycinfo_ebsco", "cinahl_ebsco", "eric", "ieee_xplore",
+    "acm_dl", "econlit_ebsco", "clinicaltrials_gov",
+]
+_ZH_PLATFORM_ORDER = ["cnki", "wanfang", "sinomed"]
+
+#: 检索式粘贴目标的呈现文案（纯呈现层提示；未知 stem 落到通用「检索框」）。
+_PASTE_TARGET = {
+    "pubmed": "检索框（首页搜索框即可）",
+    "wos": "Advanced Search（高级检索）",
+    "scopus": "Advanced document search",
+    "embase_com": "Advanced Search",
+    "embase_ovid": "Ovid Advanced Search 命令行",
+    "cochrane_central": "Search Manager",
+    "psycinfo_ovid": "Ovid Advanced Search 命令行",
+    "psycinfo_ebsco": "EBSCO Advanced Search",
+    "cinahl_ebsco": "EBSCO Advanced Search",
+    "econlit_ebsco": "EBSCO Advanced Search",
+    "ieee_xplore": "Command Search",
+    "acm_dl": "Advanced Search 的查询编辑框",
+    "clinicaltrials_gov": "Expert Search",
+    "cnki": "「专业检索」输入框",
+    "wanfang": "一框式检索框（「专业检索」亦可）",
+    "sinomed": "检索框",
+}
+
+#: 块角色 -> 中文人话（结构行与逐块行用；role 自带中文时优先取中文）。
+_ROLE_ZH = {
+    "population": "人群", "patient": "人群", "participants": "人群",
+    "intervention": "干预", "exposure": "暴露", "comparator": "对照",
+    "comparison": "对照", "control": "对照", "outcome": "结局",
+    "context": "情境", "setting": "场景", "concept": "概念",
+    "interest": "关注现象", "phenomenon": "现象", "design": "研究设计",
+    "evaluation": "评价", "sample": "样本", "timing": "时点",
+}
+
+#: 受控词人工确认的工具指引（呈现文案；「在……中确认」的地点短语）。
+_VOCAB_TOOL = {
+    "Emtree": "Embase 的 Emtree 词表工具",
+    "CMeSH": "SinoMed 的主题检索界面（同时核对副主题词组配）",
+    "CINAHL": "CINAHL Headings 词表",
+    "APA Thesaurus": "APA Thesaurus 词表",
+}
+
+# -- 内部行话 / 方法学引注清洗（契约渲染规则 3：内部信息退出 MD，翻成人话） --
+_CITATION_PAREN_RES = [
+    re.compile(r"\((?=[^()]*(?:Cochrane|PRISMA|PRESS|MECIR|Handbook|Haddaway"
+               r"|McGowan|§))[^()]*\)"),
+    re.compile(r"（(?=[^（）]*(?:Cochrane|PRISMA|PRESS|MECIR|Handbook|Haddaway"
+               r"|McGowan|§))[^（）]*）"),
+]
+_INTERNAL_MARK_RES = [
+    re.compile(r"（(?:[A-Z]-[0-9a-z]{1,3}|E\d+ ?底线|L\d+|D-[a-z])）"),
+    re.compile(r"\((?:[A-Z]-[0-9a-z]{1,3}|E\d+ ?底线|L\d+|D-[a-z])\)"),
+    re.compile(r"（flagged[^（）]*）"),
+    re.compile(r"[🟦🟨🟩]"),
+]
+
+#: 调整指南只收「用户可操作」的条目（契约模板「检索逻辑」节）。
+_ACTIONABLE_RE = re.compile(
+    r"若|如果|如需|可删|可改|删去|改用|回退|收窄|扩大|提召回|是否保留|按需"
+    r"|fallback|too few|remove|add them|if the (?:project|review|scope)",
+    re.IGNORECASE,
+)
+#: 受控词核验类注记不进调整指南——它们已按平台合并进「使用前请核对」。
+_VERIFY_NOISE_RE = re.compile(
+    r"无免费|无公开|no free|LLM (?:suggestion|建议)|待人工核对|绝不伪装"
+    r"|pending_manual",
+    re.IGNORECASE,
+)
+
+
+def _pad_latin(phrase: str) -> str:
+    """中西混排空格：短语以西文起/收时补半角空格，纯中文两侧不加。"""
+    pre = " " if re.match(r"[A-Za-z0-9]", phrase) else ""
+    post = " " if re.search(r"[A-Za-z0-9]$", phrase) else ""
+    return f"{pre}{phrase}{post}"
+
+
+def _plain(text: Optional[str]) -> str:
+    """Strip methodology citations + internal rule codes from a prose note."""
+    t = str(text or "")
+    for rx in _CITATION_PAREN_RES + _INTERNAL_MARK_RES:
+        t = rx.sub("", t)
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    t = re.sub(r" +([.。；，,])", r"\1", t)
+    return t.strip(" ；;·—-—")
+
+
+def _strategy_stem(s: Dict) -> str:
+    m = re.search(r"([^/]+)\.md$", str(s.get("syntax_card_ref") or ""))
+    if m:
+        return m.group(1)
+    return str((s.get("deep_link") or {}).get("platform") or "")
+
+
+def _strategy_is_cjk(s: Dict) -> bool:
+    """EN/ZH 归属：与 D-a 同源（语法卡的半角铁律信号）；卡不可读时回退到
+    中文排序表成员 / cjk 渲染风格。"""
+    stem = _strategy_stem(s)
+    try:
+        return _is_cjk_host(load_card(stem))
+    except Exception:
+        return stem in _ZH_PLATFORM_ORDER or s.get("render_style") == "cjk"
+
+
+def _ordered_groups(strategies: List[Dict]) -> (List[Dict], List[Dict]):
+    """Split into (EN, ZH) and sort each by the hardwired order table (stable;
+    unknown stems keep input order at the end of their group)."""
+    en, zh = [], []
+    for i, s in enumerate(strategies):
+        (zh if _strategy_is_cjk(s) else en).append((i, s))
+
+    def _key(order):
+        def k(item):
+            i, s = item
+            stem = _strategy_stem(s)
+            return (order.index(stem) if stem in order else len(order), i)
+        return k
+
+    en.sort(key=_key(_EN_PLATFORM_ORDER))
+    zh.sort(key=_key(_ZH_PLATFORM_ORDER))
+    return [s for _, s in en], [s for _, s in zh]
+
+
+def _host_entry_url(host: Optional[str]) -> Optional[str]:
+    """官网检索入口：从 host 字段（如「中国知网 / kns.cnki.net」）取域名。"""
+    m = re.search(r"[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}", str(host or ""))
+    return f"https://{m.group(0)}" if m else None
+
+
+def _clean_template_url(tmpl: str) -> str:
+    """url_template 可能带 {urlenc} 占位符——链接只指到检索页，不带占位参数。"""
+    if "{" not in tmpl:
+        return tmpl
+    qpos, bpos = tmpl.find("?"), tmpl.find("{")
+    if 0 <= qpos < bpos:
+        return tmpl[:qpos]
+    return tmpl[:bpos].rstrip("?&=/") or tmpl
+
+
+def _platform_link(s: Dict):
+    """(url, 链接文案, 括注后缀) —— 契约渲染规则 2 的四种情况。"""
+    dl = s.get("deep_link") or {}
+    tier = str(dl.get("tier") or "").upper()
+    url, tmpl = dl.get("url"), dl.get("url_template")
+    if tier == "A" and url:
+        return url, "打开并直接执行检索", ""
+    if tier == "B" and tmpl:
+        return _clean_template_url(tmpl), "打开检索页", "（浏览器内可用）"
+    if tmpl:
+        return _clean_template_url(tmpl), "打开检索页", "（需机构登录）"
+    entry = _host_entry_url(s.get("host"))
+    if entry:
+        stem = _strategy_stem(s)
+        if "专业检索" in _PASTE_TARGET.get(stem, ""):
+            return entry, "打开专业检索", ""
+        return entry, "打开检索页", "（需机构登录）"
+    return None, "", ""
+
+
+def _role_zh(role) -> str:
+    role = str(role or "").strip()
+    cjk = "".join(re.findall(r"[一-鿿]+", role))
+    if cjk:
+        return cjk
+    key = role.lower().split()[0] if role else ""
+    return _ROLE_ZH.get(key, role or "概念")
+
+
+def _term_list_line(terms: List[str], cap: int = 6) -> str:
+    terms = [str(t).strip() for t in (terms or []) if str(t).strip()]
+    if not terms:
+        return "—"
+    if len(terms) <= cap:
+        return "、".join(terms)
+    return "、".join(terms[:cap]) + f"…等 {len(terms)} 个词"
+
+
+def _block_faces(b: Dict, language_space: str):
+    """逐块展示用词面：zh 轨优先中文词面；双语时英文为主、中文附注。"""
+    zh = [str(t) for t in (b.get("free_text_zh") or []) if str(t).strip()]
+    en = [str(t) for t in (b.get("free_text") or []) if str(t).strip()]
+    if str(language_space) == "zh" and zh:
+        return zh, None
+    if zh and en:
+        return en, zh
+    return (en or zh), None
+
+
+def _quality_note_bullets(s: Dict, *, is_cjk: bool) -> List[str]:
+    """一个平台的「使用前请核对」——内部状态翻译成人话（契约渲染规则 3/4）。
+
+    同平台同类复核点合并成一条（词表内联），顺序：中文库操作铁律 → 匹配符说明 →
+    受控词状态 → 其余可操作注记 → 订阅墙试检建议。"""
+    bullets: List[str] = []
+    qs = s.get("strategy_string") or ""
+
+    if is_cjk and qs:
+        bullets.append("全部符号（括号、引号、AND/OR）为英文半角——**整段复制，不要手打**。")
+    if "SU %=" in qs:
+        bullets.append("`SU %=` 是主题字段的「相关匹配」（召回较宽）；想收窄可把 `SU %=` 改成 `SU =`。")
+
+    # ---- 受控词状态 -> 合并后的人话条目 ----
+    groups: Dict = {}
+    for t in s.get("controlled_vocab_terms") or []:
+        key = (str(t.get("vocab")), str(t.get("status")),
+               str(t.get("review_point") or ""))
+        groups.setdefault(key, []).append(str(t.get("term")))
+    verified: Dict[str, List[str]] = {}
+    for (vocab, status, _rp), names in groups.items():
+        if status == "verified":
+            verified.setdefault(vocab, []).extend(names)
+    for vocab, names in verified.items():
+        n = len(names)
+        bullets.append(
+            f"式中 {n} 个 {vocab} 主题词已对官方词表核实，可直接使用。" if n > 1
+            else f"式中的 {vocab} 主题词已对官方词表核实，可直接使用。"
+        )
+    for (vocab, status, rp), names in groups.items():
+        quoted = "、".join(f"'{x}'" for x in names)
+        n = len(names)
+        tool = _VOCAB_TOOL.get(vocab, f"库内的 {vocab} 词表工具")
+        head = f"式中 {quoted} 这 {n} 个" if n > 1 else f"式中 {quoted} 这个"
+        if status == "verified":
+            continue
+        if status == "not_found":
+            bullets.append(
+                f"{quoted} 经官方词表查证不存在，未作为 {vocab} 主题词写入，"
+                "只按自由词检索——无需处理，仅告知。")
+        elif "空结果" in rp or "疑似非" in rp:
+            bullets.append(
+                f"⚠️ {quoted} 在 {vocab} 词表中未能查到，可能不是规范主题词——"
+                f"请在{_pad_latin(tool)}中人工确认；确认不存在就删掉或替换这一项。")
+        elif status == "unverified":
+            bullets.append(
+                f"⚠️ {head} {vocab} 主题词本次未做自动核验——"
+                f"请在{_pad_latin(tool)}中确认后再用。")
+        elif status == "pending_manual":
+            bullets.append(
+                f"⚠️ {head} {vocab} 主题词是**建议值**（{vocab} 无公开接口可自动核对）"
+                f"——请在{_pad_latin(tool)}中确认后再用，不符则替换或删除。")
+        else:
+            bullets.append(f"⚠️ {quoted}：{_plain(rp)}")
+
+    # ---- 其余复核点：受控词类已合并，内部状态说明不再复述 ----
+    for rp in s.get("review_points") or []:
+        if re.match(r"^\[[^\]]+\] ", rp):
+            continue  # 逐词受控词旗标——已合并成上面的整条
+        if any(k in rp for k in ("词表待核", "受控词状态戳", "L11", "已降级为自由词",
+                                 "withhold", "机械校验未通过", "self-review",
+                                 "pending_review")):
+            continue  # 内部状态说明 / 降级细节 / withhold 细节——JSON 里有
+        if "未声明 operator_logic" in rp:
+            bullets.append("概念块之间按 AND 组合（概念模型未显式声明组合逻辑时的默认做法）。")
+            continue
+        if "未被 operator_logic 引用" in rp:
+            m = re.search(r"块 (\[[^\]]*\])", rp)
+            blk = m.group(1) if m else "部分概念块"
+            bullets.append(f"概念模型声明的组合逻辑未使用块 {blk}——这些概念未写入本检索式。")
+            continue
+        if "人工组装" in rp or "无法机械模板化" in rp:
+            bullets.append(
+                "本平台的主题词语法无法自动生成，检索式只含自由词——"
+                "如需叠加主题词检索，请在库内检索界面手动添加。")
+            continue
+        cleaned = _plain(rp)
+        if cleaned:
+            bullets.append(cleaned)
+
+    if str(s.get("access") or "").lower() == "subscription":
+        bullets.append(
+            "本平台需机构订阅，工具未能在登录墙内实测执行这段检索式——"
+            "首次使用建议先小规模试检，确认结果量级合理再正式执行。")
+
+    # 去重（保序）
+    seen, out = set(), []
+    for b in bullets:
+        if b not in seen:
+            seen.add(b)
+            out.append(b)
+    return out
+
+
+def _withhold_sentence(s: Dict) -> str:
+    """Withhold 的平台整节一句话（契约渲染规则 3）——原因翻成人话。"""
+    reason = ""
+    for rp in s.get("review_points") or []:
+        if "withhold" in rp or "机械校验未通过" in rp:
+            reason = rp
+            break
+    if "缺中文词项" in reason:
+        return "本平台是中文数据库，本次概念模型未提供对应的中文检索词，无法生成可靠的检索式。"
+    if "operator_logic" in reason:
+        return "概念块的组合逻辑无法可靠转换成本平台的语法，为避免输出错误逻辑的检索式，本次未生成。"
+    if "机械校验未通过" in reason:
+        return "生成的检索式未通过语法校验，为避免交付带语法错误的式子，本次未输出。"
+    if "为空" in reason or "无可渲染词项" in reason:
+        return "概念模型中没有可用于本平台的检索词，本次未生成检索式。"
+    cleaned = _plain(re.sub(r"^检索式已 withhold(?:（未生成）)?：", "", reason))
+    return cleaned or "详见同目录 search_strategies.json 的 review_points。"
+
+
+def _render_platform_section(s: Dict, *, is_cjk: bool) -> List[str]:
+    L: List[str] = []
+    url, text, suffix = _platform_link(s)
+    title = str(s.get("platform") or "")
+    L.append(f"## {title} —— [{text}]({url}){suffix}" if url else f"## {title}")
+    L.append("")
+
+    if not s.get("strategy_string"):
+        L.append(f"本平台未能生成合规检索式：{_withhold_sentence(s)}")
+        L.append("")
+        return L
+
+    target = _PASTE_TARGET.get(_strategy_stem(s), "检索框")
+    L.append(f"**检索式**（复制整段 → 粘贴到{_pad_latin(target).rstrip()}）：")
+    L.append("```")
+    L.append(s["strategy_string"])
+    L.append("```")
+    L.append("")
+    if s.get("strategy_lines"):
+        L.append("**分行版**（逐行输入或写进 PRISMA-S 方法学时用）：")
+        L.append("```")
+        L.extend(s["strategy_lines"])
+        L.append("```")
+        L.append("")
+    L.append("**使用前请核对：**")
+    bullets = _quality_note_bullets(s, is_cjk=is_cjk)
+    if bullets:
+        L.extend(f"- {b}" for b in bullets)
+    else:
+        L.append("- 无——可直接执行。")
+    L.append("")
+    return L
+
+
+def _render_search_logic(record: Dict) -> List[str]:
+    """「检索逻辑」节：结构一行 + 每块一行 + 未纳入块说明 + 调整指南。"""
+    cm = record.get("concept_model", {}) or {}
+    blocks = _blocks(cm)
+    L: List[str] = ["## 检索逻辑（这份检索式怎么构成）"]
+
+    logic = str(cm.get("operator_logic") or "").strip()
+    if logic:
+        disp = logic
+        for b in blocks:
+            bid = str(b.get("id") or "")
+            if bid:
+                disp = re.sub(rf"\b{re.escape(bid)}\b", _role_zh(b.get("role")), disp)
+    else:
+        disp = " AND ".join(f"({_role_zh(b.get('role'))})" for b in blocks)
+    L.append(f"- 结构：**{disp}**——块与块之间同时满足，每块内是同义词 OR（任一命中）。")
+
+    lang = str(record.get("language_space") or "")
+    for b in blocks:
+        faces, zh_extra = _block_faces(b, lang)
+        line = f"- **{b.get('id')} {_role_zh(b.get('role'))}**：{_term_list_line(faces)}"
+        if zh_extra:
+            line += f"；中文库用词：{_term_list_line(zh_extra)}"
+        L.append(line)
+
+    for om in cm.get("omitted_blocks") or []:
+        reason = _plain(om.get("reason"))
+        if reason:
+            # 历史记录里块名字段既有 "role" 也有 "block"，两者都认。
+            name = _role_zh(om.get("role") or om.get("block"))
+            L.append(f"- 未纳入「{name}」块：{reason}")
+
+    tips = []
+    for note in cm.get("register_notes") or []:
+        note = str(note or "")
+        if _VERIFY_NOISE_RE.search(note):
+            continue  # 受控词核验类——已按平台放进「使用前请核对」
+        if not _ACTIONABLE_RE.search(note):
+            continue  # 非用户可操作的构建说明不进产品文档
+        cleaned = _plain(note)
+        if cleaned:
+            tips.append(cleaned)
+    if tips:
+        L.append("- 调整指南（按需取用）：")
+        L.extend(f"  - {t}" for t in tips)
+    L.append("")
+    return L
+
+
+def _supplementary_section(record: Dict) -> List[str]:
+    """「附：正式系统综述的补充项」——压成 3-4 行人话 + 一行方法学依据。"""
+    known = {
+        "clinicaltrials_gov": "ClinicalTrials.gov",
+        "who_ictrp": "WHO ICTRP",
+        "google_scholar": "Google Scholar（仅作补充，检索过程不可复现）",
+        "grey_literature": "灰色文献门户（如 CADTH Grey Matters）与学位论文库",
+    }
+    ct_url = None
+    for s in record.get("strategies") or []:
+        if _strategy_stem(s) == "clinicaltrials_gov":
+            ct_url = (s.get("deep_link") or {}).get("url")
+    registries, grey = [], []
+    for key, v in (record.get("supplementary") or {}).items():
+        if not isinstance(v, dict):
+            continue
+        name = known.get(key) or _plain(v.get("note") or key)
+        if key == "clinicaltrials_gov" and ct_url:
+            name += f"（[打开并直接执行检索]({ct_url})）"
+        elif isinstance(v.get("deep_link"), str) and v.get("deep_link"):
+            name += f"（{v['deep_link']}）"
+        (registries if v.get("role") == "registry" else grey).append(name)
+
+    L: List[str] = ["# 附：正式系统综述的补充项", ""]
+    if registries:
+        L.append(f"- 做注册制系统综述时，还需补充检索试验注册库：{'、'.join(registries)}。")
+    if grey:
+        L.append(f"- 灰色文献与补充源：{'、'.join(grey)}。")
+    L.append(_METHODOLOGY_LINE)
+    L.append("")
+    return L
+
+
+#: 溯源一行（契约模板末行）。注意：这是全文唯一允许出现「PRESS」的位置——
+#: 它是公开发表的检索式同行评审指南名（PRESS 2015），不是内部代号；
+#: 守卫测试对本行豁免、并断言 PRESS 不出现在其他任何行。
+_METHODOLOGY_LINE = (
+    "- 方法学依据：Cochrane Handbook（检索章）· PRESS 2015 · PRISMA-S 2021。"
+    "检索式均已通过语法机械校验。"
+)
 
 
 def render_markdown(record: Dict) -> str:
-    """Render ``search_strategies.md`` from the JSON record (13 §1.1 layout)."""
-    cm = record.get("concept_model", {}) or {}
+    """Render ``search_strategies.md`` from the JSON record.
+
+    产品结构（35 号契约「目标结构」）：标题 + 30 秒用法 + 检索逻辑 →
+    「# 英文数据库」「# 中文数据库」两版（平台按排序表、节间分割线）→
+    每平台 = 标题行内链接 + 可粘贴检索式 + 分行版 + 使用前请核对 →
+    附：正式系统综述的补充项。检索式字符串一字节不动地进代码块。"""
+    topic = record.get("topic") or "(未命名主题)"
+    date = str(record.get("generated_at") or "")[:10]
     L: List[str] = []
-    topic = record.get("topic") or "(untitled topic)"
-    L.append(f"# 检索式导出 — {topic}")
+    L.append(f"# 检索式 · {topic}")
+    L.append("")
     L.append(
-        f"> 生成：{record.get('search_id') or '-'} · {record.get('generated_at')} · "
-        f"框架 {record.get('framework')} · 档位 {record.get('register')} · "
-        f"语言轨 {record.get('language_space')}"
-    )
-    L.append("> ⚠️ 质量声明：**专业初稿 + 标注复核点**。非「可署名直用 / 馆员级成品」。")
-    L.append("> 注册制 SR：受控词请在目标库人工核对；订阅墙平台的执行需机构登录。")
+        "> 每个平台一段可直接复制粘贴的专业检索式。**这是专业初稿**——"
+        "各平台「使用前请核对」列出了需要你确认或可调整的点；"
+        "注册制系统综述请核对后再执行。")
+    L.append(f"> 生成：{date} · 主题：{topic}")
     L.append("")
-
-    # §0 concept model
-    L.append("## 0. 概念模型（平台无关）")
-    for b in _blocks(cm):
-        syns = "、".join(b.get("free_text") or [])
-        cv = b.get("controlled_vocab_candidates") or {}
-        cv_str = "；".join(f"{k}: {', '.join(v)}" for k, v in cv.items()) if cv else "—"
-        L.append(f"- **{b.get('id')}（{b.get('role')}）** {b.get('label') or ''}")
-        L.append(f"  - 自由词：{syns or '—'}")
-        zh = "、".join(b.get("free_text_zh") or [])
-        if zh:
-            L.append(f"  - 中文词项（cjk 宿主专用，D-a）：{zh}")
-        L.append(f"  - 受控词候选：{cv_str}")
-    L.append(f"- 块级逻辑：`{cm.get('operator_logic') or ''}`")
-    for om in (cm.get("omitted_blocks") or []):
-        L.append(f"- 略去块 {om.get('role')}：{om.get('reason')}")
-    for note in (cm.get("register_notes") or []):
-        L.append(f"- 档位取向：{note}")
+    L.append("## 怎么用（30 秒）")
+    L.append("1. 点平台名旁的链接，打开检索页（订阅库需你的机构登录）。")
+    L.append("2. 整段复制检索式，粘贴进检索框，执行。")
+    L.append("3. 看一眼该平台的「使用前请核对」——那是需要你人工确认或按需调整的点。")
     L.append("")
+    L.extend(_render_search_logic(record))
 
-    # §1 per-platform blocks
-    L.append("## 1. 逐平台区块")
-    for s in record.get("strategies", []):
-        dl = s.get("deep_link", {}) or {}
-        tier = dl.get("tier")
-        L.append(
-            f"### {s.get('platform')} · {s.get('vocab_verification_status')} · "
-            f"{tier or '-'} 档（{dl.get('url_kind')}）"
-        )
+    en, zh = _ordered_groups(record.get("strategies") or [])
+    for header, group, is_cjk in (("# 英文数据库", en, False), ("# 中文数据库", zh, True)):
+        if not group:
+            continue
+        L.append("---")
         L.append("")
-        L.append("**可粘贴检索式（单串合并版）**")
-        L.append("```")
-        L.append(_md_escape_block(s.get("strategy_string")))
-        L.append("```")
-        if s.get("strategy_lines"):
-            L.append("**行式（PRISMA-S 原样复制用）**")
-            L.append("```")
-            L.extend(s["strategy_lines"])
-            L.append("```")
-        if dl.get("url"):
-            L.append(f"- **深链（{tier} 档）**：{dl['url']}  [点此执行]")
-        elif dl.get("url_template"):
-            L.append(f"- **深链（{tier} 档）**：URL 结构 `{dl['url_template']}`（机构登录后可试；不绕墙）")
-        else:
-            L.append(f"- **深链（{tier} 档）**：无稳定无状态深链 → 交付=粘贴进目标库检索框的检索式本身。")
-        L.append(f"- **字段范围**：{s.get('field_scope')}")
-        cvt = s.get("controlled_vocab_terms") or []
-        if cvt:
-            statuses = "；".join(
-                f"{t.get('term')}={t.get('status')}"
-                + (f"({t.get('descriptor_ui')})" if t.get("descriptor_ui") else "")
-                for t in cvt
-            )
-            L.append(f"- **受控词状态**：{statuses}")
-        else:
-            L.append("- **受控词状态**：无受控词表（纯自由词）")
-        rps = s.get("review_points") or []
-        L.append("- **复核点**：" + ("；".join(rps) if rps else "本平台无"))
+        L.append(header)
         L.append("")
+        for i, s in enumerate(group):
+            if i:
+                L.append("---")
+                L.append("")
+            L.extend(_render_platform_section(s, is_cjk=is_cjk))
 
-    # §2 PRESS summary (per platform, compact)
-    L.append("## 2. PRESS 六域自评摘要")
-    for s in record.get("strategies", []):
-        L.append(f"**{s.get('platform')}**")
-        for dom, val in (s.get("press_check") or {}).items():
-            L.append(f"- {dom}: {val.get('verdict')} — {val.get('note')}")
-        L.append("")
-
-    # §3 global review points
-    L.append("## 3. 全局复核点清单")
-    for rp in record.get("global_review_points", []):
-        L.append(f"- {rp}")
+    L.append("---")
     L.append("")
-
-    # §4 supplementary
-    L.append("## 4. 补充检索建议（一行式）")
-    for _k, v in (record.get("supplementary") or {}).items():
-        if isinstance(v, dict) and v.get("note"):
-            L.append(f"- {v['note']}")
-    L.append("")
-
-    # §5 provenance
-    L.append("## 5. 溯源")
-    for s in record.get("strategies", []):
-        L.append(f"- {s.get('platform')} 语法卡：`{s.get('syntax_card_ref')}`")
-    for ref in _METHODOLOGY_REFS:
-        L.append(f"- 方法学出处：{ref}")
-    L.append("")
+    L.extend(_supplementary_section(record))
     return "\n".join(L)
 
 

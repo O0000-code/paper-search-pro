@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -287,7 +288,10 @@ def test_write_outputs_creates_both_files():
         parsed = json.loads(paths["json"].read_text(encoding="utf-8"))
         assert parsed["topic"] == "T"
         md = paths["md"].read_text(encoding="utf-8")
-        for section in ("## 0.", "## 1.", "## 2.", "## 3.", "## 4.", "## 5."):
+        # 产品版式（35 号契约）：标题 + 30 秒用法 + 检索逻辑 + 分版 + 附录
+        for section in ("# 检索式 · T", "## 怎么用（30 秒）",
+                        "## 检索逻辑（这份检索式怎么构成）", "# 英文数据库",
+                        "# 附：正式系统综述的补充项"):
             assert section in md
         assert "```" in md  # code fences for the strategy strings
 
@@ -296,6 +300,149 @@ def test_run_one_shot_writes_files():
     with tempfile.TemporaryDirectory() as d:
         paths = g.run(CM_EN, ["pubmed"], Path(d), topic="R", esearch_fn=fake_mesh_esearch)
         assert paths["json"].exists() and paths["md"].exists()
+
+
+# ===========================================================================
+# MD 产品版式（35_md_product_redesign.md 契约）— 结构 / 排序 / 链接 / 黄旗合并 /
+# 内部代号守卫。MD 只是呈现层：这些测试不触碰 JSON 结构与检索式字符串。
+# ===========================================================================
+
+#: 契约验收 4 的守卫正则（内部代号绝不出现在 MD）。
+_MD_INTERNAL_CODE_RE = re.compile(
+    r"结构参考|机械已验|词表待核|pending_manual|paste_only|A 档|B 档|C 档"
+    r"|PRESS|L1[0-9]?|syntax_cards|语言轨|档位"
+)
+
+
+def test_md_product_layout_and_platform_ordering():
+    rec = g.generate(CM_EN, ["wos", "pubmed"], topic="T", search_id="sid",
+                     esearch_fn=fake_mesh_esearch)
+    md = g.render_markdown(rec)
+    assert md.startswith("# 检索式 · T")
+    assert "## 怎么用（30 秒）" in md
+    assert "## 检索逻辑（这份检索式怎么构成）" in md
+    assert "# 英文数据库" in md and "# 中文数据库" not in md
+    assert "# 附：正式系统综述的补充项" in md
+    assert "\n---\n" in md                       # 分割线做视觉分割
+    # 排序表生效：输入顺序 wos,pubmed -> 呈现顺序 PubMed 在前（知名平台在前）
+    assert md.index("## PubMed") < md.index("## Web of Science Core Collection")
+    # 旧内部版式整体退场
+    for old in ("## 0. 概念模型", "## 1. 逐平台区块", "六域", "全局复核点清单",
+                "## 4. 补充检索建议", "## 5. 溯源", "受控词状态", "深链"):
+        assert old not in md, old
+
+
+def test_md_strategy_strings_byte_identical_in_code_blocks():
+    """检索式字符串（含分行版）逐字节进代码块——渲染层绝不改写检索式。"""
+    rec = g.generate(CM_BOTH, ["pubmed", "cnki"], topic="T",
+                     esearch_fn=fake_mesh_esearch)
+    md = g.render_markdown(rec)
+    for s in rec["strategies"]:
+        assert s["strategy_string"] in md
+        if s.get("strategy_lines"):
+            assert "\n".join(s["strategy_lines"]) in md
+
+
+def test_md_en_zh_groups_and_order():
+    """中英两版分开：英文版在前、中文版靠后；组内按排序表。"""
+    rec = g.generate(CM_BOTH, ["cnki", "pubmed"], esearch_fn=fake_mesh_esearch)
+    md = g.render_markdown(rec)
+    assert "# 英文数据库" in md and "# 中文数据库" in md
+    assert md.index("# 英文数据库") < md.index("# 中文数据库")
+    assert md.index("## PubMed") < md.index("## 知网 CNKI")
+
+
+def test_md_link_text_by_tier():
+    """契约渲染规则 2：A 档真深链、B 档浏览器可用、C 档订阅墙模板、
+    C 档验证码墙（CNKI）官网检索入口——文案各就各位，占位符不外漏。"""
+    rec = g.generate(CM_BOTH, ["pubmed", "wos", "wanfang", "cnki"],
+                     esearch_fn=fake_mesh_esearch)
+    md = g.render_markdown(rec)
+    assert re.search(
+        r"## PubMed —— \[打开并直接执行检索\]\(https://pubmed\.ncbi\.nlm\.nih\.gov/\?term=", md)
+    assert ("[打开检索页](https://www.webofscience.com/wos/woscc/basic-search)"
+            "（需机构登录）") in md
+    assert "[打开检索页](https://s.wanfangdata.com.cn/paper)（浏览器内可用）" in md
+    assert "[打开专业检索](https://kns.cnki.net)" in md
+    assert "{urlenc}" not in md                  # 模板占位符不进产品链接
+
+
+def test_md_vocab_suggestion_flags_merged_into_one_bullet():
+    """契约渲染规则 4：同平台同类受控词黄旗合并成一条，词表内联。"""
+    cm = {
+        "blocks": [
+            {"id": "P", "role": "population", "free_text": ["students"],
+             "controlled_vocab_candidates": {"Emtree": ["student", "nursing student"]}},
+            {"id": "O", "role": "outcome", "free_text": ["anxiety"],
+             "controlled_vocab_candidates": {"Emtree": ["anxiety", "anxiety disorder"]}},
+        ],
+        "operator_logic": "(P) AND (O)",
+    }
+    rec = g.generate(cm, ["embase_com"], esearch_fn=fake_mesh_esearch)
+    md = g.render_markdown(rec)
+    assert md.count("建议值") == 1               # 四条逐词黄旗 -> 一条
+    bullet = next(ln for ln in md.splitlines() if "建议值" in ln)
+    for t in ("'student'", "'nursing student'", "'anxiety'", "'anxiety disorder'"):
+        assert t in bullet
+    assert "这 4 个" in bullet and "Emtree" in bullet
+
+
+def test_md_withheld_platform_renders_one_sentence():
+    """Withhold 的平台整节一句人话，无代码块（契约渲染规则 3）。"""
+    cm = {"blocks": [{"id": "I", "role": "intervention",
+                      "free_text": ["mindfulness"]}],
+          "operator_logic": "(I)"}
+    rec = g.generate(cm, ["cnki"], esearch_fn=fake_mesh_esearch)  # 缺中文词面 -> withhold
+    md = g.render_markdown(rec)
+    assert "本平台未能生成合规检索式：" in md
+    assert "中文检索词" in md
+    section = md.split("## 知网 CNKI", 1)[1].split("---", 1)[0]
+    assert "```" not in section
+
+
+def test_md_cnki_paste_bullets():
+    """CNKI 节：半角铁律 + `SU %=` 匹配说明（人话、可操作）。"""
+    rec = g.generate(CM_ZH, ["cnki"], esearch_fn=fake_mesh_esearch)
+    md = g.render_markdown(rec)
+    assert "**使用前请核对：**" in md
+    assert "整段复制，不要手打" in md
+    assert "`SU %=`" in md and "`SU =`" in md
+
+
+def test_md_no_internal_codes_guard():
+    """契约验收 4：新 MD grep 不到内部代号（三态标签 / 档位代号 / PRESS 域 /
+    linter 编号 / 内部字段名）。
+
+    唯一豁免：固定的方法学依据行（g._METHODOLOGY_LINE）——「PRESS 2015」是公开
+    发表的检索式同行评审指南名，契约模板明文保留这一行；同时断言 PRESS 不出现在
+    其他任何行（即内部的 PRESS 六域自评内容彻底退出 MD）。"""
+    cm = {
+        "blocks": [
+            {"id": "P", "role": "population",
+             "free_text": ["college students", "undergraduates"],
+             "free_text_zh": ["大学生", "高校学生"],
+             "controlled_vocab_candidates": {"MeSH": ["Students"],
+                                             "Emtree": ["student"]}},
+            {"id": "O", "role": "outcome", "free_text": ["anxiety"],
+             "free_text_zh": ["焦虑"],
+             "controlled_vocab_candidates": {"MeSH": ["Anxiety"],
+                                             "Emtree": ["anxiety"]}},
+        ],
+        "operator_logic": "(P) AND (O)",
+        "register_notes": ["Fallback if too few hits: drop the Outcome block."],
+    }
+    rec = g.generate(cm, ["pubmed", "wos", "embase_com", "cnki", "wanfang"],
+                     esearch_fn=fake_mesh_esearch)
+    md = g.render_markdown(rec)
+    offending = []
+    for ln in md.splitlines():
+        if ln == g._METHODOLOGY_LINE:
+            continue
+        m = _MD_INTERNAL_CODE_RE.search(ln)
+        if m:
+            offending.append((m.group(0), ln))
+    assert offending == [], offending
+    assert md.count("PRESS") == g._METHODOLOGY_LINE.count("PRESS")
 
 
 # ---------------------------------------------------------------------------
@@ -1080,6 +1227,14 @@ ALL_TESTS = [
     test_controlled_vocab_term_shape_and_descriptor_ui,
     test_write_outputs_creates_both_files,
     test_run_one_shot_writes_files,
+    test_md_product_layout_and_platform_ordering,
+    test_md_strategy_strings_byte_identical_in_code_blocks,
+    test_md_en_zh_groups_and_order,
+    test_md_link_text_by_tier,
+    test_md_vocab_suggestion_flags_merged_into_one_bullet,
+    test_md_withheld_platform_renders_one_sentence,
+    test_md_cnki_paste_bullets,
+    test_md_no_internal_codes_guard,
     test_mesh_hallucination_culled_and_downgraded_to_free_text,
     test_mesh_downgrade_does_not_duplicate_existing_free_text,
     test_verify_vocab_false_is_offline_and_lint_safe,

@@ -525,7 +525,7 @@ Save to `"$SEARCH_DIR/summary.md"`.
 5. **Register follows the tier** (audit = recall-leaning, controlled + free-text double-track). Need a study-design filter (e.g. RCT)? 📖 `references/search_export/filters_library.md` — use a canned validated filter verbatim; never write your own, and never add one on CENTRAL.
 6. **PRESS six-domain self-review** of 1–5 before any syntax exists. 📖 `references/search_export/press_checklist.md`.
 
-Write the outcome to `"$SEARCH_DIR/concept_model.json"` in the generator's wrapper shape: `{topic, framework, register, language_space, search_id, platforms, concept_model: {blocks (free_text + free_text_zh on zh/both + controlled_vocab_candidates), operator_logic, omitted_blocks + reasons, register_notes}}`.
+Write the outcome to `"$SEARCH_DIR/concept_model.json"` in the generator's wrapper shape: `{topic, framework, register, language_space, search_id, platforms, concept_model: {blocks (free_text + free_text_zh on zh/both + controlled_vocab_candidates), operator_logic, omitted_blocks + reasons, register_notes}}`. **Write `omitted_blocks.reason` and `register_notes` in the USER'S language** — they surface verbatim in the user-facing `search_strategies.md` (a Chinese-speaking user gets Chinese notes, not English pass-through).
 
 **Layers 2+3 — mechanical assembly + verification (the script's job; never hand-assemble per-host syntax):**
 
@@ -540,7 +540,7 @@ Optional flags (verified against argparse): `--platforms pubmed,wos,cnki` (csv) 
 
 Emits `search_strategies.md` (paste-ready, per platform) + `search_strategies.json`. Under the hood it reads the per-host syntax cards (`references/search_export/syntax_cards/<host>.md`) and the proximity conversion table (n-values are never hand-computed — not by you either), builds clickable deep links only for the free A-tier platforms (PubMed / ERIC / ClinicalTrials.gov; no link ever circumvents a login or captcha wall), API-verifies MeSH/ERIC terms, leaves Emtree/CINAHL/APA/CMeSH flagged 待人工核对, and lints every strategy — **a linter-rejected string is withheld, never emitted**. Downstream pickup: STEP 12a auto-discovers `search_strategies.json` beside `report_data.json` and folds it in (no extra flag); for STEP 13, append `--search-strategies "$SEARCH_DIR/search_strategies.json"` to the `prisma_s_logger` command so PRISMA-S items 8/1/9/10 are enriched from it.
 
-**Check before handing over** (the honesty gate): every platform block carries its three-state label — 🟩机械已验 / 🟨语法已验·词表待核 / 🟦结构参考 — plus its review points; subscription-wall platforms stay "URL 结构已考证、执行需机构登录"; CNKI / 万方 / SinoMed are delivered as paste-into-检索框 strategies, not URLs. Relay the global review points to the user, and keep the quality claim at "专业初稿 + 标注复核点" — never "可署名直用 / 馆员级".
+**Check before handing over** (the honesty gate): the `.json` carries every platform's three-state verification label (🟩机械已验 / 🟨语法已验·词表待核 / 🟦结构参考) and review points — verify they are correct; the user-facing `.md` renders these as plain-language "使用前请核对" notes per platform (no internal jargon) — verify each note is clear and actionable; subscription-wall platforms are honestly marked "需机构登录，未在墙内实测"; CNKI / 万方 / SinoMed are delivered as paste-into-检索框 strategies, not URLs. Keep the quality claim at "专业初稿 + 标注复核点" — never "可署名直用 / 馆员级".
 
 ### STEP 12 — Render the report
 
@@ -728,6 +728,6 @@ User: "Need help — preparing a systematic review on dietary interventions for 
 
 You: Pick Audit tier ("systematic review" + PICO + IC). **Show limitations warning first and get user confirmation** — the Audit disclaimer is a deliver-on-it promise, fulfilled by STEP 11.5 (which Audit runs by default). At delivery it reads:
 
-> 这是 SR 前期助手，不是 PRISMA 替代。我已为你写好各平台**可粘贴的专业检索式初稿**（含逐库三态验证状态 + 复核点标注）；注册制 SR 仍需你在订阅库执行、**人工核对受控词**（Emtree/CINAHL/APA/CMeSH 无免费查表途径，已标黄），并补 **ClinicalTrials.gov（MECIR C27 强制，已给字段检索式+深链）+ ICTRP/灰色文献**。
+> 这是 SR 前期助手，不是 PRISMA 替代。我已为你写好各平台**可粘贴的专业检索式初稿**——每个平台附「使用前请核对」清单（已对官方词表核实的 MeSH 主题词、与需要你在库内人工确认的 Emtree 等主题词，都分别写明了）；注册制 SR 仍需你在订阅库亲自执行，并补 **ClinicalTrials.gov（注册库检索是方法学硬要求，已给检索式+直达链接）与 ICTRP/灰色文献**。
 
 (Up front, before the run, phrase the same promise in future tense — "我会为你写好…".) STEP 4 use `pubmed_helper search-mesh "Irritable Bowel Syndrome" --pub-type "Randomized Controlled Trial"` for independent MeSH search. STEP 3 also call `openalex_helper journal-list --preset Cochrane`. STEP 10 add CrossRef enrichment for funder + clinical-trial-number. STEP 11.5 exports the per-platform strategies (Audit default). Render with PRISMA flow chart in STEP 12.
