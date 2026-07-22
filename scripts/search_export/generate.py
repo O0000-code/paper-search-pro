@@ -1345,6 +1345,17 @@ def _render_platform_section(s: Dict, *, level: str = "##") -> List[str]:
     return L
 
 
+def _sub_block_ids(text: str, blocks: List[Dict]) -> str:
+    """把自由文本里的内部块 ID（B1/B2、E/P/O…）替换为中文角色名（39 号验收 P1-1：
+    结构行早已做此替换，omitted 原因与调整指南 tips 同样必须做——内部代号绝不
+    进用户可见文本）。最长 ID 优先（防 B1 误伤 B12），词边界匹配。"""
+    for b in sorted(blocks, key=lambda x: -len(str(x.get("id") or ""))):
+        bid = str(b.get("id") or "")
+        if bid:
+            text = re.sub(rf"\b{re.escape(bid)}\b", _role_zh(b.get("role")), text)
+    return text
+
+
 def _search_logic_appendix(record: Dict) -> List[str]:
     """附录「检索逻辑」小节（v3 渲染规则 6）：结构一行 + ≤5 条 actionable 单行条目
     （块词概览删除）。条目来自被省略的概念块原因 + register_notes 里用户可操作的调整
@@ -1355,18 +1366,14 @@ def _search_logic_appendix(record: Dict) -> List[str]:
 
     logic = str(cm.get("operator_logic") or "").strip()
     if logic:
-        disp = logic
-        for b in blocks:
-            bid = str(b.get("id") or "")
-            if bid:
-                disp = re.sub(rf"\b{re.escape(bid)}\b", _role_zh(b.get("role")), disp)
+        disp = _sub_block_ids(logic, blocks)
     else:
         disp = " AND ".join(f"({_role_zh(b.get('role'))})" for b in blocks)
     L.append(f"- 结构：{disp}——块间 AND（全部满足），块内同义词 OR（命中其一）。")
 
     tips: List[str] = []
     for om in cm.get("omitted_blocks") or []:
-        reason = _plain(om.get("reason"))
+        reason = _sub_block_ids(_plain(om.get("reason")), blocks)
         if reason:
             # 历史记录里块名字段既有 "role" 也有 "block"，两者都认。
             name = _role_zh(om.get("role") or om.get("block"))
@@ -1378,7 +1385,7 @@ def _search_logic_appendix(record: Dict) -> List[str]:
             continue  # 受控词核验类——已按平台放进正文 ⚠️
         if not _ACTIONABLE_RE.search(note):
             continue  # 非用户可操作的构建说明不进产品文档
-        cleaned = _plain(note)
+        cleaned = _sub_block_ids(_plain(note), blocks)
         if cleaned:
             tips.append(cleaned)
 
@@ -1402,12 +1409,12 @@ def _notes_appendix(record: Dict, ordered: List[Dict]) -> List[str]:
     方法学依据，共 ≤4 行。逐平台重复的「需机构登录/未实测/先试检」在此合并为一句。"""
     L: List[str] = ["**备注**", ""]
 
-    # 订阅提示：access=subscription 且非 B 档（B 档为浏览器可用，不在登录墙内）。
+    # 订阅提示：access=subscription 一律列出。订阅属性与深链档位是两根正交轴——
+    # B 档只说明结果页是浏览器渲染，不代表免登录（39 号验收 P2-2：原 tier 门控
+    # 把万方漏出了名单，会误导用户以为它不需机构登录）。
     subs, seen = [], set()
     for s in ordered:
         if str(s.get("access") or "").lower() != "subscription":
-            continue
-        if str((s.get("deep_link") or {}).get("tier") or "").upper() == "B":
             continue
         name = _SHORT_NAME.get(_strategy_stem(s)) or str(s.get("platform") or "")
         if name and name not in seen:
@@ -1417,8 +1424,10 @@ def _notes_appendix(record: Dict, ordered: List[Dict]) -> List[str]:
         L.append(f"- 订阅库（{'、'.join(subs)}）需机构登录，工具未在登录墙内实测，"
                  "首次使用建议先小规模试检。")
 
-    # 中文库半角提示：仅当文档含中文库（cjk 宿主）时。
-    if any(_strategy_is_cjk(s) for s in ordered):
+    # 中文库半角提示：仅当文档里真的有一条可复制的中文检索式时（全 withhold 的
+    # 文档没有可复制对象，提示是空话——39 号验收 P3-1）。
+    if any(_strategy_is_cjk(s) and str(s.get("strategy_string") or "").strip()
+           for s in ordered):
         L.append("- 中文库检索式中的括号、引号、AND/OR 均为英文半角，请整段复制、勿手打。")
 
     reg = _sr_registries(record)

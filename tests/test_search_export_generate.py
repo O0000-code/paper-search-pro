@@ -435,6 +435,46 @@ def test_md_cnki_halfwidth_note_moves_to_appendix():
     assert "英文半角" in md and "英文半角" not in body
 
 
+def test_md_block_ids_substituted_in_appendix_tips():
+    """39 号验收 P1-1：register_notes / omitted 原因自由文本里的内部块 ID
+    （B1/B2、E/P…）必须替换为中文角色名——内部代号绝不进用户可见文本。"""
+    cm = {
+        "blocks": [
+            {"id": "B1", "role": "population", "free_text": ["college students"]},
+            {"id": "B2", "role": "intervention", "free_text": ["mindfulness"]},
+            {"id": "B3", "role": "outcome", "free_text": ["anxiety"]},
+        ],
+        "operator_logic": "(B1) AND (B2) AND (B3)",
+        "omitted_blocks": [{"role": "C", "reason": "对照组不进检索式，B1 与 B2 已足够。"}],
+        "register_notes": ["若命中过少，可回退为 B1 AND B2 两块后人工筛查。"],
+    }
+    rec = g.generate(cm, ["pubmed"], esearch_fn=fake_mesh_esearch)
+    md = g.render_markdown(rec)
+    appendix = md.split("## 附录", 1)[1]
+    assert not re.search(r"\bB\d+\b", appendix), "内部块 ID 泄漏进附录"
+    assert "人群 AND 干预" in appendix  # 替换后的角色名可读
+
+
+def test_md_subscription_note_includes_b_tier_subscription_platform():
+    """39 号验收 P2-2：订阅提示按 access 而非深链档位门控——万方（订阅 + B 档）
+    必须出现在「需机构登录」名单里，否则误导用户。"""
+    rec = g.generate(CM_ZH, ["cnki", "wanfang"], esearch_fn=fake_mesh_esearch)
+    md = g.render_markdown(rec)
+    note = [l for l in md.splitlines() if "需机构登录" in l]
+    assert note and "万方" in note[0], f"订阅名单缺万方: {note}"
+
+
+def test_md_halfwidth_note_suppressed_when_all_cjk_withheld():
+    """39 号验收 P3-1：全部中文平台被 withhold 时没有可复制的检索式，
+    半角提示不出现（空话不进产品）。"""
+    cm = {"blocks": [{"id": "I", "role": "intervention",
+                      "free_text": ["mindfulness"]}],
+          "operator_logic": "(I)"}
+    rec = g.generate(cm, ["cnki"], esearch_fn=fake_mesh_esearch)  # 缺中文词面 -> withhold
+    md = g.render_markdown(rec)
+    assert "英文半角" not in md
+
+
 def test_md_no_internal_codes_guard():
     """契约验收 4：新 MD grep 不到内部代号（三态标签 / 档位代号 / PRESS 域 /
     linter 编号 / 内部字段名）。
@@ -1341,6 +1381,9 @@ ALL_TESTS = [
     test_md_body_grep_guard,
     test_md_language_grouping_conditional,
     test_md_toc_and_anchors,
+    test_md_block_ids_substituted_in_appendix_tips,
+    test_md_subscription_note_includes_b_tier_subscription_platform,
+    test_md_halfwidth_note_suppressed_when_all_cjk_withheld,
     test_mesh_hallucination_culled_and_downgraded_to_free_text,
     test_mesh_downgrade_does_not_duplicate_existing_free_text,
     test_verify_vocab_false_is_offline_and_lint_safe,
