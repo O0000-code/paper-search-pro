@@ -288,11 +288,15 @@ def test_write_outputs_creates_both_files():
         parsed = json.loads(paths["json"].read_text(encoding="utf-8"))
         assert parsed["topic"] == "T"
         md = paths["md"].read_text(encoding="utf-8")
-        # 产品版式（35 号契约）：标题 + 30 秒用法 + 检索逻辑 + 分版 + 附录
-        for section in ("# 检索式 · T", "## 怎么用（30 秒）",
-                        "## 检索逻辑（这份检索式怎么构成）", "# 英文数据库",
-                        "# 附：正式系统综述的补充项"):
-            assert section in md
+        # v3 产品版式（37 号契约）：pubmed(英) + cnki(中，缺中文词面 -> withhold) 为双语
+        # 文档 -> 语言分组标题出现，附录标题降为一级；正文极简、附录三小节。
+        for section in ("# 检索式 · T", "**目录**", "# 英文数据库", "# 中文数据库",
+                        "# 附录", "**分行版**", "**检索逻辑**", "**备注**"):
+            assert section in md, section
+        # v2 旧版式（30 秒用法节 / 正文检索逻辑节 / 附：补充项）整体退场
+        for old in ("## 怎么用", "## 检索逻辑（这份检索式怎么构成）",
+                    "# 附：正式系统综述的补充项", "**使用前请核对：**"):
+            assert old not in md, old
         assert "```" in md  # code fences for the strategy strings
 
 
@@ -303,8 +307,9 @@ def test_run_one_shot_writes_files():
 
 
 # ===========================================================================
-# MD 产品版式（35_md_product_redesign.md 契约）— 结构 / 排序 / 链接 / 黄旗合并 /
-# 内部代号守卫。MD 只是呈现层：这些测试不触碰 JSON 结构与检索式字符串。
+# MD 产品版式 v3（37_md_product_v3.md 契约）— 极简正文 / 单行式目录 / 语言分组条件化 /
+# 附录三小节 / 链接文案携带粘贴目标 / 正文 grep 守卫 / 内部代号守卫。MD 只是呈现层：
+# 这些测试不触碰 JSON 结构与检索式字符串。
 # ===========================================================================
 
 #: 契约验收 4 的守卫正则（内部代号绝不出现在 MD）。
@@ -313,22 +318,32 @@ _MD_INTERNAL_CODE_RE = re.compile(
     r"|PRESS|L1[0-9]?|syntax_cards|语言轨|档位"
 )
 
+#: 契约验收 4 的正文 grep 守卫：这些词绝不出现在附录之前的正文里（粘贴目标只可存在于
+#: 链接文案内，检索逻辑/怎么用/操作提醒全部退出正文或删除）。
+_MD_BODY_BANNED_RE = re.compile(r"怎么用|检索逻辑|复制整段|粘贴到|需机构登录|30 秒")
+
+
+def _md_body(md: str) -> str:
+    """正文 = 附录标题（`## 附录` / `# 附录`）之前的全部内容。"""
+    return re.split(r"(?m)^#{1,2} 附录\s*$", md)[0]
+
 
 def test_md_product_layout_and_platform_ordering():
     rec = g.generate(CM_EN, ["wos", "pubmed"], topic="T", search_id="sid",
                      esearch_fn=fake_mesh_esearch)
     md = g.render_markdown(rec)
     assert md.startswith("# 检索式 · T")
-    assert "## 怎么用（30 秒）" in md
-    assert "## 检索逻辑（这份检索式怎么构成）" in md
-    assert "# 英文数据库" in md and "# 中文数据库" not in md
-    assert "# 附：正式系统综述的补充项" in md
-    assert "\n---\n" in md                       # 分割线做视觉分割
+    assert "> 专业初稿" in md                       # 质量声明压成标题下一行
+    assert "**目录**" in md                         # 单行式目录在最上
+    # 单语言（全英）文档 -> 不出现任何语言分组标题（v3 渲染规则 4）
+    assert "# 英文数据库" not in md and "# 中文数据库" not in md
+    assert "## 附录" in md
+    assert "\n---\n" in md                          # 分割线做视觉分割
     # 排序表生效：输入顺序 wos,pubmed -> 呈现顺序 PubMed 在前（知名平台在前）
     assert md.index("## PubMed") < md.index("## Web of Science Core Collection")
-    # 旧内部版式整体退场
-    for old in ("## 0. 概念模型", "## 1. 逐平台区块", "六域", "全局复核点清单",
-                "## 4. 补充检索建议", "## 5. 溯源", "受控词状态", "深链"):
+    # v2/v1 旧版式整体退场
+    for old in ("## 怎么用", "## 检索逻辑（这份检索式怎么构成）", "**使用前请核对：**",
+                "# 附：正式系统综述的补充项", "## 0. 概念模型", "六域", "受控词状态", "深链"):
         assert old not in md, old
 
 
@@ -344,31 +359,38 @@ def test_md_strategy_strings_byte_identical_in_code_blocks():
 
 
 def test_md_en_zh_groups_and_order():
-    """中英两版分开：英文版在前、中文版靠后；组内按排序表。"""
+    """中英双语文档：语言分组标题出现，英文组在前、中文组靠后；平台降 H3（v3 规则 4）。"""
     rec = g.generate(CM_BOTH, ["cnki", "pubmed"], esearch_fn=fake_mesh_esearch)
     md = g.render_markdown(rec)
     assert "# 英文数据库" in md and "# 中文数据库" in md
     assert md.index("# 英文数据库") < md.index("# 中文数据库")
-    assert md.index("## PubMed") < md.index("## 知网 CNKI")
+    # 双语文档平台降 H3
+    assert "### PubMed" in md and "### 知网 CNKI" in md
+    assert md.index("### PubMed") < md.index("### 知网 CNKI")
 
 
 def test_md_link_text_by_tier():
-    """契约渲染规则 2：A 档真深链、B 档浏览器可用、C 档订阅墙模板、
-    C 档验证码墙（CNKI）官网检索入口——文案各就各位，占位符不外漏。"""
+    """v3 渲染规则 2：粘贴目标并入链接文案（`打开<入口>`），链接后不带任何括注后缀；
+    A 档真深链文案为「打开并直接执行检索」。占位符不外漏，逐平台「需机构登录」退出正文。"""
     rec = g.generate(CM_BOTH, ["pubmed", "wos", "wanfang", "cnki"],
                      esearch_fn=fake_mesh_esearch)
     md = g.render_markdown(rec)
+    # A 档：点开即执行
     assert re.search(
-        r"## PubMed —— \[打开并直接执行检索\]\(https://pubmed\.ncbi\.nlm\.nih\.gov/\?term=", md)
-    assert ("[打开检索页](https://www.webofscience.com/wos/woscc/basic-search)"
-            "（需机构登录）") in md
-    assert "[打开检索页](https://s.wanfangdata.com.cn/paper)（浏览器内可用）" in md
+        r"\[打开并直接执行检索\]\(https://pubmed\.ncbi\.nlm\.nih\.gov/\?term=", md)
+    # C 档订阅墙模板 / B 档浏览器 / 宿主入口页：均为「打开<入口>」，无括注后缀
+    assert "[打开 Advanced Search](https://www.webofscience.com/wos/woscc/basic-search)" in md
+    assert "[打开专业检索](https://s.wanfangdata.com.cn/paper)" in md
     assert "[打开专业检索](https://kns.cnki.net)" in md
-    assert "{urlenc}" not in md                  # 模板占位符不进产品链接
+    # 链接后不再挂「（需机构登录）」「（浏览器内可用）」括注（合并进附录备注一句）
+    assert "（需机构登录）" not in md and "（浏览器内可用）" not in md
+    assert "{urlenc}" not in md                   # 模板占位符不进产品链接
+    assert "需机构登录" not in _md_body(md)        # 逐平台登录提示退出正文（验收 4）
 
 
 def test_md_vocab_suggestion_flags_merged_into_one_bullet():
-    """契约渲染规则 4：同平台同类受控词黄旗合并成一条，词表内联。"""
+    """v3 渲染规则 1/4：同平台同类受控词 ⚠️ 合并成一条（首词 + 等 N 个），正文只出现
+    一次；文案用通名「库内 Emtree 工具」。"""
     cm = {
         "blocks": [
             {"id": "P", "role": "population", "free_text": ["students"],
@@ -382,13 +404,13 @@ def test_md_vocab_suggestion_flags_merged_into_one_bullet():
     md = g.render_markdown(rec)
     assert md.count("建议值") == 1               # 四条逐词黄旗 -> 一条
     bullet = next(ln for ln in md.splitlines() if "建议值" in ln)
-    for t in ("'student'", "'nursing student'", "'anxiety'", "'anxiety disorder'"):
-        assert t in bullet
-    assert "这 4 个" in bullet and "Emtree" in bullet
+    assert bullet.startswith("- ⚠️")
+    assert "'student'" in bullet and "等 4 个" in bullet and "Emtree" in bullet
+    assert bullet.rstrip().endswith("请在库内 Emtree 工具确认后使用。")
 
 
 def test_md_withheld_platform_renders_one_sentence():
-    """Withhold 的平台整节一句人话，无代码块（契约渲染规则 3）。"""
+    """Withhold 的平台整节一句人话，无链接行、无代码块（v3 渲染规则 7）。"""
     cm = {"blocks": [{"id": "I", "role": "intervention",
                       "free_text": ["mindfulness"]}],
           "operator_logic": "(I)"}
@@ -397,16 +419,20 @@ def test_md_withheld_platform_renders_one_sentence():
     assert "本平台未能生成合规检索式：" in md
     assert "中文检索词" in md
     section = md.split("## 知网 CNKI", 1)[1].split("---", 1)[0]
-    assert "```" not in section
+    assert "```" not in section and "[打开" not in section
 
 
-def test_md_cnki_paste_bullets():
-    """CNKI 节：半角铁律 + `SU %=` 匹配说明（人话、可操作）。"""
+def test_md_cnki_halfwidth_note_moves_to_appendix():
+    """v3：CNKI 无受控词 -> 正文该平台无 ⚠️ 条；半角铁律合并进附录「备注」一行；
+    v2 的「**使用前请核对：**」标签不再出现在正文。"""
     rec = g.generate(CM_ZH, ["cnki"], esearch_fn=fake_mesh_esearch)
     md = g.render_markdown(rec)
-    assert "**使用前请核对：**" in md
-    assert "整段复制，不要手打" in md
-    assert "`SU %=`" in md and "`SU =`" in md
+    assert "**使用前请核对：**" not in md
+    body = _md_body(md)
+    # 正文 CNKI 节没有 ⚠️ 条（无受控词、无 actionable 项）
+    assert "⚠️" not in body.split("## 知网 CNKI", 1)[1]
+    # 半角铁律进了附录备注（不在正文）
+    assert "英文半角" in md and "英文半角" not in body
 
 
 def test_md_no_internal_codes_guard():
@@ -443,6 +469,83 @@ def test_md_no_internal_codes_guard():
             offending.append((m.group(0), ln))
     assert offending == [], offending
     assert md.count("PRESS") == g._METHODOLOGY_LINE.count("PRESS")
+
+
+def test_md_body_grep_guard():
+    """契约验收 4（正文 grep 守卫真测试）：附录之前的正文里绝不出现
+    「怎么用 / 检索逻辑 / 复制整段 / 粘贴到 / 需机构登录 / 30 秒」——粘贴目标只允许存在
+    于链接文案（`打开<入口>`）内。富样本跑通多条渲染分支；含一条即便被搬进附录也带禁用词
+    的诱饵 register_note，验证它绝不泄漏到正文。"""
+    cm = {
+        "blocks": [
+            {"id": "P", "role": "population",
+             "free_text": ["college students", "undergraduates"],
+             "free_text_zh": ["大学生", "高校学生"],
+             "controlled_vocab_candidates": {"MeSH": ["Students"], "Emtree": ["student"]}},
+            {"id": "O", "role": "outcome", "free_text": ["anxiety"],
+             "free_text_zh": ["焦虑"],
+             "controlled_vocab_candidates": {"MeSH": ["Anxiety"], "Emtree": ["anxiety"]}},
+        ],
+        "operator_logic": "(P) AND (O)",
+        "register_notes": [
+            "Fallback if too few hits: drop the Outcome block.",
+            # 诱饵：actionable（含"可删"）-> 进附录检索逻辑，且带禁用词——只可留在附录
+            "命中太少可删结局块；复制整段粘贴到检索框，30 秒即可。",
+        ],
+    }
+    rec = g.generate(cm, ["pubmed", "wos", "embase_com", "cochrane_central",
+                          "cnki", "wanfang", "sinomed"], esearch_fn=fake_mesh_esearch)
+    md = g.render_markdown(rec)
+    body = _md_body(md)
+    m = _MD_BODY_BANNED_RE.search(body)
+    assert m is None, (m.group(0) if m else None)
+    # 反证：诱饵词的确被搬进了附录（证明守卫切分点有效，不是因为整段被丢弃才通过）
+    assert "复制整段粘贴到检索框" in md and "复制整段粘贴到检索框" not in body
+
+
+def test_md_language_grouping_conditional():
+    """v3 渲染规则 4（分组标题条件化，双向）：单语言文档不出现任何语言分组标题、平台为
+    H2；中英双语文档两组标题都出现、平台降 H3。用整行匹配区分 H2/H3（`### X` 含子串
+    `## X`，不能用 in）。"""
+    def lines(md):
+        return set(md.splitlines())
+    # 单语言（全英）
+    en_only = g.render_markdown(g.generate(CM_EN, ["pubmed", "wos"],
+                                           esearch_fn=fake_mesh_esearch))
+    assert "# 英文数据库" not in en_only and "# 中文数据库" not in en_only
+    assert "## PubMed" in lines(en_only) and "### PubMed" not in lines(en_only)
+    # 单语言（全中）
+    zh_only = g.render_markdown(g.generate(CM_ZH, ["cnki", "sinomed"],
+                                           esearch_fn=fake_mesh_esearch))
+    assert "# 英文数据库" not in zh_only and "# 中文数据库" not in zh_only
+    assert "## 知网 CNKI" in lines(zh_only) and "### 知网 CNKI" not in lines(zh_only)
+    # 中英双语
+    both = g.render_markdown(g.generate(CM_BOTH, ["pubmed", "cnki"],
+                                        esearch_fn=fake_mesh_esearch))
+    assert "# 英文数据库" in both and "# 中文数据库" in both
+    assert "### PubMed" in lines(both) and "### 知网 CNKI" in lines(both)
+    assert "## PubMed" not in lines(both)     # 双语时平台是 H3，不是 H2
+
+
+def test_md_toc_and_anchors():
+    """v3 渲染规则 3：标题下单行式目录，每平台一个 slug 锚点 + 附录；slug 按 GitHub/
+    Typora 规则（小写、空格转连字符、括号点号删除），目录锚点与平台标题自洽。"""
+    rec = g.generate(CM_EN, ["pubmed", "wos"], topic="T", esearch_fn=fake_mesh_esearch)
+    md = g.render_markdown(rec)
+    toc = next(ln for ln in md.splitlines() if ln.startswith("**目录**"))
+    assert "[PubMed](#pubmed)" in toc
+    assert "[Web of Science Core Collection](#web-of-science-core-collection)" in toc
+    assert toc.rstrip().endswith("[附录](#附录)")
+    # slug 规则单测
+    assert g._slug("Web of Science") == "web-of-science"
+    assert g._slug("Embase (embase.com)") == "embase-embasecom"
+    assert g._slug("附录") == "附录"
+    # 目录里每个锚点，文中都有一个恰好等于该平台名的标题行（slug 自洽）
+    heads = [ln.lstrip("# ").strip() for ln in md.splitlines() if ln.startswith("#")]
+    for s in rec["strategies"]:
+        title = s["platform"]
+        assert f"](#{g._slug(title)})" in toc
+        assert title in heads
 
 
 # ---------------------------------------------------------------------------
@@ -1233,8 +1336,11 @@ ALL_TESTS = [
     test_md_link_text_by_tier,
     test_md_vocab_suggestion_flags_merged_into_one_bullet,
     test_md_withheld_platform_renders_one_sentence,
-    test_md_cnki_paste_bullets,
+    test_md_cnki_halfwidth_note_moves_to_appendix,
     test_md_no_internal_codes_guard,
+    test_md_body_grep_guard,
+    test_md_language_grouping_conditional,
+    test_md_toc_and_anchors,
     test_mesh_hallucination_culled_and_downgraded_to_free_text,
     test_mesh_downgrade_does_not_duplicate_existing_free_text,
     test_verify_vocab_false_is_offline_and_lint_safe,
