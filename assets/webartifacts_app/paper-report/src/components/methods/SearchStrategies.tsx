@@ -102,21 +102,29 @@ export function mergeReviewPoints(points: string[]): string[] {
 }
 
 /**
- * Resolve the "open" href: prefer the constructed deep_link.url; otherwise
- * fill the card's url_template — `{urlenc}` takes the URL-encoded strategy
- * string (that is exactly what a browser-tier template expects). A template
- * with any *unfilled* placeholder left must never leak into a clickable
- * link (found live: 万方 rendered `?q={urlenc}` verbatim) — return null.
+ * Resolve the "open" href, three data-driven rungs (mirrors the MD renderer):
+ *  1. deep_link.url — a ready-to-run link (query rides along);
+ *  2. deep_link.url_template with `{urlenc}` filled from the URL-encoded
+ *     strategy string (browser-tier templates expect exactly that). A template
+ *     with any *unfilled* placeholder must never leak into a clickable link
+ *     (found live: 万方 rendered `?q={urlenc}` verbatim) — fall through;
+ *  3. the platform's entry page derived from the `host` field ("中国知网 /
+ *     kns.cnki.net" → https://kns.cnki.net) — same rule as generate.py's
+ *     `_host_entry_url`, so CNKI/SinoMed-class platforms still get a jump:
+ *     the page opens, the user pastes (the copy half already happened).
  */
 export function resolveOpenHref(s: SearchStrategyEntry): string | null {
   const link = s.deep_link ?? {}
   if (link.url) return link.url
   const tpl = link.url_template
-  if (!tpl) return null
-  const filled = s.strategy_string
-    ? tpl.replace(/\{urlenc\}/g, encodeURIComponent(s.strategy_string))
-    : tpl
-  return filled.includes("{") ? null : filled
+  if (tpl) {
+    const filled = s.strategy_string
+      ? tpl.replace(/\{urlenc\}/g, encodeURIComponent(s.strategy_string))
+      : tpl
+    if (!filled.includes("{")) return filled
+  }
+  const m = /[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}/.exec(String(s.host ?? ""))
+  return m ? `https://${m[0]}` : null
 }
 
 async function copyStrategy(s: SearchStrategyEntry): Promise<void> {
