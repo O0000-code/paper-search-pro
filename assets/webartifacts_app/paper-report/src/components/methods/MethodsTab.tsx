@@ -21,7 +21,6 @@ import { CitationScatter } from "./CitationScatter"
 import { DiscoveryCurve } from "./DiscoveryCurve"
 import { MethodologyAccordion } from "./MethodologyAccordion"
 import { RcsHistogram } from "./RcsHistogram"
-import { SearchStrategies } from "./SearchStrategies"
 import { SectionHeader } from "./SectionHeader"
 import { Stat } from "./Stat"
 import { TierAllocation } from "./TierAllocation"
@@ -170,11 +169,9 @@ export function MethodsTab({ data, onSelectPaper }: MethodsTabProps) {
         </section>
       )}
 
-      {/* delta6 — External database search strategies. Placed right after
-          Coverage: "we surfaced ~X% — here's how to continue the search in
-          the formal databases". Self-gating: renders null when the payload
-          is absent (R-19 — a run without STEP 11.5 shows zero new UI). */}
-      <SearchStrategies data={data} />
+      {/* delta6-v2 — the search-strategy panel moved to the dedicated
+          Extensions tab (user ruling: strategies are a deliverable, not part
+          of the methods narrative; see components/extensions/ExtensionsTab). */}
 
       <div
         style={{

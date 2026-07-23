@@ -63,6 +63,10 @@ export function DocumentTop({
     { value: "methods", label: t("methodsRoman") },
     { value: "audit", label: t("auditRoman") },
   ]
+  // delta6-v2 — Extensions tab only when extension content exists (R-19).
+  if ((data.searchStrategies?.strategies?.length ?? 0) > 0) {
+    TAB_ITEMS.push({ value: "extensions", label: t("extensionsRoman") })
+  }
 
   const compositionEntries: [Tier, number][] = (
     [

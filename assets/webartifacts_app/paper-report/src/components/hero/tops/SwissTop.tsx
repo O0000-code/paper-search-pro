@@ -68,6 +68,12 @@ export function SwissTop({
     { value: "methods", label: t("methods") },
     { value: "audit", label: t("audit") },
   ]
+  // delta6-v2 — the Extensions tab exists only when the report actually
+  // carries extension content (search strategies). A run without it renders
+  // the original three-tab row pixel-identical (R-19).
+  if ((data.searchStrategies?.strategies?.length ?? 0) > 0) {
+    TAB_ITEMS.push({ value: "extensions", label: t("extensions") })
+  }
 
   return (
     <>

@@ -159,12 +159,7 @@ function GroupLabel({ children }: { children: string }) {
 }
 
 function StrategyCard({ s }: { s: SearchStrategyEntry }) {
-  const link = s.deep_link ?? {}
   const href = resolveOpenHref(s)
-  const openLabel =
-    String(link.tier ?? "").toUpperCase() === "A"
-      ? t("strategyOpenRun")
-      : t("strategyOpenPage")
   const bullets = mergeReviewPoints(s.review_points ?? [])
 
   return (
@@ -189,30 +184,40 @@ function StrategyCard({ s }: { s: SearchStrategyEntry }) {
         >
           {s.platform}
         </div>
-        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+        {/* delta6-v2 — ONE primary action per card. With a resolvable URL the
+            solid button copies the strategy AND opens the search page in a new
+            tab (anchor default navigation keeps the user gesture, so no popup
+            blocking; the copy happens in onClick before the tab switches).
+            Without a URL (e.g. CNKI's captcha wall) it degrades to a quiet
+            outline copy-only button. */}
+        {href ? (
+          <Button
+            variant="default"
+            size="sm"
+            asChild
+            style={{ fontSize: 12, height: 30, flexShrink: 0 }}
+          >
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => void copyStrategy(s)}
+            >
+              <ExternalLink style={{ width: 13, height: 13 }} />
+              {t("strategyCopyOpen")}
+            </a>
+          </Button>
+        ) : (
           <Button
             variant="outline"
             size="sm"
             onClick={() => void copyStrategy(s)}
-            style={{ fontSize: 12, height: 30 }}
+            style={{ fontSize: 12, height: 30, flexShrink: 0 }}
           >
             <Copy style={{ width: 13, height: 13 }} />
             {t("strategyCopy")}
           </Button>
-          {href && (
-            <Button
-              variant="outline"
-              size="sm"
-              asChild
-              style={{ fontSize: 12, height: 30 }}
-            >
-              <a href={href} target="_blank" rel="noopener noreferrer">
-                <ExternalLink style={{ width: 13, height: 13 }} />
-                {openLabel}
-              </a>
-            </Button>
-          )}
-        </div>
+        )}
       </div>
 
       <pre

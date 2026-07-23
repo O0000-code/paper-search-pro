@@ -54,6 +54,10 @@ export function EditorialTop({
     { value: "methods", label: t("methods") },
     { value: "audit", label: t("auditLog") },
   ]
+  // delta6-v2 — Extensions tab only when extension content exists (R-19).
+  if ((data.searchStrategies?.strategies?.length ?? 0) > 0) {
+    TAB_ITEMS.push({ value: "extensions", label: t("extensions") })
+  }
 
   const tierChips: { tier: TierFilter; label: string; count: number }[] = [
     { tier: "all", label: t("all"), count: data.papers.length },

@@ -36,6 +36,7 @@ import {
 } from "@/components/papers/ZoneFilter"
 import { MethodsTab } from "@/components/methods/MethodsTab"
 import { AuditTab } from "@/components/audit/AuditTab"
+import { ExtensionsTab } from "@/components/extensions/ExtensionsTab"
 
 // ---------------------------------------------------------------------------
 // Data hydration — __REPORT_DATA__ overrides MOCK_RAW. normalize() handles
@@ -208,7 +209,9 @@ function ReportShell({
   TopComponent: TopComponent
   RowComponent: PaperRowComponent
 }) {
-  const [tab, setTab] = useState<"findings" | "methods" | "audit">("findings")
+  const [tab, setTab] = useState<
+    "findings" | "methods" | "audit" | "extensions"
+  >("findings")
   const [threshold, setThreshold] = useState<number>(0)
   const [search, setSearch] = useState<string>("")
   const [view, setView] = useState<string>("compact")
@@ -332,6 +335,7 @@ function ReportShell({
         <MethodsTab data={data} onSelectPaper={setActive} />
       )}
       {tab === "audit" && <AuditTab data={data} />}
+      {tab === "extensions" && <ExtensionsTab data={data} />}
 
       <PaperSheet
         paper={active}

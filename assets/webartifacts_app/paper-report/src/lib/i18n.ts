@@ -21,7 +21,9 @@ const STRINGS = {
   en: {
     // Tabs
     findings: 'Findings', methods: 'Methods', auditLog: 'Audit log', audit: 'Audit',
+    extensions: 'Extensions',
     findingsRoman: 'I. Findings', methodsRoman: 'II. Methods', auditRoman: 'III. Audit log',
+    extensionsRoman: 'IV. Extensions',
 
     // Hero
     result: 'Result', highlyRelevant: 'highly relevant', closelyRelated: 'closely related',
@@ -286,12 +288,11 @@ const STRINGS = {
     // delta6 — search-strategy export panel
     strategiesKicker: 'Search export',
     strategiesTitle: 'External database search strategies',
-    strategiesSub: 'Paste-ready strategies for databases this report cannot search directly — a professional first draft; ⚠️ marks items to verify before use.',
+    strategiesSub: 'One click copies the strategy and opens the database — paste it into the search page. A professional first draft; ⚠️ marks items to verify before use.',
     strategyCopy: 'Copy',
-    strategyCopiedToast: 'Strategy copied',
+    strategyCopiedToast: 'Strategy copied — paste it into the search page',
     strategyCopyErrorToast: 'Could not copy strategy',
-    strategyOpenRun: 'Open & run',
-    strategyOpenPage: 'Open search page',
+    strategyCopyOpen: 'Copy & open',
     strategyGroupEn: 'English databases',
     strategyGroupZh: 'Chinese databases',
     strategyWithheld: 'No compliant strategy could be generated for this platform',
@@ -301,10 +302,12 @@ const STRINGS = {
 
   zh: {
     findings: '文献结果', methods: '方法', auditLog: '审计日志', audit: '审计',
+    extensions: '拓展',
     // ASCII period after Roman numerals (academic convention) — NOT full-width 。
     // The Roman numerals themselves are language-neutral notation, so the
     // period that abbreviates them must remain ASCII regardless of UI locale.
     findingsRoman: 'I. 文献结果', methodsRoman: 'II. 方法', auditRoman: 'III. 审计日志',
+    extensionsRoman: 'IV. 拓展',
 
     result: '结果', highlyRelevant: '高相关', closelyRelated: '密切相关',
     papersScreened: '篇文献已筛选', from: '共筛选', estimatedCoverage: '估算覆盖率',
@@ -545,12 +548,11 @@ const STRINGS = {
     // delta6 — search-strategy export panel
     strategiesKicker: '检索式导出',
     strategiesTitle: '外部数据库检索式',
-    strategiesSub: '面向本报告无法直接检索的数据库，粘贴即用——专业初稿；⚠️ 为使用前需人工确认项。',
+    strategiesSub: '一键「复制并跳转」——在打开的检索页粘贴即用。专业初稿；⚠️ 为使用前需人工确认项。',
     strategyCopy: '复制',
-    strategyCopiedToast: '检索式已复制',
+    strategyCopiedToast: '检索式已复制——到打开的检索页粘贴即用',
     strategyCopyErrorToast: '复制失败',
-    strategyOpenRun: '打开并执行',
-    strategyOpenPage: '打开检索页',
+    strategyCopyOpen: '复制并跳转',
     strategyGroupEn: '英文数据库',
     strategyGroupZh: '中文数据库',
     strategyWithheld: '本平台未能生成合规检索式',
