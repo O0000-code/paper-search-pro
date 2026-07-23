@@ -207,9 +207,42 @@ export type PrismaStepValue = Record<string, unknown>
 /** Keyed by '1_database_information' ... '16_record_management' (+ '_meta') */
 export type PrismaLog = Record<string, PrismaStepValue>
 
+// ---------------------------------------------------------------------------
+// delta6 — search-strategy export panel (v2.4). Shape mirrors the
+// `search_strategies` key data_materialization folds into report_data.json
+// (source of truth: scripts/search_export/generate.py §2.1 record). All
+// fields optional/tolerant: the panel renders nothing when absent (R-19).
+// ---------------------------------------------------------------------------
+export interface StrategyDeepLink {
+  tier?: string | null
+  url?: string | null
+  url_template?: string | null
+  url_kind?: string | null
+}
+
+export interface SearchStrategyEntry {
+  platform?: string
+  host?: string | null
+  access?: string | null
+  strategy_string?: string | null
+  strategy_lines?: string[] | null
+  deep_link?: StrategyDeepLink | null
+  review_points?: string[] | null
+  vocab_verification_status?: string | null
+}
+
+export interface SearchStrategiesPayload {
+  topic?: string
+  language_space?: string
+  quality_claim?: string
+  strategies?: SearchStrategyEntry[]
+  global_review_points?: string[]
+}
+
 export interface NormalizedData {
   meta: NormalizedMeta
   papers: NormalizedPaper[]
   chartData: ChartDataBins
   prismaLog: PrismaLog
+  searchStrategies?: SearchStrategiesPayload
 }

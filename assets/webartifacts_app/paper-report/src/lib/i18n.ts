@@ -282,6 +282,21 @@ const STRINGS = {
     // Method tab titles (also covers some title= attrs on Cards)
     whatThisRunDid: 'What this run did',
     discoveryCurveSummary: 'Estimated to have found about {found} relevant papers, approximately {pct}% of the relevant set (95% CI: {lo}–{hi}%).',
+
+    // delta6 — search-strategy export panel
+    strategiesKicker: 'Search export',
+    strategiesTitle: 'External database search strategies',
+    strategiesSub: 'Paste-ready strategies for databases this report cannot search directly — a professional first draft; ⚠️ marks items to verify before use.',
+    strategyCopy: 'Copy',
+    strategyCopiedToast: 'Strategy copied',
+    strategyCopyErrorToast: 'Could not copy strategy',
+    strategyOpenRun: 'Open & run',
+    strategyOpenPage: 'Open search page',
+    strategyGroupEn: 'English databases',
+    strategyGroupZh: 'Chinese databases',
+    strategyWithheld: 'No compliant strategy could be generated for this platform',
+    strategyVocabMerged: "{n} {vocab} heading(s) in this strategy (e.g. '{first}') are suggestions — no free lookup API exists; verify them in the database's thesaurus tool before use.",
+    strategiesFootnote: 'All strategies passed mechanical syntax checks · full version in search_strategies.md',
   },
 
   zh: {
@@ -526,6 +541,21 @@ const STRINGS = {
     // Method tab titles (also covers some title= attrs on Cards)
     whatThisRunDid: '本次运行做了什么',
     discoveryCurveSummary: '估算已发现约 {found} 篇相关论文，约占相关集合的 {pct}%(95% CI: {lo}–{hi}%)。',
+
+    // delta6 — search-strategy export panel
+    strategiesKicker: '检索式导出',
+    strategiesTitle: '外部数据库检索式',
+    strategiesSub: '面向本报告无法直接检索的数据库，粘贴即用——专业初稿；⚠️ 为使用前需人工确认项。',
+    strategyCopy: '复制',
+    strategyCopiedToast: '检索式已复制',
+    strategyCopyErrorToast: '复制失败',
+    strategyOpenRun: '打开并执行',
+    strategyOpenPage: '打开检索页',
+    strategyGroupEn: '英文数据库',
+    strategyGroupZh: '中文数据库',
+    strategyWithheld: '本平台未能生成合规检索式',
+    strategyVocabMerged: "式中 '{first}' 等 {n} 个 {vocab} 主题词为建议值（无公开接口可自动核对），请在库内词表工具确认后使用。",
+    strategiesFootnote: '检索式均已通过语法机械校验 · 完整版见 search_strategies.md',
   },
 }
 

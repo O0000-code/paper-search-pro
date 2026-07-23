@@ -17,6 +17,7 @@ import type {
   NormalizedData,
   NormalizedPaper,
   PrismaLog,
+  SearchStrategiesPayload,
 } from "./types"
 
 interface RawPaper {
@@ -85,6 +86,8 @@ interface RawShape {
   chart_data?: ChartDataBins
   prisma_log?: PrismaLog
   prismaLog?: PrismaLog
+  /** delta6 — additive: folded in by data_materialization when STEP 11.5 ran */
+  search_strategies?: SearchStrategiesPayload
 }
 
 export function normalize(raw: RawShape | null | undefined): NormalizedData {
@@ -152,6 +155,7 @@ export function normalize(raw: RawShape | null | undefined): NormalizedData {
         .sort((a, b) => b.rcs - a.rcs),
       chartData: raw.chart_data ?? {},
       prismaLog: raw.prisma_log ?? {},
+      searchStrategies: raw.search_strategies ?? undefined,
     }
   }
 
@@ -192,5 +196,6 @@ export function normalize(raw: RawShape | null | undefined): NormalizedData {
     }),
     chartData: raw.chart_data ?? {},
     prismaLog: raw.prismaLog ?? raw.prisma_log ?? {},
+    searchStrategies: raw.search_strategies ?? undefined,
   }
 }

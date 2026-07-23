@@ -82,6 +82,10 @@ def render_html_webartifacts(
     paper_list = _read_json(materialized_data_dir / "paper_list.json")
     chart_data = _read_json(materialized_data_dir / "chart_data.json")
     prisma_log_raw = _read_json(materialized_data_dir / "prisma_log.json")
+    # delta6 (additive): STEP 11.5 writes search_strategies.json as a sibling
+    # in $SEARCH_DIR; absent -> None -> payload identical to pre-delta6 (R-19).
+    _ss_path = materialized_data_dir / "search_strategies.json"
+    search_strategies = _read_json(_ss_path) if _ss_path.exists() else None
 
     # Resolve language: explicit > metadata.language > "en"
     resolved_lang = _resolve_language(language, metadata)
@@ -92,6 +96,7 @@ def render_html_webartifacts(
         chart_data=chart_data,
         prisma_log_raw=prisma_log_raw,
         user_query=user_query,
+        search_strategies=search_strategies,
     )
 
     bundle_html = PREBUILT_BUNDLE.read_text(encoding="utf-8")
@@ -124,10 +129,11 @@ def _build_report_data(
     prisma_log_raw: Dict[str, Any],
     *,
     user_query: str = "",
+    search_strategies: Any = None,
 ) -> Dict[str, Any]:
     """Build the raw-shape payload that React's `normalize(raw)` expects.
 
-    React reads four top-level keys from `window.__REPORT_DATA__`:
+    React reads five top-level keys from `window.__REPORT_DATA__` (search_strategies is additive, delta6):
     `{metadata, papers, chart_data, prisma_log}` — the same shape produced by
     `data_materialization.py` and validated by the `sample-standard.json`
     fixture in the React app's design assets. The earlier post-materialization
@@ -156,12 +162,17 @@ def _build_report_data(
     if not meta_out.get("query") and user_query:
         meta_out["query"] = user_query
 
-    return {
+    out: Dict[str, Any] = {
         "metadata": meta_out,
         "papers": list(paper_list) if isinstance(paper_list, list) else [],
         "chart_data": chart_data if isinstance(chart_data, dict) else {},
         "prisma_log": prisma_log_raw if isinstance(prisma_log_raw, dict) else {},
     }
+    # delta6 (additive): only present when STEP 11.5 exported strategies —
+    # an absent key keeps the payload byte-identical to pre-delta6 (R-19).
+    if isinstance(search_strategies, dict) and search_strategies:
+        out["search_strategies"] = search_strategies
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +328,11 @@ if __name__ == "__main__":
         (tmp_dir / "prisma_log.json").write_text(
             json.dumps(payload.get("prisma_log", {}), ensure_ascii=False), encoding="utf-8"
         )
+        # delta6 (additive): forward the folded search_strategies key when present.
+        if payload.get("search_strategies"):
+            (tmp_dir / "search_strategies.json").write_text(
+                json.dumps(payload.get("search_strategies"), ensure_ascii=False), encoding="utf-8"
+            )
         materialized_dir = tmp_dir
     else:
         sys.exit(
