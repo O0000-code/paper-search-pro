@@ -169,6 +169,18 @@ def _build_report_data(
 # ---------------------------------------------------------------------------
 
 _FIRST_SCRIPT_RE = re.compile(r"<script(\s|>)")
+_SCRIPT_JSON_ESCAPES = str.maketrans({
+    "<": "\\u003c",
+    ">": "\\u003e",
+    "&": "\\u0026",
+    "\u2028": "\\u2028",
+    "\u2029": "\\u2029",
+})
+
+
+def _escape_json_for_script(payload: str) -> str:
+    """Escape JSON characters that are unsafe in an HTML script-data context."""
+    return payload.translate(_SCRIPT_JSON_ESCAPES)
 
 
 def _inject_report_data(bundle_html: str, report_data: Dict[str, Any]) -> str:
@@ -178,8 +190,7 @@ def _inject_report_data(bundle_html: str, report_data: Dict[str, Any]) -> str:
         ensure_ascii=False,
         separators=(",", ":"),
     )
-    # Escape sequences that would prematurely close the script tag.
-    safe_payload = payload.replace("</script>", "<\\/script>")
+    safe_payload = _escape_json_for_script(payload)
     injection = (
         f"<script>window.__REPORT_DATA__ = {safe_payload};</script>"
     )
