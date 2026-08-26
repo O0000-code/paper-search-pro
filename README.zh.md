@@ -84,6 +84,9 @@ git clone https://github.com/O0000-code/paper-search-pro.git \
 export PSP_HOME="$HOME/.claude/skills/paper-search-pro"
 
 python3 -m pip install -r "$PSP_HOME/scripts/requirements.txt"
+
+# 可选：安装 CI 验证过的精确依赖版本。
+python3 -m pip install -r "$PSP_HOME/scripts/requirements.lock"
 ```
 
 5 个免费 API key（共约 15 分钟）— 见 [`references/setup.md`](references/setup.md)。
