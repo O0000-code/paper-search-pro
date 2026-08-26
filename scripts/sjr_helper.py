@@ -2,8 +2,7 @@
 
 What this module is for (Feature A, v2.2 Wave 3d)
 -------------------------------------------------
-SCImago Journal Rank is the ONLY free source of *real* journal quartiles (Q1-Q4)
-that an open-source tool can lawfully surface (R4 research). This module turns a
+SCImago Journal Rank provides journal quartiles (Q1-Q4). This module turns a
 locally-cached SJR CSV into an ``ISSN -> {best_quartile, category_quartiles,
 sjr_value}`` lookup, normalises ISSNs the way OpenAlex/SS emit them, and joins a
 paper's journal ISSN to its SJR record.
@@ -11,12 +10,12 @@ paper's journal ISSN to its SJR record.
 Hard compliance boundaries this module enforces (read 11_risk_distillation.md)
 ------------------------------------------------------------------------------
 - R-03 / R-05: the SJR CSV is **never** bundled into / committed to the repo.
-  The data is fetched/placed by the user into a local cache directory. Fetching
-  is done by the multi-platform ``journal_rank`` module via a public GitHub-raw
-  mirror over plain ``requests`` (no Cloudflare in the way, no extra dependency).
+  The data is placed by the user into a local cache directory, either manually
+  or through an explicitly configured ``journal_rank`` source URL.
   The old Playwright ``--download`` path was REMOVED in v2.2 A-1 (unreliable +
   heavyweight). A bare HTTP GET of scimagojr.com *itself* still 403s behind
-  Cloudflare (R-05, empirically verified) — which is why the mirror is used.
+  Cloudflare (R-05, empirically verified), so users must obtain compatible data
+  through a source they are authorised to use.
 - R-03 attribution: every place that surfaces SJR data is responsible for the
   SCImago citation. NOTE (corrected 2026-06-25, legal review §2.4): SJR is **NOT**
   "CC BY-NC" — SCImago uses **custom terms** ("non-commercial use as long as it
@@ -77,8 +76,8 @@ SJR_LEGAL_NOTICE = (
 )
 
 #: Official download endpoint (out=xls actually returns a semicolon CSV).
-#: DEPRECATED in v2.2 A-1 (Playwright download removed; the journal_rank mirror
-#: fetch is used instead). Kept as a constant only for back-compat / reference.
+#: DEPRECATED in v2.2 A-1 (Playwright download removed). Kept as a constant only
+#: for back-compat / reference; journal_rank fetch uses user-configured URLs.
 SJR_DOWNLOAD_URL = "https://www.scimagojr.com/journalrank.php?out=xls&year={year}"
 SJR_PORTAL_URL = "https://www.scimagojr.com"
 
@@ -237,9 +236,10 @@ def parse_sjr_csv(path: Path) -> List[JournalSJR]:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(
-            f"SJR CSV not found at {path}. Run `python3 -m scripts.journal_rank "
-            f"fetch --platform sjr` to pull a public mirror, or place a "
-            f"manually-downloaded CSV there. Source: {SJR_PORTAL_URL}"
+            f"SJR CSV not found at {path}. Configure an authorised URL in "
+            f"rank.sources before running `python3 -m scripts.journal_rank "
+            f"fetch --platform sjr`, or place a compatible CSV there. "
+            f"Source portal: {SJR_PORTAL_URL}"
         )
 
     records: List[JournalSJR] = []
@@ -448,26 +448,21 @@ def metric_is_empty(metric) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Manual-acquisition guidance (Playwright auto-download REMOVED in v2.2 A-1:
-# it was unreliable + an extra dependency. The multi-platform `journal_rank`
-# module fetches GitHub-raw mirrors with plain `requests` instead. A direct GET
-# of scimagojr.com itself still 403s behind Cloudflare — R-05 — so the manual
-# path here points at the mirror-based fetcher.)
+# Manual-acquisition guidance. Playwright auto-download remains removed; the
+# multi-platform fetcher only uses URLs explicitly configured by the user.
 # ---------------------------------------------------------------------------
 
 _MANUAL_DOWNLOAD_HELP = """\
 No SJR CSV is cached yet.
 
-Get the data without a browser (one-time, ~1 min; SJR updates only once a year):
-  - Preferred: run the multi-platform fetcher, which pulls a public mirror with
-    plain HTTP (no Cloudflare, no extra dependency):
+Provide data you are authorised to use (one-time; SJR updates about yearly):
+  - Configure an authorised URL under rank.sources, then run:
         python3 -m scripts.journal_rank fetch --platform sjr
-  - Or manually: download the CSV from {portal} (or a mirror) and drop it into:
+  - Or manually obtain a compatible CSV and place it in:
         {cache}
   - Then re-run your search — the quartile data is picked up automatically.
 
-A bare HTTP GET of scimagojr.com itself 403s behind Cloudflare (R-05), which is
-exactly why the mirror-based `journal_rank` fetch is the supported path.
+Source portal: {portal}
 
 {attribution}
 """
@@ -495,9 +490,8 @@ def _main_cli() -> int:
     )
     sub = parser.add_subparsers(dest="command")
 
-    # NOTE: the Playwright `download` subcommand was REMOVED in v2.2 A-1. Fetch
-    # SJR data via `python3 -m scripts.journal_rank fetch --platform sjr` (mirror
-    # over plain HTTP — no browser, no extra dependency).
+    # NOTE: the Playwright `download` subcommand was REMOVED in v2.2 A-1. The
+    # multi-platform fetcher requires an explicitly configured source URL.
 
     p_look = sub.add_parser("lookup", help="Look up one ISSN's quartile/impact.")
     p_look.add_argument("issn", help="ISSN (hyphenated or not).")

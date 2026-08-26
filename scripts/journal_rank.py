@@ -12,20 +12,17 @@ this journal in?" with their own taxonomy:
 - **SJR (SCImago)** — SJR Best Quartile Q1-Q4, the SJR indicator value, and a
   per-category quartile breakdown.
 
-This module fetches each platform's CSV from a **public GitHub raw mirror** with
-``requests`` (no new dependency, no Cloudflare in the way), parses each platform's
-idiosyncratic format, normalises ISSNs onto one ``XXXX-XXXX`` key, and builds one
-unified ``ISSN -> JournalRank`` table that downstream code can ``lookup()`` per
-paper.
+This module parses each platform's idiosyncratic CSV format, normalises ISSNs
+onto one ``XXXX-XXXX`` key, and builds one unified ``ISSN -> JournalRank`` table
+that downstream code can ``lookup()`` per paper. It can fetch a CSV with
+``requests`` only when the user explicitly configures a source URL.
 
 Hard compliance boundaries (read 11_risk_distillation.md + 13_A_redesign_spec.md)
 ---------------------------------------------------------------------------------
-- **We never bundle / commit any ranking data into the repo.** The data is pulled
-  *at runtime* from public mirrors into the user's local cache
-  (``~/.paper-search-pro/ranks/``). Data never enters our git history. This is the
-  "user-side fetch + runtime join + external link" posture the legal review
-  (legal_sjr_redistribution.md §7🟢) settled on. The mirror URLs live in config so
-  a user can swap them.
+- **We never bundle / commit ranking data or download URLs into the repo.** A user
+  may place compatible CSVs in the local cache (``~/.paper-search-pro/ranks/``)
+  or explicitly configure source URLs they are authorised to use. Data never
+  enters our git history.
 - **Attribution is per-platform and exact** (corrects the old SJR mislabel):
     * SJR  -> SCImago custom terms, NOT "CC BY-NC" (legal review §2.4).
     * CAS  -> 中科院文献情报中心; for personal use, 勿公开传播.
@@ -107,8 +104,8 @@ ATTRIBUTION: Dict[str, str] = {
 #: Longer legal note for report footers / docs.
 LEGAL_NOTICE = (
     "Journal rankings are surfaced from third-party platforms and are NOT "
-    "redistributed by this tool: data is fetched at runtime from public mirrors "
-    "into your local cache. CAS 分区 © 中科院文献情报中心 (personal use, 勿公开传播). "
+    "redistributed by this tool: data comes from your local cache or an explicitly "
+    "configured source. CAS 分区 © 中科院文献情报中心 (personal use, 勿公开传播). "
     "JCR Impact Factor / quartile © Clarivate. SJR quartile / value © SCImago "
     "(scimagojr.com, non-commercial cited use). CAS 区 and SJR quartile are "
     "PARTITIONS, not Impact Factors — only JCR IF(2024) is a real Impact Factor."
@@ -122,27 +119,10 @@ PORTAL_URL: Dict[str, str] = {
     "sjr": "https://www.scimagojr.com",
 }
 
-#: Default source mirrors (overridable via config ``rank.sources``). All three
-#: were curl-verified HTTP 200 on 2026-06-25. GitHub raw -> ``requests`` works
-#: directly (no Cloudflare, unlike scimagojr.com itself).
-DEFAULT_SOURCES: Dict[str, str] = {
-    "cas": (
-        "https://raw.githubusercontent.com/hitfyd/ShowJCR/master/"
-        "%E4%B8%AD%E7%A7%91%E9%99%A2%E5%88%86%E5%8C%BA%E8%A1%A8%E5%8F%8AJCR"
-        "%E5%8E%9F%E5%A7%8B%E6%95%B0%E6%8D%AE%E6%96%87%E4%BB%B6/"
-        "FQBJCR2025-UTF8.csv"
-    ),
-    "jcr": (
-        "https://raw.githubusercontent.com/hitfyd/ShowJCR/master/"
-        "%E4%B8%AD%E7%A7%91%E9%99%A2%E5%88%86%E5%8C%BA%E8%A1%A8%E5%8F%8AJCR"
-        "%E5%8E%9F%E5%A7%8B%E6%95%B0%E6%8D%AE%E6%96%87%E4%BB%B6/"
-        "JCR2024-UTF8.csv"
-    ),
-    "sjr": (
-        "https://raw.githubusercontent.com/saramabrouk173/zotero-sjr-ranker/"
-        "main/scimagojr%202024.csv"
-    ),
-}
+#: Downloads are opt-in. Users must configure URLs they are authorised to use
+#: in ``rank.sources``; cached CSV parsing and lookup remain available without
+#: any configured download source.
+DEFAULT_SOURCES: Dict[str, str] = {}
 
 #: Each platform's source year (for the ``source_year`` slot + cache naming).
 DEFAULT_YEAR: Dict[str, int] = {"cas": 2025, "jcr": 2024, "sjr": 2024}
@@ -634,7 +614,7 @@ def fetch(
     force: bool = False,
     session: Optional[requests.Session] = None,
 ) -> Dict[str, Optional[Path]]:
-    """Fetch one (or all) platform CSV(s) from the mirror into the cache.
+    """Fetch one (or all) platform CSV(s) from configured URLs into the cache.
 
     init-once: a present, non-stale cached file is NOT re-downloaded unless
     ``force=True``. Network failure / source 404 degrades gracefully (that
@@ -643,7 +623,7 @@ def fetch(
     Args:
         platform: "cas"|"jcr"|"sjr", or None for all three.
         year: source year override (only used for cache naming + source_year).
-        sources: {platform: url} override (else DEFAULT_SOURCES / config).
+        sources: Explicit ``{platform: url}`` mapping. No URLs are built in.
         cache_dir: cache directory override.
         stale_days: re-fetch when a cached file is older than this.
         force: re-fetch even if a fresh cache exists.
@@ -683,7 +663,7 @@ def fetch(
             continue
         if resp.status_code != 200 or not resp.content:
             print(f"[journal_rank] source for '{plat}' returned HTTP "
-                  f"{resp.status_code} (URL may have moved — set a mirror in "
+                  f"{resp.status_code} (URL may have moved — update "
                   f"config rank.sources). Skipped.")
             result[plat] = None
             continue
@@ -843,8 +823,8 @@ def _main_cli(argv: Optional[List[str]] = None) -> int:
         prog="journal_rank",
         description=(
             "Multi-platform journal-rank data layer (CAS / JCR / SJR). Fetches "
-            "ranking CSVs from public mirrors into a local cache (never bundled "
-            "in-repo) and joins them by ISSN. CAS 区 & SJR quartile are "
+            "ranking CSVs from explicitly configured URLs into a local cache "
+            "and joins them by ISSN. CAS 区 & SJR quartile are "
             "PARTITIONS; only JCR IF(2024) is a real Impact Factor."
         ),
     )
@@ -886,7 +866,9 @@ def _main_cli(argv: Optional[List[str]] = None) -> int:
         if lk is None:
             print(json.dumps({
                 "loaded": False,
-                "note": "no ranking CSV cached — run `python3 -m scripts.journal_rank fetch`",
+                "note": "no ranking CSV cached — configure rank.sources and run "
+                        "`python3 -m scripts.journal_rank fetch`, or place compatible "
+                        "CSVs in rank.cache_dir",
             }, indent=2, ensure_ascii=False))
             return 1
         print(json.dumps({"loaded": True, **lk.info()}, indent=2, ensure_ascii=False))
@@ -897,7 +879,9 @@ def _main_cli(argv: Optional[List[str]] = None) -> int:
         if lk is None:
             print(json.dumps({
                 "found": False,
-                "note": "no ranking CSV cached — run `python3 -m scripts.journal_rank fetch`",
+                "note": "no ranking CSV cached — configure rank.sources and run "
+                        "`python3 -m scripts.journal_rank fetch`, or place compatible "
+                        "CSVs in rank.cache_dir",
             }, indent=2, ensure_ascii=False))
             return 1
         rec = lk.lookup(args.issn)
@@ -917,7 +901,7 @@ def _load_rank_config():
     """Best-effort read of config ``rank.sources`` / ``rank.cache_dir``.
 
     Returns (sources_dict_or_None, cache_dir_Path_or_None). Degrades silently to
-    (None, None) if config is unavailable (CLI still works on defaults)."""
+    (None, None) if config is unavailable; cached lookup still works."""
     try:
         try:
             from .config import load_config  # package-relative

@@ -449,11 +449,11 @@ everything else in this step it is **opt-in and off by default — skip it and t
 report is byte-for-byte unchanged** (R-19). 📖 Read `references/journal_metrics.md`
 first (it is the SSOT for sources, the ISSN join, attribution, and R-04 naming).
 
-- **First use needs a one-time fetch** (init-once; data is pulled at runtime into
-  `~/.paper-search-pro/ranks/` and **never bundled in the repo**). If you have not
-  fetched before, run it once (and tell the user it is a one-time step):
+- **First use needs user-provided data.** The repo bundles neither ranking data
+  nor download URLs. Put compatible CSVs in `~/.paper-search-pro/ranks/`, or
+  configure URLs the user is authorised to use under `rank.sources` before fetch:
   ```bash
-  PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank fetch          # all three
+  PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank fetch          # configured sources
   # or a single platform: ... journal_rank fetch --platform cas
   PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank info           # what's cached
   ```
@@ -469,7 +469,8 @@ first (it is the SSOT for sources, the ISSN join, attribution, and R-04 naming).
   `journal_rank.load()` returns **None** when nothing is cached — then this layer
   silently degrades (no partitions; the OpenAlex open-impact figure from the block
   above is still the influence placeholder) and you tell the user they can
-  `journal_rank fetch` to enable partitions.
+  configure `rank.sources` before `journal_rank fetch`, or populate the cache, to
+  enable partitions.
 - **Filter (only when a tier was requested — see STEP 11 for the full flow):** call
   `rank_filter.filter_by_rank(papers, platform, tiers=…, quartiles=…, top=…)`. It
   returns `(kept, filtered_out, no_platform_data)` — the third bucket (journals not
