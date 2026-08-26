@@ -22,6 +22,8 @@ import json  # noqa: E402
 import os  # noqa: E402
 import subprocess  # noqa: E402
 
+import pytest  # noqa: E402
+
 from scripts.config import load_config  # noqa: E402
 from scripts.openalex_helper import (  # noqa: E402
     JOURNAL_PRESETS,
@@ -359,6 +361,7 @@ def test_cli_get_does_not_nudge():
 # =============================================================================
 
 
+@pytest.mark.live
 def test_init_and_search_kt():
     """K&T 1979 DOI lookup: citation_count > 40000 (sanity invariant)."""
     p = get_work("10.2307/1914185")
@@ -371,6 +374,7 @@ def test_init_and_search_kt():
     return f"K&T cited_by={p.citation_count}, year={p.year}"
 
 
+@pytest.mark.live
 def test_abstract_reconstruction_kt():
     """K&T 1979 stores abstract as inverted_index; reconstruction must produce
     non-empty plain-text abstract."""
@@ -385,6 +389,7 @@ def test_abstract_reconstruction_kt():
     return f"abstract len={len(p.abstract)} chars"
 
 
+@pytest.mark.live
 def test_search_works_returns_unified_entities():
     """search_works() returns a list of UnifiedPaperEntity."""
     results = search_works("prospect theory", limit=5)
@@ -397,6 +402,7 @@ def test_search_works_returns_unified_entities():
     return f"got {len(results)} entities for 'prospect theory'"
 
 
+@pytest.mark.live
 def test_search_top_n_pages_deep():
     """search_top_n_pages should return ~30 papers when asked for top-30."""
     results = search_top_n_pages("prospect theory", total_papers=30, sort="cited_by_count:desc")
@@ -408,6 +414,7 @@ def test_search_top_n_pages_deep():
     return f"top-30 deep crawl: {len(results)} papers, top cite={cites[0]}"
 
 
+@pytest.mark.live
 def test_double_sort_search_combines():
     """double_sort_search returns multi-strategy combined list (boost on >=2 appearances)."""
     results = double_sort_search("prospect theory", total_per_strategy=15)
@@ -421,6 +428,7 @@ def test_double_sort_search_combines():
     return f"double-sort: {len(results)} unique papers (top cite={top_cite})"
 
 
+@pytest.mark.live
 def test_find_seminal_papers_year_filter():
     """find_seminal_papers(year_max=2015): all returned papers must have year <= 2015."""
     results = find_seminal_papers("prospect theory", year_max=2015, limit=5)
@@ -432,6 +440,7 @@ def test_find_seminal_papers_year_filter():
     return f"seminal: {len(results)} papers all <=2015"
 
 
+@pytest.mark.live
 def test_find_review_articles_type_filter():
     """find_review_articles: all returned papers must have type=='review'."""
     results = find_review_articles("working memory training", limit=5)
@@ -443,6 +452,7 @@ def test_find_review_articles_type_filter():
     return f"reviews: {len(results)} papers all type=review"
 
 
+@pytest.mark.live
 def test_arxiv_id_extraction_attention():
     """Attention is all you need: arXiv 1706.03762 must be extracted from OA locations[].
 
@@ -481,6 +491,7 @@ def test_arxiv_id_extraction_attention():
         return f"no arxiv_id in OA record (acceptable); title={p.title[:40]!r}"
 
 
+@pytest.mark.live
 def test_get_work_doi_url_and_bare_form():
     """get_work() accepts both bare DOI and full URL form."""
     p1 = get_work("10.2307/1914185")
@@ -490,6 +501,7 @@ def test_get_work_doi_url_and_bare_form():
     return "both DOI input forms equivalent"
 
 
+@pytest.mark.live
 def test_get_work_error_handling():
     """Looking up a non-existent paper should raise an exception (not silently return None)."""
     raised = False
@@ -501,6 +513,7 @@ def test_get_work_error_handling():
     return "non-existent paper raises as expected"
 
 
+@pytest.mark.live
 def test_search_in_journal_list_nature_science():
     """search_in_journal_list with 'nature_science' preset: all returned papers
     should be from Nature/Science/Cell/PNAS."""
@@ -532,6 +545,7 @@ def test_search_in_journal_list_unknown_preset():
     return "ValueError raised correctly"
 
 
+@pytest.mark.live
 def test_analyze_topic_trends_returns_dict():
     """analyze_topic_trends returns dict {year:int -> count:int} with positive counts."""
     trends = analyze_topic_trends("large language model", year_range=(2020, 2025))
@@ -549,6 +563,7 @@ def test_analyze_topic_trends_returns_dict():
     return f"trends spans {min(trends)}-{max(trends)}, top year count={max(trends.values())}"
 
 
+@pytest.mark.live
 def test_get_citation_network_attention():
     """get_citation_network returns refs + cited_by lists for K&T 1979."""
     p = get_work("10.2307/1914185")
@@ -564,6 +579,7 @@ def test_get_citation_network_attention():
     return f"refs={len(net['references'])}, cited_by={len(net['cited_by'])}"
 
 
+@pytest.mark.live
 def test_get_author_profile_by_name():
     """get_author_profile('Geoffrey Hinton') returns dict with h_index, works_count."""
     profile = get_author_profile("Geoffrey Hinton")
