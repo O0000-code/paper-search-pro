@@ -344,7 +344,9 @@ def _rank_lookup():
 
 
 def _oa_search_targets(papers, lookup=None):
-    def fake_search(query, total_papers=50, sort=None, year_min=None):
+    def fake_search(
+        query, total_papers=50, sort=None, year_min=None, year_max=None
+    ):
         return papers if sort == "cited_by_count:desc" else []
     if lookup is None:
         lookup = _rank_lookup()
