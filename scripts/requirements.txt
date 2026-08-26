@@ -1,4 +1,6 @@
 # paper-search-pro runtime dependencies.
+# Reproducible snapshot (optional): scripts/requirements.lock
+# Regenerate: uv pip compile scripts/requirements.txt --universal --python-version 3.10 --no-emit-index-url --output-file scripts/requirements.lock
 # All libraries listed here are pip-installed at runtime — none are
 # vendored in-tree. The only vendored content lives under
 # `scripts/vendored/` (currently: tenacity_retry.py + paper-qa
