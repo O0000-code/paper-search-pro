@@ -581,6 +581,7 @@ def test_search_non_dict_row_skipped():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.live
 def test_live_smoke():
     try:
         results = nssd_helper.search("乡村振兴", n=3)
