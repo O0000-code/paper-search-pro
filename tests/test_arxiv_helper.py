@@ -26,6 +26,7 @@ from typing import List
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SKILL_ROOT))
 
+import pytest  # noqa: E402
 from scripts.arxiv_helper import (  # noqa: E402
     ALL_CATEGORIES,
     DEFAULT_CATEGORIES,
@@ -99,6 +100,7 @@ def test_build_query_applies_category_filter() -> None:
 # =============================================================================
 
 
+@pytest.mark.live
 def test_get_by_arxiv_id_attention_paper() -> None:
     """Single-paper lookup of 1706.03762 must return 'Attention Is All You Need' (2017)."""
     paper = get_by_arxiv_id("1706.03762")
@@ -142,6 +144,7 @@ def _cat_matches_whitelist(cat: str, whitelist: List[str]) -> bool:
     return False
 
 
+@pytest.mark.live
 def test_search_freshness_window_respects_days_and_limit() -> None:
     """All returned papers must be within the days window, count <= limit.
 
@@ -172,6 +175,7 @@ def test_search_freshness_window_respects_days_and_limit() -> None:
     )
 
 
+@pytest.mark.live
 def test_default_categories_block_reactor_noise() -> None:
     """SA-V2 §3.4 lock: 'prospect theory' without cat filter returns reactor experiments.
     With DEFAULT_CATEGORIES, no result should be PURELY physics — at least one
@@ -192,6 +196,7 @@ def test_default_categories_block_reactor_noise() -> None:
     print(f"OK  default cats block pure-physics noise ({len(papers)} papers, all have on-list cat)")
 
 
+@pytest.mark.live
 def test_search_recent_sort_options_work() -> None:
     """All three sort options must execute without error."""
     for sort_by in ("submitted", "relevance", "lastUpdated"):
@@ -202,6 +207,7 @@ def test_search_recent_sort_options_work() -> None:
     print("OK  search_recent supports submitted/relevance/lastUpdated sorts")
 
 
+@pytest.mark.live
 def test_empty_results_for_gibberish() -> None:
     """Truly meaningless query returns empty list, not exception."""
     papers = search_recent("zzqxqzx_no_such_term_anywhere_42", max_results=5)

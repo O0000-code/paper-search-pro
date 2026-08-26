@@ -22,6 +22,7 @@ from pathlib import Path
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SKILL_ROOT))
 
+import pytest  # noqa: E402
 from scripts import ss_helper  # noqa: E402
 from scripts.config import load_config  # noqa: E402
 from scripts.types import UnifiedPaperEntity  # noqa: E402
@@ -105,6 +106,7 @@ def test_doi_normalisation():
     print("OK  doi_normalisation (arXiv skip + URL strip + lowercase)")
 
 
+@pytest.mark.live
 def test_enrich_with_metadata_adds_influ_and_tldr():
     """For a paper SS has fully indexed (AlphaFold via DOI), enrichment
     should add influential_citation_count, ss_paper_id, tldr, and append
@@ -151,6 +153,7 @@ def test_enrich_skips_arxiv_doi():
     print("OK  enrich_skips_arxiv_doi (no mutation on arXiv DOI)")
 
 
+@pytest.mark.live
 def test_abstract_fallback_graceful_on_takedown():
     """K&T 1979's abstract is publisher-elided (empirical: SS abstract=None,
     tldr=None — see 20_ss_sdk_test.md §3.2 and 24_v1_l3_enrichment §1).
@@ -178,6 +181,7 @@ def test_abstract_fallback_returns_existing_if_set():
     print("OK  abstract_fallback short-circuits when abstract already set")
 
 
+@pytest.mark.live
 def test_cross_validate_citation_detects_conflict():
     """Watson & Crick 1953 (DNA structure) has a well-documented citation
     disagreement between OA (~13148) and SS (~8778) — empirical delta ~33%
@@ -226,6 +230,7 @@ def test_empty_inputs_are_safe():
     print("OK  empty_inputs_are_safe")
 
 
+@pytest.mark.live
 def test_sources_list_dedup():
     """If a paper is already marked as having SS provenance, enriching it
     again must not add 'semantic_scholar' twice."""
@@ -420,6 +425,7 @@ def test_search_entity_to_dict_is_full_and_json_safe():
     print("OK  search_entity_to_dict_is_full_and_json_safe")
 
 
+@pytest.mark.live
 def test_search_live_smoke():
     """Optional live smoke: real SS bulk search for a high-signal query.
 
