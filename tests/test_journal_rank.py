@@ -146,6 +146,17 @@ def _full_session():
     })
 
 
+_TEST_SOURCES = {
+    "cas": "https://test.invalid/FQBJCR2025-UTF8.csv",
+    "jcr": "https://test.invalid/JCR2024-UTF8.csv",
+    "sjr": "https://test.invalid/scimagojr%202024.csv",
+}
+
+
+def _test_fetch(**kwargs):
+    return jr.fetch(sources=_TEST_SOURCES, **kwargs)
+
+
 # ===========================================================================
 # ISSN normalisation
 # ===========================================================================
@@ -264,7 +275,7 @@ def test_parse_sjr_csv_semicolon_european_and_sdg_header():
 def _loaded_lookup(cache_dir: Path) -> jr.RankLookup:
     """Fetch (fake session) into cache then load — the realistic round-trip."""
     sess = _full_session()
-    jr.fetch(cache_dir=cache_dir, session=sess)
+    _test_fetch(cache_dir=cache_dir, session=sess)
     lk = jr.load(cache_dir=cache_dir)
     assert lk is not None
     return lk
@@ -331,14 +342,24 @@ def test_info_reports_platforms_and_counts():
 # ===========================================================================
 
 
+def test_fetch_without_configured_sources_never_requests():
+    with tempfile.TemporaryDirectory() as td:
+        sess = _FakeSession({})
+        result = jr.fetch(cache_dir=Path(td), session=sess)
+
+    assert sess.calls == []
+    assert result == {"cas": None, "jcr": None, "sjr": None}
+    print("OK  fetch_without_configured_sources_never_requests")
+
+
 def test_fetch_init_once_does_not_refetch_fresh_cache():
     with tempfile.TemporaryDirectory() as td:
         sess1 = _full_session()
-        jr.fetch(cache_dir=Path(td), session=sess1)
+        _test_fetch(cache_dir=Path(td), session=sess1)
         assert len(sess1.calls) == 3  # first time: all three fetched
         # second call with a fresh cache: NO network calls (init-once).
         sess2 = _full_session()
-        res = jr.fetch(cache_dir=Path(td), session=sess2)
+        res = _test_fetch(cache_dir=Path(td), session=sess2)
         assert sess2.calls == []  # nothing re-fetched
         assert all(v is not None for v in res.values())
     print("OK  fetch_init_once_does_not_refetch_fresh_cache")
@@ -346,9 +367,9 @@ def test_fetch_init_once_does_not_refetch_fresh_cache():
 
 def test_fetch_force_refetches():
     with tempfile.TemporaryDirectory() as td:
-        jr.fetch(cache_dir=Path(td), session=_full_session())
+        _test_fetch(cache_dir=Path(td), session=_full_session())
         sess = _full_session()
-        jr.fetch(cache_dir=Path(td), session=sess, force=True)
+        _test_fetch(cache_dir=Path(td), session=sess, force=True)
         assert len(sess.calls) == 3  # force overrides init-once
     print("OK  fetch_force_refetches")
 
@@ -356,14 +377,14 @@ def test_fetch_force_refetches():
 def test_fetch_stale_cache_refetches():
     with tempfile.TemporaryDirectory() as td:
         td = Path(td)
-        jr.fetch(cache_dir=td, session=_full_session())
+        _test_fetch(cache_dir=td, session=_full_session())
         # age the cached files well past stale_days
         old = time.time() - 400 * 86400
         for p in td.glob("*.csv"):
             import os
             os.utime(p, (old, old))
         sess = _full_session()
-        jr.fetch(cache_dir=td, session=sess, stale_days=365)
+        _test_fetch(cache_dir=td, session=sess, stale_days=365)
         assert len(sess.calls) == 3  # stale -> re-fetched
     print("OK  fetch_stale_cache_refetches")
 
@@ -371,7 +392,7 @@ def test_fetch_stale_cache_refetches():
 def test_fetch_single_platform():
     with tempfile.TemporaryDirectory() as td:
         sess = _full_session()
-        res = jr.fetch(platform="sjr", cache_dir=Path(td), session=sess)
+        res = _test_fetch(platform="sjr", cache_dir=Path(td), session=sess)
         assert list(res.keys()) == ["sjr"]
         assert res["sjr"] is not None
         assert len(sess.calls) == 1
@@ -391,7 +412,7 @@ def test_fetch_404_source_degrades():
             "scimagojr": _FakeResp(200, _SJR_CSV.encode("utf-8")),
             "FQBJCR": _FakeResp(404, b""),
         })
-        res = jr.fetch(cache_dir=Path(td), session=sess)
+        res = _test_fetch(cache_dir=Path(td), session=sess)
         assert res["cas"] is None          # degraded, no crash
         assert res["jcr"] is not None and res["sjr"] is not None
         lk = jr.load(cache_dir=Path(td))
@@ -409,7 +430,7 @@ def test_fetch_network_error_degrades():
             "JCR2024": _FakeResp(200, _JCR_CSV.encode("utf-8")),
             "scimagojr": _FakeResp(200, _SJR_CSV.encode("utf-8")),
         }, raise_on={"FQBJCR"})
-        res = jr.fetch(cache_dir=Path(td), session=sess)
+        res = _test_fetch(cache_dir=Path(td), session=sess)
         assert res["cas"] is None  # RequestException swallowed
         assert res["jcr"] is not None
     print("OK  fetch_network_error_degrades")
@@ -455,7 +476,7 @@ def test_cli_fetch_then_lookup_then_info(monkeypatch=None):
         # also short-circuit config (CLI reads config for sources/cache_dir)
         orig_cfg = mod._load_rank_config
         mod.requests.Session = lambda: fake  # type: ignore
-        mod._load_rank_config = lambda: (None, None)  # type: ignore
+        mod._load_rank_config = lambda: (_TEST_SOURCES, None)  # type: ignore
         try:
             rc = mod._main_cli(["fetch", "--cache-dir", td])
             assert rc == 0
@@ -502,6 +523,7 @@ def main() -> int:
         test_lookup_cross_format_and_multi_issn,
         test_lookup_single_platform_journal,
         test_info_reports_platforms_and_counts,
+        test_fetch_without_configured_sources_never_requests,
         test_fetch_init_once_does_not_refetch_fresh_cache,
         test_fetch_force_refetches,
         test_fetch_stale_cache_refetches,

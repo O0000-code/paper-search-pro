@@ -21,6 +21,7 @@ from pathlib import Path
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SKILL_ROOT))
 
+import pytest  # noqa: E402
 from scripts import yiigle_helper  # noqa: E402
 from scripts.types import UnifiedPaperEntity  # noqa: E402
 
@@ -341,6 +342,7 @@ def test_search_non_dict_record_skipped():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.live
 def test_search_live_smoke():
     """Real yiigle search for a high-signal Chinese medical query. Tolerant: if the
     endpoint is unreachable / rate-limited (-> []), skip content assertions so the

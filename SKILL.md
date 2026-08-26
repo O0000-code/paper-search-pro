@@ -1,6 +1,6 @@
 ---
 name: paper-search-pro
-description: "Find academic papers across up to 7 sources (OpenAlex / Semantic Scholar / CrossRef / PubMed / arXiv for English, plus native-Chinese retrieval via NSSD 国家哲社文献中心 + yiigle 中华医学期刊) with adjustable depth — Quick scan (5 min) to Audit prep (3 hr). Use when the user wants to find papers, run a literature search, gather references, scope a research topic, search Chinese-language / 中文原生 literature (中文文献/中文核心/CSSCI/C刊/国内研究/国内文献/中华××期刊/心理学报/经济研究), or filter results by journal tier (中科院分区/一区/几区, Q1, JCR/SJR quartile, 影响因子/impact factor, 期刊分区, 顶刊/top journal, '按分区筛'). Triggers on search verbs ('find papers', 'literature search', 'papers about X'), review types ('scoping review', 'systematic review', 'SR prep', 'literature review', 'lit review', 'help me write a lit review'), Chinese ('找文献', '找论文', '论文搜索', '学术检索', '文献检索', '文献综述', '综述前期', '求文献', '中文文献', '中文核心', 'CSSCI', 'C刊', '国内研究', '找中文的'). Outputs Shadcn HTML report + BibTeX/RIS/CSV + PRISMA-S log. Do NOT use for: concept explanations ('what is X' / 'X 是什么', e.g. '影响因子怎么算'), writing ('帮我写' / 'help me write a paragraph'), single-paper interpretation or PDF download with metadata (use paper-downloader-portable), or when the user already has a literature set (use literature-set-review)."
+description: "Find academic papers across OpenAlex, Semantic Scholar, CrossRef, PubMed, arXiv, NSSD 国家哲社文献中心, and yiigle 中华医学期刊, with Quick-to-Audit depth. Use for literature search, gathering references, scoping a topic, review preparation (literature/scoping/systematic/meta-analysis), Chinese literature (找文献/找论文/文献检索/中文文献/中文核心/CSSCI/C刊/国内研究), and journal-tier filters (中科院分区/一区/Q1/JCR/SJR/影响因子/顶刊). Produces an HTML report plus BibTeX, RIS, CSV, and PRISMA-S log. Do not use for concept explanations, prose drafting, interpreting a known paper, PDF downloads (use paper-downloader-portable), or reviewing an existing literature set (use literature-set-review)."
 license: Apache-2.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task
 metadata:
@@ -449,11 +449,11 @@ everything else in this step it is **opt-in and off by default — skip it and t
 report is byte-for-byte unchanged** (R-19). 📖 Read `references/journal_metrics.md`
 first (it is the SSOT for sources, the ISSN join, attribution, and R-04 naming).
 
-- **First use needs a one-time fetch** (init-once; data is pulled at runtime into
-  `~/.paper-search-pro/ranks/` and **never bundled in the repo**). If you have not
-  fetched before, run it once (and tell the user it is a one-time step):
+- **First use needs user-provided data.** The repo bundles neither ranking data
+  nor download URLs. Put compatible CSVs in `~/.paper-search-pro/ranks/`, or
+  configure URLs the user is authorised to use under `rank.sources` before fetch:
   ```bash
-  PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank fetch          # all three
+  PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank fetch          # configured sources
   # or a single platform: ... journal_rank fetch --platform cas
   PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank info           # what's cached
   ```
@@ -469,7 +469,8 @@ first (it is the SSOT for sources, the ISSN join, attribution, and R-04 naming).
   `journal_rank.load()` returns **None** when nothing is cached — then this layer
   silently degrades (no partitions; the OpenAlex open-impact figure from the block
   above is still the influence placeholder) and you tell the user they can
-  `journal_rank fetch` to enable partitions.
+  configure `rank.sources` before `journal_rank fetch`, or populate the cache, to
+  enable partitions.
 - **Filter (only when a tier was requested — see STEP 11 for the full flow):** call
   `rank_filter.filter_by_rank(papers, platform, tiers=…, quartiles=…, top=…)`. It
   returns `(kept, filtered_out, no_platform_data)` — the third bucket (journals not

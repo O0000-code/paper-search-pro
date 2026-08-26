@@ -84,6 +84,9 @@ git clone https://github.com/O0000-code/paper-search-pro.git \
 export PSP_HOME="$HOME/.claude/skills/paper-search-pro"
 
 python3 -m pip install -r "$PSP_HOME/scripts/requirements.txt"
+
+# 可选：安装 CI 验证过的精确依赖版本。
+python3 -m pip install -r "$PSP_HOME/scripts/requirements.lock"
 ```
 
 5 个免费 API key（共约 15 分钟）— 见 [`references/setup.md`](references/setup.md)。
@@ -134,7 +137,7 @@ python3 -m pip install -r "$PSP_HOME/scripts/requirements.txt"
   </tr>
 </table>
 
-**期刊分区。** 每篇论文都标注其 **中科院 / JCR / SJR** 分区 —— 卡片上一个安静的徽章、详情面板里三家完整对照、工具栏里按分区筛选（`Q1 / ≥Q2 / ≥Q3`，中科院则是 `一区 / ≥二区`）。分区表在运行时从公开镜像拉取 —— 不随包分发 —— 并标注来源；只有 JCR 的数值才称为影响因子。
+**期刊分区。** 每篇论文都可标注其 **中科院 / JCR / SJR** 分区 —— 卡片上一个安静的徽章、详情面板里三家完整对照、工具栏里按分区筛选（`Q1 / ≥Q2 / ≥Q3`，中科院则是 `一区 / ≥二区`）。仓库不附带分区数据或下载地址：请把兼容 CSV 放入本地缓存，或显式配置你有权使用的来源 URL。只有 JCR 的数值才称为影响因子。
 
 输出落在 `$PWD/paper-search-results/<search_id>/`：
 

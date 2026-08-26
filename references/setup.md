@@ -128,25 +128,25 @@ The arxiv helper enforces this automatically.
 
 ## Optional — journal partitions (中科院分区 / JCR / SJR; NO API key)
 
-Only needed if you want to **filter or label results by journal tier** (中科院一区, JCR Q1, SJR quartile, 顶刊, `--quartile`, `--rank-platform`). This is a one-time data fetch — **independent of all five keys above**: it pulls public GitHub-raw mirrors over plain HTTP, so **no OpenAlex / SS / any API key is required**.
+Only needed if you want to **filter or label results by journal tier** (中科院一区, JCR Q1, SJR quartile, 顶刊, `--quartile`, `--rank-platform`). This is independent of the API keys above, but the repository intentionally ships neither ranking datasets nor download URLs.
 
 | | |
 |---|---|
-| Apply at | (none — no key, no signup) |
-| Cost | Free |
-| One-time fetch | `PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank fetch` |
+| Obtain data | Use a source you are authorised to access |
+| Cost | Depends on the data provider |
+| Optional fetch | Configure `rank.sources`, then run `PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank fetch` |
 | Data lands in | `~/.paper-search-pro/ranks/` (`cas_2025.csv` / `jcr_2024.csv` / `sjr_2024.csv`) |
 | Re-fetch | init-once (a present, fresh file is never re-downloaded); rankings update ~once a year |
 
 ```bash
-# One-time: pull all three platforms (CAS / JCR / SJR) into ~/.paper-search-pro/ranks/
+# After configuring authorised URLs under rank.sources, fetch configured platforms.
 PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank fetch
 # Confirm what cached:
 PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank info
 ```
 
-- Data is **never bundled in this repo** — it is fetched at runtime into your local cache, with the source platform's attribution surfaced wherever a partition is shown (CAS 中科院文献情报中心 · 勿公开传播 / JCR © Clarivate / SJR © SCImago, non-commercial cited use — **not** CC BY-NC). Only JCR IF(2024) is a real Impact Factor; CAS 区 and SJR quartile are partitions, and the "期刊影响力" figure is OpenAlex 2-year mean citedness (an open metric, relative use only — R-04/R-09).
-- **`ranks/` is the single source of truth** for journal partitions. A pre-v2.2 legacy `~/.paper-search-pro/sjr/` directory is no longer used by the search pipeline — you can ignore (or delete) it; run the `journal_rank fetch` above to populate `ranks/` instead.
+- Data and source URLs are **never bundled in this repo**. You may instead place compatible CSVs directly in `rank.cache_dir`. The source platform's attribution is surfaced wherever a partition is shown (CAS 中科院文献情报中心 · 勿公开传播 / JCR © Clarivate / SJR © SCImago, non-commercial cited use — **not** CC BY-NC). Only JCR IF(2024) is a real Impact Factor; CAS 区 and SJR quartile are partitions, and the "期刊影响力" figure is OpenAlex 2-year mean citedness (an open metric, relative use only — R-04/R-09).
+- **`ranks/` is the single source of truth** for journal partitions. A pre-v2.2 legacy `~/.paper-search-pro/sjr/` directory is no longer used by the search pipeline; populate `ranks/` with authorised compatible data instead.
 - Without this fetch, searches still run normally — papers simply carry no partition labels and a partition filter (`--quartile` / `--rank-platform`) cannot be honoured (the run reports this in `meta.rank.note` and continues, never errors). See `references/journal_metrics.md` for the full partition model.
 
 See `references/journal_metrics.md` for the complete journal-rank model (platforms, switching, R-04 naming).

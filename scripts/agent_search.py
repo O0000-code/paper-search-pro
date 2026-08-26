@@ -491,7 +491,13 @@ def _retrieve(
         results: List[List[UnifiedPaperEntity]] = []
         for sort, fn in strategies:
             try:
-                batch = fn(query, total_papers=per_strategy, sort=sort, year_min=year_min)
+                batch = fn(
+                    query,
+                    total_papers=per_strategy,
+                    sort=sort,
+                    year_min=year_min,
+                    year_max=year_max,
+                )
             except Exception as exc:  # one bad strategy must not kill the run
                 warnings.append(f"openalex strategy {sort} failed: {exc}")
                 batch = []
@@ -850,7 +856,7 @@ def _rank_cache_dir(config: Config):
 
 
 def _rank_sources(config: Config):
-    """Resolve the journal_rank mirror sources from config (else None=built-ins)."""
+    """Resolve explicitly configured journal-rank source URLs, if any."""
     rank_cfg = getattr(config, "rank", None)
     if isinstance(rank_cfg, dict) and isinstance(rank_cfg.get("sources"), dict):
         return rank_cfg["sources"]
@@ -1353,7 +1359,8 @@ def run_agent_search(
       NOT a JCR Impact Factor — R-09). Like ``min_relevance`` they only filter
       *which* papers are returned; the record is always attached.
     - ``sjr_csv`` is DEPRECATED (the legacy sjr_helper SJR-only path is retired);
-      it is accepted but ignored. Use ``journal_rank fetch`` to cache SJR data into
+      it is accepted but ignored. Configure an authorised URL in ``rank.sources``
+      before using ``journal_rank fetch``, or place a compatible SJR CSV in
       ~/.paper-search-pro/ranks/.
 
     ``issn_backfill`` (default True) only affects the SEMANTIC-SCHOLAR-primary
@@ -1583,9 +1590,9 @@ def run_agent_search(
         if rank_lookup is None and rank_load_note is None and partition_requested:
             rank_load_note = (
                 "no journal-rank data cached — 分区/quartile labels & filters "
-                "unavailable. Run `python3 -m scripts.journal_rank fetch` "
-                "(one-time, no API key needed; data lands in ~/.paper-search-pro/"
-                "ranks/) to enable CAS/JCR/SJR partitions."
+                "unavailable. Configure authorised URLs in rank.sources and run "
+                "`python3 -m scripts.journal_rank fetch`, or place compatible "
+                "CSVs in ~/.paper-search-pro/ranks/."
             )
 
     # ---- Adaptive deepening (spec §6) — only when a tier/quartile filter is on --
@@ -1974,8 +1981,9 @@ def run_agent_search(
             "note": (
                 "Single journal_rank layer. Quartile/影响力 data lives in each "
                 "paper's journal_rank (CAS/JCR/SJR + openalex). Partition data is "
-                "cached under ~/.paper-search-pro/ranks/ (run `journal_rank fetch`, "
-                "no API key needed). Only JCR IF(2024) is a real Impact Factor."
+                "cached under ~/.paper-search-pro/ranks/; downloads require URLs "
+                "explicitly configured in rank.sources. Only JCR IF(2024) is a "
+                "real Impact Factor."
             ),
         },
         "relevance": {
@@ -2084,8 +2092,8 @@ def _main_cli() -> int:
         default=None,
         help="Comma-separated SJR quartiles to KEEP, e.g. 'Q1,Q2'. OPT-IN filter on "
         "journal_rank.sjr.best_quartile (the single layer). SJR分区, NOT JCR (R-04). "
-        "Needs cached journal-rank data (run `journal_rank fetch`, lands in "
-        "~/.paper-search-pro/ranks/). For 区/category control use --rank-platform.",
+        "Needs cached journal-rank data; configure rank.sources before fetch. "
+        "For 区/category control use --rank-platform.",
     )
     parser.add_argument(
         "--min-impact",
@@ -2105,7 +2113,8 @@ def _main_cli() -> int:
         "--sjr-csv",
         default=None,
         help="DEPRECATED / ignored: the legacy sjr_helper SJR-only path is retired. "
-        "Cache SJR data with `journal_rank fetch --platform sjr` (-> ranks/) instead.",
+        "Configure rank.sources before `journal_rank fetch --platform sjr`, or "
+        "place a compatible CSV in rank.cache_dir.",
     )
     parser.add_argument(
         "--no-journal-metric",

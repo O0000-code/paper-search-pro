@@ -7,14 +7,10 @@ collapse) — the ISSN join, attribution, and the naming rules. Read this before
 showing or filtering on any journal-level number, in either the human path
 (STEP 1 + STEP 10/11) or agent mode.
 
-> **What changed in v2.2 (A-line).** The previous version of this file said JCR
-> and 中科院分区 were "external-link only" and that SJR needed a Cloudflare-busting
-> browser download. That is **out of date.** All three platforms are now pulled at
-> runtime from public GitHub mirrors with plain `requests` (no Cloudflare, no new
-> dependency) by `scripts/journal_rank.py`, joined by ISSN, and surfaced as
-> partitions on every paper. The "external link only" posture is gone for these
-> three; we still **never bundle or commit any ranking data** — it is fetched into
-> the user's local cache and used there.
+> **Source policy.** The repository bundles neither ranking datasets nor download
+> URLs. `scripts/journal_rank.py` joins compatible user-provided CSVs by ISSN and
+> can fetch only URLs explicitly configured under `rank.sources`. Users are
+> responsible for ensuring they are authorised to access and use their data.
 
 The governing rule is **R-04 (naming 铁律)**: a partition is a partition, an
 Impact Factor is an Impact Factor, and they are not interchangeable words.
@@ -36,16 +32,16 @@ Every annotated paper carries **all three** (each slot independently optional �
 journal found on only one platform still yields a valid record). Filtering, when a
 tier is requested, applies to **one** platform; the other two stay as labels.
 
-### Data sources (GitHub raw mirrors — `requests`, no Cloudflare, zero new deps)
+### Compatible input data
 
-The mirror URLs live in config (`rank.sources`) so a user can swap them. All three
-were curl-verified HTTP 200 on 2026-06-25.
+The parser accepts these platform-specific shapes. Filenames are conventional
+cache names, not bundled data or endorsements of any download source.
 
-| Platform | Default mirror file | Format | ISSN format |
+| Platform | Typical cache file | Format | ISSN format |
 |---|---|---|---|
-| CAS | `FQBJCR2025-UTF8.csv` (hitfyd/ShowJCR) | comma CSV, UTF-8, 23 cols | `2053-1583/2053-1583` (slash, hyphenated) |
-| JCR | `JCR2024-UTF8.csv` (hitfyd/ShowJCR) | comma CSV, UTF-8, 7 cols | ISSN + eISSN cols, hyphenated (either may be `N/A`) |
-| SJR | `scimagojr 2024.csv` (zotero-sjr-ranker) | **semicolon** CSV, **European decimals**, 27 cols | `"15424863, 00079235"` (comma, **no hyphen**) |
+| CAS | `cas_2025.csv` | comma CSV, UTF-8, 23 cols | `2053-1583/2053-1583` (slash, hyphenated) |
+| JCR | `jcr_2024.csv` | comma CSV, UTF-8, 7 cols | ISSN + eISSN cols, hyphenated (either may be `N/A`) |
+| SJR | `sjr_2024.csv` | **semicolon** CSV, **European decimals**, 27 cols | `"15424863, 00079235"` (comma, **no hyphen**) |
 
 - **Columns are resolved by name (fuzzy), never by index** — the live headers
   drift from any spec sketch (CAS uses full-width `OA Journal Index（OAJ）`; the live
@@ -58,18 +54,16 @@ were curl-verified HTTP 200 on 2026-06-25.
   `;`-joined entries. **This is the only real Impact Factor in the whole system.**
 - SJR `SJR` value uses a comma decimal (`145,004` = 145.004); `Categories` is
   `"Hematology (Q1); Oncology (Q1)"`.
-- 2026+ CAS stops updating; an optional `XR2026-UTF8.csv` (民间 新锐 接棒) can be
-  pointed to via config — but it **must be labelled non-official** if used.
-
 ### Fetch (init-once; runtime; never committed)
 
-Data is pulled **at runtime** into `~/.paper-search-pro/ranks/` (`rank.cache_dir`)
-and **never enters the repo / git history** (R-02 / R-03). First use needs a
-one-time fetch; thereafter it is cache-first and only re-pulls when explicitly
-forced or the cache is stale (>365 days).
+Data is read from `~/.paper-search-pro/ranks/` (`rank.cache_dir`) and **never
+enters the repo / git history** (R-02 / R-03). Put compatible CSVs there directly,
+or configure URLs you are authorised to use under `rank.sources`. Fetch remains
+cache-first and only re-downloads configured sources when explicitly forced or
+the cache is stale (>365 days).
 
 ```bash
-# One-time (or after a year). All three platforms:
+# After configuring authorised URLs. Omit --platform for all configured sources:
 PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank fetch
 # A single platform: --platform cas | jcr | sjr ; force re-pull: --force
 PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank fetch --platform cas
@@ -79,10 +73,11 @@ PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank info
 PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank lookup 0028-0836
 ```
 
-A failed network / 404 degrades gracefully (that platform is absent; the others
-still load; the run never crashes). When nothing is cached, `journal_rank.load()`
-returns `None` and the whole partition layer silently no-ops — the report is
-byte-for-byte unchanged (R-19), exactly as if the feature were off.
+With no configured source, fetch performs no network request. A failed configured
+request / 404 degrades gracefully (that platform is absent; the others still
+load; the run never crashes). When nothing is cached, `journal_rank.load()` returns
+`None` and the whole partition layer silently no-ops — the report is byte-for-byte
+unchanged (R-19), exactly as if the feature were off.
 
 ### Annotate + filter (the logic layer)
 
@@ -153,18 +148,17 @@ report, `meta.rank.attribution` in agent mode).
 > §2.4). This file and `journal_rank.ATTRIBUTION` carry the corrected wording.
 
 A longer footer note is available as `journal_rank.LEGAL_NOTICE` (emphasises the
-runtime-fetch / no-redistribution posture and the "only JCR IF is a real IF" rule).
+local-cache / no-redistribution posture and the "only JCR IF is a real IF" rule).
 Official portals for "verify at source" external links live in
 `journal_rank.PORTAL_URL` (CAS → fenqubiao.com, JCR → jcr.clarivate.com,
 SJR → scimagojr.com).
 
-### Compliance posture: we do not distribute data; we fetch it at runtime
+### Compliance posture: data and download URLs are not distributed
 
 The ranking CSVs are **never committed to the repo and never redistributed**. They
-are pulled at runtime from public mirrors into the user's own local cache and used
-there. This is the "user-side fetch + runtime join + external link" posture the
-legal review settled on. The residual grey-area risk is a user's informed choice;
-the tool itself ships only **code + source URLs**, never data.
+come from the user's local cache or from URLs the user explicitly configured and
+is authorised to use. The tool ships parsing and lookup code only — neither data
+nor third-party download URLs.
 
 ---
 
@@ -199,7 +193,7 @@ the agent envelope any more, and the human display renders the unified record.
 
 | Figure | Where it lives now | Notes |
 |---|---|---|
-| **SJR quartile** (Q1–Q4) | `journal_rank.sjr.best_quartile` | From the SJR mirror CSV; attribution mandatory. |
+| **SJR quartile** (Q1–Q4) | `journal_rank.sjr.best_quartile` | From the user-provided SJR CSV; attribution mandatory. |
 | **OpenAlex 2yr mean citedness** | `journal_rank.openalex.mean_citedness_2yr` | CC0. An OPEN impact figure, **NOT** a JIF (R-09). |
 | **OpenAlex journal h-index** | `journal_rank.openalex.h_index` | Same source, open. |
 

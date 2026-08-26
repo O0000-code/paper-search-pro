@@ -250,8 +250,10 @@ def test_adaptive_deepening_finds_more_survivors():
     papers = [_paper(f"10.x/{i}", f"memory {i}", f"{i:04d}-000X", 1000 - i) for i in range(1, 21)]
     # Order so tier-1 #3,#4 sit at the very end -> only reachable by deepening.
     ordered = [papers[0], papers[1]] + papers[4:] + [papers[2], papers[3]]
+    calls = []
 
     def fake_search(query, total_papers=50, sort="cited_by_count:desc", year_min=None, year_max=None):
+        calls.append((sort, total_papers, year_min, year_max))
         if sort != "cited_by_count:desc":
             return []
         return ordered[:total_papers]
@@ -266,6 +268,7 @@ def test_adaptive_deepening_finds_more_survivors():
     with _patched(*targets):
         env = agent_search.run_agent_search(
             "memory", _cfg(), per_strategy=4,
+            year_min=2010, year_max=2020,
             rank_platform="cas", keep_tiers=["1"], deepen_target=4, now_year=2026,
         )
     r = env["meta"]["rank"]
@@ -273,6 +276,11 @@ def test_adaptive_deepening_finds_more_survivors():
     assert r["deepen"]["rounds"] >= 1  # it had to deepen at least once
     assert r["kept"] == 4
     assert sorted(d["doi"] for d in env["data"]) == ["10.x/1", "10.x/2", "10.x/3", "10.x/4"]
+    assert len(calls) >= 6  # three strategies on the first pass and a deeper pass
+    assert all(
+        year_min == 2010 and year_max == 2020
+        for _sort, _depth, year_min, year_max in calls
+    )
     print("OK  adaptive_deepening_finds_more_survivors")
 
 

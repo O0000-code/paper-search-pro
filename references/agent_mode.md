@@ -370,10 +370,10 @@ Process **exit code mirrors `error.code`** so a non-LLM caller can branch on `$?
 | `--with-nssd` | flag / off | **Supplemental (zh) axis.** Also query NSSD (国家哲社文献中心, Chinese social sciences) and MERGE its results into the candidate pool. Requires zh in scope (an `en` scope is upgraded to `both`). Explicit-only — no discipline auto-routing. Reported in `meta.language.chinese_sources_used`. |
 | `--with-yiigle` | flag / off | **Supplemental (zh) axis.** Also query yiigle (中华医学期刊全文数据库, Chinese medicine) and MERGE its results. Same zh-scope requirement + reporting as `--with-nssd`. |
 | `--verify` | flag / off | Attach per-paper existence + abstract + cross-source consistency markers (see below). |
-| `--quartile Q1,Q2` | csv / none | OPT-IN filter on `journal_rank.sjr.best_quartile` (the single layer); keep only these SJR quartiles. The partition is always attached. Needs cached journal-rank data (`journal_rank fetch` → `ranks/`). SJR分区, **NOT** JCR (R-04). For 区/category control use `--rank-platform`. |
+| `--quartile Q1,Q2` | csv / none | OPT-IN filter on `journal_rank.sjr.best_quartile` (the single layer); keep only these SJR quartiles. The partition is always attached. Needs compatible data in `rank.cache_dir`; configure authorised `rank.sources` before fetch. SJR分区, **NOT** JCR (R-04). For 区/category control use `--rank-platform`. |
 | `--min-impact X` | float / none | Drop papers whose OPEN journal impact (`journal_rank.openalex.mean_citedness_2yr`, OpenAlex 2yr mean citedness) is below `X`. **NOT** the JCR Impact Factor (R-09); relative use only. |
 | `--journal-category NAME` | str / none | **DEPRECATED** (legacy SJR-only layer). Use `--rank-platform sjr --rank-category` to pin a per-category quartile in the single layer. |
-| `--sjr-csv PATH` | str / none | **DEPRECATED / ignored** — the legacy sjr_helper SJR-only path is retired. Cache SJR data with `journal_rank fetch --platform sjr` (→ `ranks/`) instead. |
+| `--sjr-csv PATH` | str / none | **DEPRECATED / ignored** — the legacy sjr_helper SJR-only path is retired. Place a compatible SJR CSV in `rank.cache_dir`, or configure an authorised source before `journal_rank fetch --platform sjr`. |
 | `--no-journal-metric` | flag / off | Skip journal-rank enrichment entirely (`journal_rank` stays `null`: no partition labels, no OpenAlex open impact). |
 | `--rank-platform {cas,jcr,sjr}` | choice / none | **Multi-platform layer** (the A-line partition feature). The platform to FILTER on this run: `cas` (中科院 区) / `jcr` / `sjr`. Omit to take the platform from the query's NL intent (`中科院一区` → cas), else config `rank.default_platform` (which only LABELS, never filters). CAS 区 & SJR quartile are PARTITIONS; only JCR is a real IF (R-04). |
 | `--keep-tiers 1,2` | csv / none | **Multi-platform layer.** Tiers/quartiles to KEEP, mapped onto the chosen platform: CAS uses 区 numbers (`1,2`); JCR/SJR use quartiles (`Q1,Q2`). OPT-IN: with none given every paper is labelled with all three platforms but nothing is filtered. With a tier filter the search ADAPTIVELY DEEPENS to meet the target count. |
@@ -573,10 +573,11 @@ with **all three** platforms (plus an `openalex` open-impact sub-slot) and, when
 tier was requested, filters on **one**. The opt-in `--quartile` / `--min-impact`
 filters also read this record (`journal_rank.sjr.best_quartile` /
 `journal_rank.openalex.mean_citedness_2yr`); there is no separate per-paper
-`journal_metric` any more. The data is fetched at runtime from public mirrors into the user's local
-cache (`~/.paper-search-pro/ranks/`) by `scripts/journal_rank.py` — **never bundled
-in the repo**. First use needs a one-time `journal_rank fetch` (see
-`references/journal_metrics.md`); until then this layer degrades gracefully
+`journal_metric` any more. Data is read from the user's local cache
+(`~/.paper-search-pro/ranks/`) by `scripts/journal_rank.py` — **never bundled in
+the repo**. The user can place compatible CSVs there, or explicitly configure
+authorised source URLs before `journal_rank fetch` (see
+`references/journal_metrics.md`); until data exists this layer degrades gracefully
 (`meta.rank.data_loaded: false`, slots stay `null`, the run still succeeds — it
 **never** fetches inline).
 

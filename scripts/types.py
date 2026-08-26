@@ -349,10 +349,10 @@ class Config:
     # which "auto" mode switches to SS for the remainder of the run.
     quota_fallback_threshold_usd: float = 0.05
 
-    # ---- Journal rank (v2.2 Feature A — additive; default None = built-ins) ----
+    # ---- Journal rank (v2.2 Feature A — additive) ----
     # Nested dict from config ``rank:`` (default_platform / cache_dir / sources).
-    # None means "use journal_rank.py built-in defaults". Multi-platform partition
-    # / quartile (CAS / JCR / SJR); data fetched at runtime, never bundled.
+    # None means no source URLs are configured. Cached multi-platform partition /
+    # quartile data (CAS / JCR / SJR) remains available; data is never bundled.
     rank: Optional[Dict] = None
 
     # ---- HTML rendering ----

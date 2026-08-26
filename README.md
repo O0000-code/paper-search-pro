@@ -84,6 +84,9 @@ git clone https://github.com/O0000-code/paper-search-pro.git \
 export PSP_HOME="$HOME/.claude/skills/paper-search-pro"
 
 python3 -m pip install -r "$PSP_HOME/scripts/requirements.txt"
+
+# Optional: install the exact dependency versions validated by CI.
+python3 -m pip install -r "$PSP_HOME/scripts/requirements.lock"
 ```
 
 Five free API keys (~15 min total) — see [`references/setup.md`](references/setup.md).
@@ -134,7 +137,7 @@ Three tabs · three hero layouts · two list densities · responsive at 860 px �
   </tr>
 </table>
 
-**Journal partitions.** Every paper is tagged with its 中科院 (CAS) / JCR / SJR tier — a quiet badge on each card, the full three-platform breakdown in the detail panel, and a zone filter (`Q1 / ≥Q2 / ≥Q3`, or `一区 / ≥二区`) in the toolbar. The tables are fetched at runtime from public mirrors — never bundled — and attributed; only JCR's figure is labelled an impact factor.
+**Journal partitions.** Every paper can be tagged with its 中科院 (CAS) / JCR / SJR tier — a quiet badge on each card, the full three-platform breakdown in the detail panel, and a zone filter (`Q1 / ≥Q2 / ≥Q3`, or `一区 / ≥二区`) in the toolbar. Ranking datasets and download URLs are not bundled: provide compatible CSVs in the local cache, or explicitly configure source URLs you are authorised to use. Only JCR's figure is labelled an impact factor.
 
 Outputs land in `$PWD/paper-search-results/<search_id>/`:
 

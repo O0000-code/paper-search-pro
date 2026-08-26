@@ -72,6 +72,10 @@ homepage links below carry the canonical license file.
 
 ## Python runtime (`scripts/requirements.txt`)
 
+`scripts/requirements.lock` is a generated, exact-version snapshot of these
+same runtime packages and their transitive dependencies. It adds no runtime
+component; `requirements.txt` remains the default portable install path.
+
 | Package | License | Homepage |
 |---|:---:|---|
 | **pyalex** — OpenAlex client | MIT | <https://github.com/J535D165/pyalex> |
