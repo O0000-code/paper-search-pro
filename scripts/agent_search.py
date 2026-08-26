@@ -491,7 +491,13 @@ def _retrieve(
         results: List[List[UnifiedPaperEntity]] = []
         for sort, fn in strategies:
             try:
-                batch = fn(query, total_papers=per_strategy, sort=sort, year_min=year_min)
+                batch = fn(
+                    query,
+                    total_papers=per_strategy,
+                    sort=sort,
+                    year_min=year_min,
+                    year_max=year_max,
+                )
             except Exception as exc:  # one bad strategy must not kill the run
                 warnings.append(f"openalex strategy {sort} failed: {exc}")
                 batch = []
