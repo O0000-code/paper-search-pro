@@ -131,7 +131,7 @@ export function DocumentTop({
               fontFamily: "var(--font-sans)",
             }}
           >
-            {m.query}
+            {m.displayTitle}
           </h1>
 
           {/* Abstract block */}

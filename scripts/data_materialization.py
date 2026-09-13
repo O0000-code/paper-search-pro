@@ -8,12 +8,12 @@ expect the per-section schema:
                        network / themes)
 - paper_list.json    : per-paper render data (doi_url, authors_short, rcs, tldr,
                        ...)
-- metadata.json      : query, tier, wall_clock, papers_evaluated,
+- metadata.json      : report identity, tier, wall_clock, papers_evaluated,
                        coverage_estimate, ...
 - prisma_log.json    : PRISMA-S 16-item checklist (built by prisma_s_logger)
 
 v2.0 refactor: SearchState removed. `materialize` accepts the classified KG +
-summary text + user_query + tier directly. Optional execution metadata
+summary text + report identity + tier directly. Optional execution metadata
 (wall_clock_seconds, discovery_curve_snapshots, search_id) lets the main agent
 fill PRISMA-S item 13 / 16 when it knows the values.
 """
@@ -26,6 +26,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .report_identity import build_report_identity
 from .types import UnifiedPaperEntity
 
 
@@ -99,6 +100,9 @@ def materialize(
     output_dir: Path,
     *,
     user_query: str = "",
+    search_topic: str = "",
+    display_title: str = "",
+    language: Optional[str] = None,
     tier: str = "standard",
     search_id: str = "",
     summary: str = "",
@@ -114,7 +118,14 @@ def materialize(
     Args:
         kg: classified knowledge graph (canonical_key -> paper).
         output_dir: directory where the JSON files will land.
-        user_query: original natural-language query.
+        user_query: original natural-language request, preserved verbatim for
+            audit. It is never used as the report H1.
+        search_topic: normalized semantic retrieval topic, without operational
+            instructions or eligibility filters.
+        display_title: scholarly, evidence-bounded title authored for the final
+            report. A localized generic title is used when omitted.
+        language: report UI language (``en`` or ``zh``). When omitted, the
+            existing deterministic language detector is applied to user_query.
         tier: tier name (quick / standard / deep / audit).
         search_id: optional search ID for PRISMA-S item 16.
         summary: executive summary text (markdown, written by main agent).
@@ -170,6 +181,9 @@ def materialize(
         classified=classified,
         discovery_curve=chart_data["discovery_curve"],
         user_query=user_query,
+        search_topic=search_topic,
+        display_title=display_title,
+        language=language,
         tier=tier,
         search_id=search_id,
         wall_clock_seconds=wall_clock_seconds,
@@ -571,6 +585,9 @@ def _build_metadata(
     classified: List[UnifiedPaperEntity],
     discovery_curve: Dict[str, Any],
     user_query: str,
+    search_topic: str,
+    display_title: str,
+    language: Optional[str],
     tier: str,
     search_id: str,
     wall_clock_seconds: Optional[float],
@@ -585,9 +602,15 @@ def _build_metadata(
         if wall_clock_seconds is not None
         else 0.0
     )
+    identity = build_report_identity(
+        original_user_query=user_query,
+        search_topic=search_topic,
+        display_title=display_title,
+        language=language,
+    )
     return {
         "search_id": search_id,
-        "query": user_query,
+        **identity,
         "tier": tier,
         "wall_clock_total_s": wall_clock,
         "papers_evaluated": len(classified),
@@ -600,7 +623,7 @@ def _build_metadata(
             discovery_curve.get("ci_high"),
         ],
         "generated_at": datetime.now().isoformat(),
-        "skill_version": "paper-search-pro/2.0",
+        "skill_version": "paper-search-pro/2.4.1",
         "stop_reason": stop_reason,
     }
 
@@ -760,7 +783,23 @@ if __name__ == "__main__":
     parser.add_argument(
         "--query",
         default="",
-        help="Original user query string.",
+        help="Original user request, preserved verbatim for audit (never the H1).",
+    )
+    parser.add_argument(
+        "--search-topic",
+        default="",
+        help="Normalized semantic retrieval topic without operational instructions or filters.",
+    )
+    parser.add_argument(
+        "--display-title",
+        default="",
+        help="Scholarly report title. Blank uses a safe localized generic title.",
+    )
+    parser.add_argument(
+        "--language",
+        choices=("en", "zh"),
+        default=None,
+        help="Report UI/title fallback language. Defaults to deterministic query-language detection.",
     )
     parser.add_argument(
         "--tier",
@@ -834,6 +873,9 @@ if __name__ == "__main__":
         kg,
         output_dir,
         user_query=args.query,
+        search_topic=args.search_topic,
+        display_title=args.display_title,
+        language=args.language,
         tier=args.tier,
         search_id=args.search_id,
         summary=summary_text,

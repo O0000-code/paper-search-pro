@@ -21,7 +21,7 @@
 <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache_2.0-000?style=flat-square" alt="Apache 2.0"/></a>
 <a href="SKILL.md"><img src="https://img.shields.io/badge/agent-Skill-000?style=flat-square" alt="Agent Skill"/></a>
 <img src="https://img.shields.io/badge/Python-3.10+-000?style=flat-square" alt="Python 3.10+"/>
-<img src="https://img.shields.io/badge/version-2.4.0-000?style=flat-square" alt="v2.4.0"/>
+<img src="https://img.shields.io/badge/version-2.4.1-000?style=flat-square" alt="v2.4.1"/>
 
 </div>
 
@@ -109,6 +109,8 @@ python3 -m pip install -r "$PSP_HOME/scripts/requirements.txt"
 
 三个 Tab · 三种 Hero 布局 · 两种列表密度 · 860 px 断点完整响应式 · 中英文 UI · Noto Sans SC 字体内嵌 · 完全离线。
 
+每份报告在筛选完成后形成一个受证据约束的论文式标题。用户原话保留在审计元数据中；语言、日期、数据库、期刊分区和导出要求进入方法部分，不再被复述为视觉 H1。
+
 <table>
   <tr>
     <td width="50%" valign="top">
@@ -150,6 +152,7 @@ papers.json         完整结构化数据 (UnifiedPaperEntity[])
 kg_classified.json  内部 KG，含逐篇 RCS 评分
 execution_log.json  PRISMA-S 16 项披露日志
 summary.md          300 字执行摘要（主 Agent 撰写）
+metadata.json       分离保存用户原话 · 检索主题 · 展示标题
 ```
 
 <br/>

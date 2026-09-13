@@ -1,11 +1,11 @@
 ---
 name: paper-search-pro
-description: "Find academic papers across up to 7 sources (OpenAlex / Semantic Scholar / CrossRef / PubMed / arXiv for English, plus native-Chinese retrieval via NSSD 国家哲社文献中心 + yiigle 中华医学期刊) with adjustable depth — Quick scan (5 min) to Audit prep (3 hr). Use when the user wants to find papers, run a literature search, gather references, scope a research topic, search Chinese-language / 中文原生 literature (中文文献/中文核心/CSSCI/C刊/国内研究/国内文献/中华××期刊/心理学报/经济研究), or filter results by journal tier (中科院分区/一区/几区, Q1, JCR/SJR quartile, 影响因子/impact factor, 期刊分区, 顶刊/top journal, '按分区筛'), or export paste-ready professional search strategies / 检索式 for external databases (PubMed / WOS / Scopus / Embase / 知网 CNKI / 万方 / SinoMed — '写检索式', '导出检索式', 'WOS 检索式', '知网专业检索', 'search strategy', 'boolean search strategy'). Triggers on search verbs ('find papers', 'literature search', 'papers about X'), review types ('scoping review', 'systematic review', 'SR prep', 'literature review', 'lit review', 'help me write a lit review'), Chinese ('找文献', '找论文', '论文搜索', '学术检索', '文献检索', '文献综述', '综述前期', '求文献', '中文文献', '中文核心', 'CSSCI', 'C刊', '国内研究', '找中文的'). Outputs Shadcn HTML report + BibTeX/RIS/CSV + PRISMA-S log. Do NOT use for: concept explanations ('what is X' / 'X 是什么', e.g. '影响因子怎么算'), writing ('帮我写' / 'help me write a paragraph'), single-paper interpretation or PDF download with metadata (use paper-downloader-portable), or when the user already has a literature set (use literature-set-review)."
+description: "Find academic papers across OpenAlex, Semantic Scholar, CrossRef, PubMed, arXiv, NSSD, and yiigle with Quick, Standard, Deep, or Audit depth. Use for literature searches, review scoping, recent papers, English or native-Chinese literature, CAS/JCR/SJR journal-tier filtering, and paste-ready database search strategies for PubMed, WOS, Scopus, Embase, CNKI, Wanfang, or SinoMed. Outputs a scholarly-title Shadcn HTML report plus Markdown, BibTeX, RIS, CSV, and a PRISMA-S log. Do not use for concept explanations, prose writing from an existing corpus, single-paper interpretation, or PDF downloading."
 license: Apache-2.0
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task
 metadata:
   author: Bo
-  version: 2.4.0
+  version: 2.4.1
   vendored-from: futurehouse/paper-qa (Apache 2.0)
 ---
 
@@ -191,12 +191,14 @@ import json; print(json.dumps({
 ```
 
 Then act on the parse:
-- **`cleaned_query`** is the real topic — use it (NOT the raw query) for STEP 3 retrieval and the query plan. When the query had no rank phrasing, `cleaned_query == query` and nothing changes (R-19 default path is untouched).
+- **`cleaned_query`** is the rank-stripped retrieval input — use it (NOT the raw query) when building STEP 3 queries and the query plan. It is not automatically `SEARCH_TOPIC` or the report title: the semantic planning step below still removes conversational and operational text. When the query had no rank phrasing, `cleaned_query == query` and retrieval behavior remains unchanged (R-19).
 - **`platform` + `tiers`/`quartiles`/`top`** are the filter you will apply in STEP 10/11 — remember them; do not filter here.
 - **`ambiguous == True`** (a bare "Q1"/"Q2" with no platform word — the recogniser never guesses a platform): **ask the user one short question inline** before going further — *"按 JCR 还是 SJR 的 Q1 筛?顺便要不要设为以后的默认?"* The CLI/headless path cannot ask, so this inline question is specifically the human path's job.
 - If the query mentions no partition at all, skip this entirely — STEP 1 proceeds exactly as before.
 
 Even Quick tier needs a lightweight version of this step — never skip silently. Output: 1-3 search strategies (concept blocks + year range + work type filter). Write to `"$SEARCH_DIR/query_plan.json"` so PRISMA-S logger can pick it up later (STEP 13).
+
+**Define `SEARCH_TOPIC`, but do not freeze the report title yet.** Read `references/report_title.md` §"STEP 1". `SEARCH_TOPIC` is the normalized semantic retrieval scope derived from the concept blocks, not the user's prose with a few regex matches removed. Strip greetings, tool/output instructions, tier/language/date/database constraints, and other operating directions; retain population, exposure/intervention, outcome, mechanism, and setting only when they are scientific concepts. Keep the exact user message separately as `USER_QUERY` for PRISMA-S. The final visual title is authored in STEP 11 after the retained evidence is known.
 
 ### STEP 2 — Route supplemental sources within the STEP-1 language space
 
@@ -483,6 +485,8 @@ first (it is the SSOT for sources, the ISSN join, attribution, and R-04 naming).
 
 📖 BEFORE THIS STEP, read: `references/summary_writer.md`.
 
+📖 Also read: `references/report_title.md`, then author `DISPLAY_TITLE` alongside the summary. This is a **scholarly, evidence-bounded report title**, finalized from the retained corpus — never a copy of `USER_QUERY`, `SEARCH_TOPIC`, or the filter list. It carries the report's central narrative and visual identity. Language, date, database, journal-tier, export, and workflow requirements stay in Methods / PRISMA-S unless they are themselves scientifically meaningful. If the evidence cannot support a specific title, use the localized safe fallback (`文献检索报告` / `Literature Search Report`) rather than putting the raw request in the H1. Run the reference's pre-render acceptance check before STEP 12.
+
 Write a ~300-word executive summary in your own words based on the classified papers:
 - The field's main consensus
 - Key methods / theoretical frameworks
@@ -553,6 +557,9 @@ PYTHONPATH=$PSP_HOME \
     --kg "$SEARCH_DIR/kg_classified.json" \
     --summary "$SEARCH_DIR/summary.md" \
     --query "<original query>" \
+    --search-topic "$SEARCH_TOPIC" \
+    --display-title "$DISPLAY_TITLE" \
+    --language "$UI_LANG" \
     --tier "<quick|standard|deep|audit>" \
     --search-id "$SEARCH_ID" \
     --snapshots "$SEARCH_DIR/curve.json" \
@@ -567,6 +574,8 @@ PYTHONPATH=$PSP_HOME \
     --data "$SEARCH_DIR/report_data.json" \
     --output "$SEARCH_DIR/report.html" \
     --query "<original query>" \
+    --search-topic "$SEARCH_TOPIC" \
+    --display-title "$DISPLAY_TITLE" \
     --language "$UI_LANG"
 
 # 12c. MD report (uses materialized-dir for speed)
@@ -574,6 +583,9 @@ PYTHONPATH=$PSP_HOME \
   python3 -m scripts.md_report \
     --materialized-dir "$SEARCH_DIR" \
     --query "<original query>" \
+    --search-topic "$SEARCH_TOPIC" \
+    --display-title "$DISPLAY_TITLE" \
+    --language "$UI_LANG" \
     --tier "<quick|standard|deep|audit>" \
     --output "$SEARCH_DIR/report.md"
 
@@ -640,11 +652,11 @@ $(pwd)/paper-search-results/<search_id>/
 ├── papers.json              # Full structured data
 ├── kg_classified.json       # Internal KG with RCS scores
 ├── summary.md               # Your executive summary
+├── metadata.json            # Includes original_user_query / search_topic / display_title
 ├── execution_log.json       # PRISMA-S 16-item log
 ├── report_data.json         # Renderer bundle
 ├── chart_data.json          # Sibling: chart series
 ├── paper_list.json          # Sibling: per-paper list
-├── metadata.json            # Sibling: run metadata
 ├── prisma_log.json          # Sibling: PRISMA log JSON view
 ├── curve.json               # Saturation snapshot
 ├── query_plan.json          # STEP 1 output
@@ -689,6 +701,7 @@ You won't read all of these every run, and shouldn't. Read a step's reference wh
 | `citation_chasing.md` | cond | STEP 9 — only if expanding citations |
 | `ss_helper_cheatsheet.md`, `crossref_helper_cheatsheet.md` | cond | STEP 10 — only if enriching top-N |
 | `summary_writer.md` | core | STEP 11 |
+| `report_title.md` | core | STEP 1 normalized topic + STEP 11 evidence-bounded display title; prevents raw-query H1 |
 | `search_export/methodology.md` | cond | STEP 11.5 — only when strategy export triggers (Audit default / explicit ask / accepted Deep offer); the layer-1 semantic rulebook |
 | `search_export/chinese_methodology.md` | cond | STEP 11.5 — zh/both track only (CNKI / 万方 / SinoMed strategies; not a translation of Western boolean) |
 | `search_export/press_checklist.md` | cond | STEP 11.5 — PRESS six-domain self-review of the concept model |

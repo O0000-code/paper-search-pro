@@ -102,7 +102,7 @@ export function EditorialTop({
             )}
           </div>
 
-          {/* Query — confident H1, no chrome */}
+          {/* Scholarly report title — confident H1, no operational query text */}
           <h1
             style={{
               margin: 0,
@@ -115,7 +115,7 @@ export function EditorialTop({
               fontFamily: "var(--font-sans)",
             }}
           >
-            {m.query}
+            {m.displayTitle}
           </h1>
 
           {/* Finding — one sentence, no boxes */}

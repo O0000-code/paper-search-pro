@@ -112,6 +112,10 @@ const DENSITY_DICT_FRAGMENT: Record<string, "catalog" | "index"> = {
 export default function App() {
   const data: NormalizedData = useMemo(() => normalize(RAW), [])
 
+  useEffect(() => {
+    document.title = data.meta.displayTitle
+  }, [data.meta.displayTitle])
+
   const [layout, setLayout] = useState<string>(() =>
     readStored(STORAGE_LAYOUT, "swiss"),
   )

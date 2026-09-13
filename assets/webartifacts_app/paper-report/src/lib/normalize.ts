@@ -9,7 +9,7 @@
 // Output is always NormalizedData; downstream zones never see raw fields.
 
 import { rcsTier, shortAuthors } from "./format"
-import { getLang } from "./i18n"
+import { getLang, t } from "./i18n"
 import type {
   AuthorRef,
   ChartDataBins,
@@ -50,21 +50,18 @@ interface RawPaper {
 }
 
 interface RawMetadata {
+  /** Legacy verbatim-request field. Never use directly as a visual title. */
   query?: string
   /**
-   * Optional language-paired query string. Real Skill runs produce a single
-   * `query` (already in the user's input language). Demo/mock fixtures may
-   * supply BOTH `query` (English) and `query_zh` (Chinese) so a single mock
-   * data set previews coherently under either UI language.
-   *
-   * Selection rule (see `query` resolution below):
-   *   - active language is "zh" AND `query_zh` is non-empty → use query_zh
-   *   - otherwise → use query
-   *
-   * Real production payloads simply omit `query_zh` and behave identically
-   * to before this field was added (no regression possible).
+   * Optional language-paired legacy request used only by the bilingual mock.
+   * Production payloads preserve one verbatim `original_user_query`.
    */
   query_zh?: string
+  original_user_query?: string
+  search_topic?: string
+  search_topic_zh?: string
+  display_title?: string
+  display_title_zh?: string
   search_id?: string
   tier?: string
   generated_at?: string
@@ -93,7 +90,7 @@ interface RawShape {
 export function normalize(raw: RawShape | null | undefined): NormalizedData {
   if (!raw) {
     return {
-      meta: {},
+      meta: { displayTitle: t("reportDefaultTitle") },
       papers: [],
       chartData: {},
       prismaLog: {},
@@ -104,13 +101,29 @@ export function normalize(raw: RawShape | null | undefined): NormalizedData {
   if (raw.metadata) {
     const md = raw.metadata
     const lang = getLang()
-    // Pair query with the active language when a paired translation exists
-    // (mock fixtures supply both; real payloads only supply `query` in the
-    // user's original language — both behave correctly without changes).
-    const resolvedQuery = lang === "zh" && md.query_zh ? md.query_zh : md.query
+    // Keep audit identity and visual identity separate. Older payloads may
+    // carry only `query`; that value is retained as the original request, but
+    // it is never promoted to the H1. Missing authored titles fall back to a
+    // localized neutral report name.
+    const resolvedOriginalQuery =
+      lang === "zh" && md.query_zh
+        ? md.query_zh
+        : (md.original_user_query ?? md.query)
+    const resolvedSearchTopic =
+      lang === "zh" && md.search_topic_zh
+        ? md.search_topic_zh
+        : md.search_topic
+    const resolvedDisplayTitle =
+      (lang === "zh" && md.display_title_zh
+        ? md.display_title_zh
+        : md.display_title
+      )?.trim() || t("reportDefaultTitle")
     return {
       meta: {
-        query: resolvedQuery,
+        displayTitle: resolvedDisplayTitle,
+        originalUserQuery: resolvedOriginalQuery,
+        searchTopic: resolvedSearchTopic,
+        query: resolvedOriginalQuery,
         searchId: md.search_id,
         tier: md.tier,
         generatedAt: md.generated_at,
@@ -160,7 +173,13 @@ export function normalize(raw: RawShape | null | undefined): NormalizedData {
   }
 
   // (b) Post-materialization fallback — degraded path; do our best.
-  const meta = (raw.reportMeta ?? {}) as NormalizedData["meta"]
+  const legacyMeta = (raw.reportMeta ?? {}) as Partial<NormalizedData["meta"]>
+  const meta: NormalizedData["meta"] = {
+    ...legacyMeta,
+    displayTitle:
+      (legacyMeta.displayTitle || "").trim() || t("reportDefaultTitle"),
+    originalUserQuery: legacyMeta.originalUserQuery ?? legacyMeta.query,
+  }
   return {
     meta,
     papers: (raw.papers ?? []).map((p): NormalizedPaper => {

@@ -10,15 +10,17 @@
 export const MOCK_RAW = {
   metadata: {
     search_id: "mock_20260522_wm_training_older_adults",
+    original_user_query:
+      "Find literature on working-memory training in older adults, use the standard tier, and make me a report.",
     query:
+      "Find literature on working-memory training in older adults, use the standard tier, and make me a report.",
+    search_topic: "working memory training in older adults",
+    display_title:
       "Working memory training in older adults — transfer effects, neural plasticity, and longitudinal RCT evidence",
-    // `query_zh` paired translation — used by normalize() when window.__REPORT_LANG__
-    // is "zh" (set by Python `--language zh` in real runs, or by bundle-zh-preview.html
-    // for local preview). Real production payloads never set this; their `query`
-    // field already carries the user's original-language text. Demo-only mechanism
-    // so mock data previews coherently under either UI language.
-    query_zh:
+    // Paired demo-only identities let one fixture preview both report languages.
+    display_title_zh:
       "老年人工作记忆训练 — 迁移效应、神经可塑性与纵向 RCT 证据",
+    search_topic_zh: "老年人工作记忆训练",
     tier: "standard",
     wall_clock_total_s: 412,
     papers_evaluated: 187,
@@ -28,7 +30,7 @@ export const MOCK_RAW = {
     coverage_estimate: 0.91,
     coverage_ci: [0.83, 0.96],
     generated_at: "2026-05-22T10:14:08.523000",
-    skill_version: "paper-search-pro/2.2",
+    skill_version: "paper-search-pro/2.4.1",
     stop_reason: null,
   },
 

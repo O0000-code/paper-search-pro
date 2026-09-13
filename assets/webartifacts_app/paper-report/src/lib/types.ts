@@ -18,6 +18,13 @@ export type Tier =
   | "Peripheral"
 
 export interface NormalizedMeta {
+  /** Scholarly, evidence-bounded report title used by every visual H1. */
+  displayTitle: string
+  /** Verbatim user request retained for audit; never rendered as the H1. */
+  originalUserQuery?: string
+  /** Normalized semantic retrieval topic without operational instructions. */
+  searchTopic?: string
+  /** Legacy alias of originalUserQuery for old payload consumers. */
   query?: string
   searchId?: string
   /** 'quick' | 'standard' | 'deep' | 'audit' */

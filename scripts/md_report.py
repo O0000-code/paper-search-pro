@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .report_identity import build_report_identity
 from .types import UnifiedPaperEntity
 
 
@@ -21,6 +22,9 @@ def render_md(
     *,
     summary: str = "",
     user_query: str = "",
+    search_topic: str = "",
+    display_title: str = "",
+    language: Optional[str] = None,
     tier: str = "standard",
     skill_root: Optional[Path] = None,
 ) -> Path:
@@ -32,8 +36,10 @@ def render_md(
         output_path: where to write the markdown file.
         summary: optional executive summary text written by the main agent. If
             empty, a deterministic stub is generated from metadata.
-        user_query: original natural-language query (used when metadata lacks
-            it).
+        user_query: original natural-language request, preserved for audit.
+        search_topic: normalized semantic retrieval topic.
+        display_title: scholarly report title; never inferred from user_query.
+        language: report language used by the safe generic-title fallback.
         tier: tier name (used when metadata lacks it).
         skill_root: optional override for skill installation root.
     """
@@ -48,9 +54,21 @@ def render_md(
     paper_list = _read_json(materialized_data_dir / "paper_list.json")
     chart_data = _read_json(materialized_data_dir / "chart_data.json")
 
-    # Inject query/tier into metadata only when missing so CLI overrides do not
-    # clobber materialized values.
-    metadata.setdefault("query", user_query)
+    # Resolve the four report-identity roles without ever promoting the raw
+    # request to the visual title. Explicit renderer arguments win, then
+    # materialized values, then the safe localized generic-title fallback.
+    original = metadata.get("original_user_query")
+    if original is None:
+        original = metadata.get("query")
+    if original is None:
+        original = user_query
+    identity = build_report_identity(
+        original_user_query=original,
+        search_topic=search_topic or metadata.get("search_topic", ""),
+        display_title=display_title or metadata.get("display_title", ""),
+        language=language or metadata.get("language"),
+    )
+    metadata.update(identity)
     metadata.setdefault("tier", tier)
 
     executive_summary = (summary or "").strip()
@@ -110,7 +128,7 @@ def _fallback_summary(
     )
 
     parts = [
-        f"This search addressed the query: _{metadata.get('query', '')}_.",
+        f"This report addresses: _{metadata.get('display_title', '')}_.",
         f"In **{metadata.get('tier', 'standard')}** tier, "
         f"{metadata.get('papers_evaluated', 0)} records were screened, "
         f"of which **{metadata.get('highly_relevant_count', 0)}** scored highly relevant (RCS >= 7). "
@@ -161,6 +179,9 @@ def generate_md_report(
     *,
     summary: str = "",
     user_query: str = "",
+    search_topic: str = "",
+    display_title: str = "",
+    language: Optional[str] = None,
     tier: str = "standard",
     skill_root: Optional[Path] = None,
 ) -> Path:
@@ -170,6 +191,9 @@ def generate_md_report(
         output_path=output_path,
         summary=summary,
         user_query=user_query,
+        search_topic=search_topic,
+        display_title=display_title,
+        language=language,
         tier=tier,
         skill_root=skill_root,
     )
@@ -262,7 +286,23 @@ if __name__ == "__main__":
     parser.add_argument(
         "--query",
         default="",
-        help="User query string (used when metadata lacks it).",
+        help="Original user request, preserved for audit (never the H1).",
+    )
+    parser.add_argument(
+        "--search-topic",
+        default="",
+        help="Normalized semantic retrieval topic.",
+    )
+    parser.add_argument(
+        "--display-title",
+        default="",
+        help="Scholarly report title. Blank uses a safe localized generic title.",
+    )
+    parser.add_argument(
+        "--language",
+        choices=("en", "zh"),
+        default=None,
+        help="Report/title fallback language.",
     )
     parser.add_argument(
         "--tier",
@@ -304,6 +344,9 @@ if __name__ == "__main__":
             kg,
             materialized_dir,
             user_query=args.query,
+            search_topic=args.search_topic,
+            display_title=args.display_title,
+            language=args.language,
             tier=args.tier,
             summary=summary_text,
         )
@@ -314,6 +357,9 @@ if __name__ == "__main__":
             output_path=args.output,
             summary=summary_text,
             user_query=args.query,
+            search_topic=args.search_topic,
+            display_title=args.display_title,
+            language=args.language,
             tier=args.tier,
         )
         print(f"md_report: wrote {out}")

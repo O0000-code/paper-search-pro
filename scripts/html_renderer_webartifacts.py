@@ -24,6 +24,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .report_identity import build_report_identity
+
 log = logging.getLogger(__name__)
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -45,6 +47,8 @@ def render_html_webartifacts(
     output_path: Path,
     *,
     user_query: str = "",
+    search_topic: str = "",
+    display_title: str = "",
     language: Optional[str] = None,
 ) -> Path:
     """Render a Shadcn-styled HTML report by hydrating the pre-built bundle.
@@ -62,7 +66,10 @@ def render_html_webartifacts(
     Args:
         materialized_data_dir: directory containing the four JSON files.
         output_path: where to write the hydrated HTML.
-        user_query: fallback query string when metadata lacks one.
+        user_query: original request fallback when metadata lacks one. It is
+            retained for audit and never promoted to the H1.
+        search_topic: normalized semantic retrieval topic fallback.
+        display_title: scholarly report-title fallback.
         language: "en" or "zh". Resolution order:
             (a) explicit `language` argument, (b) `metadata.language`,
             (c) "en". Anything else falls back to "en" with a console warning
@@ -96,6 +103,9 @@ def render_html_webartifacts(
         chart_data=chart_data,
         prisma_log_raw=prisma_log_raw,
         user_query=user_query,
+        search_topic=search_topic,
+        display_title=display_title,
+        language=resolved_lang,
         search_strategies=search_strategies,
     )
 
@@ -129,6 +139,9 @@ def _build_report_data(
     prisma_log_raw: Dict[str, Any],
     *,
     user_query: str = "",
+    search_topic: str = "",
+    display_title: str = "",
+    language: Optional[str] = None,
     search_strategies: Any = None,
 ) -> Dict[str, Any]:
     """Build the raw-shape payload that React's `normalize(raw)` expects.
@@ -142,7 +155,9 @@ def _build_report_data(
     data even though Mock-data baseline rendered correctly.
 
     Transformations applied here:
-      * `metadata` — pass through; fill in `query` from CLI fallback if missing.
+      * `metadata` — pass through while separating the verbatim request,
+        normalized search topic, and scholarly display title. Legacy `query`
+        remains an audit-compatible alias and is never used as the H1.
       * `papers` — pass through with ALL fields intact, including `abstract`
         and `rcs_reasoning`. PaperSheet renders an Abstract section (collapsed
         by default, expandable) and a "Why this paper" section (rcs_reasoning).
@@ -157,10 +172,22 @@ def _build_report_data(
         strings inside step values, and the dict-of-step-key shape matches
         what `prisma_s_logger.build_prisma_s_log` emits.
     """
-    # Query fallback (legacy data dirs that lacked the `query` key in metadata).
+    # Legacy data dirs may carry only `query`. Preserve it as the verbatim
+    # request, but never use it as a title: a missing authored title receives a
+    # localized generic fallback instead.
     meta_out: Dict[str, Any] = dict(metadata) if isinstance(metadata, dict) else {}
-    if not meta_out.get("query") and user_query:
-        meta_out["query"] = user_query
+    original = meta_out.get("original_user_query")
+    if original is None:
+        original = meta_out.get("query")
+    if original is None:
+        original = user_query
+    identity = build_report_identity(
+        original_user_query=original,
+        search_topic=search_topic or meta_out.get("search_topic", ""),
+        display_title=display_title or meta_out.get("display_title", ""),
+        language=language or meta_out.get("language"),
+    )
+    meta_out.update(identity)
 
     out: Dict[str, Any] = {
         "metadata": meta_out,
@@ -294,7 +321,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "--query",
         default="",
-        help="Optional original user query (fallback when metadata lacks it).",
+        help="Optional original user request fallback (never the H1).",
+    )
+    parser.add_argument(
+        "--search-topic",
+        default="",
+        help="Optional normalized semantic retrieval topic fallback.",
+    )
+    parser.add_argument(
+        "--display-title",
+        default="",
+        help="Optional scholarly report title fallback.",
     )
     parser.add_argument(
         "--language",
@@ -344,6 +381,8 @@ if __name__ == "__main__":
         materialized_data_dir=materialized_dir,
         output_path=args.output,
         user_query=args.query,
+        search_topic=args.search_topic,
+        display_title=args.display_title,
         language=args.language,
     )
     print(f"html_renderer_webartifacts: wrote {out}")

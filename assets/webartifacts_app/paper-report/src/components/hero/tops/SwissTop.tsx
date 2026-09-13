@@ -113,7 +113,7 @@ export function SwissTop({
               alignItems: "start",
             }}
           >
-            {/* Query */}
+            {/* Scholarly report title */}
             <div>
               <div
                 style={{
@@ -127,7 +127,7 @@ export function SwissTop({
                   height: 12,
                 }}
               >
-                {t("query")}
+                {t("researchTopic")}
               </div>
               <h1
                 style={{
@@ -140,7 +140,7 @@ export function SwissTop({
                   fontFamily: "var(--font-sans)",
                 }}
               >
-                {m.query}
+                {m.displayTitle}
               </h1>
             </div>
 

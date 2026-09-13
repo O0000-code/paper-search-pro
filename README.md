@@ -21,7 +21,7 @@ Five open sources + native-Chinese search · four tiers · journal partitions ·
 <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache_2.0-000?style=flat-square" alt="Apache 2.0"/></a>
 <a href="SKILL.md"><img src="https://img.shields.io/badge/agent-Skill-000?style=flat-square" alt="Agent Skill"/></a>
 <img src="https://img.shields.io/badge/Python-3.10+-000?style=flat-square" alt="Python 3.10+"/>
-<img src="https://img.shields.io/badge/version-2.4.0-000?style=flat-square" alt="v2.4.0"/>
+<img src="https://img.shields.io/badge/version-2.4.1-000?style=flat-square" alt="v2.4.1"/>
 
 </div>
 
@@ -109,6 +109,8 @@ The Skill picks **Standard** by default. Wording like *thorough*, *systematic re
 
 Three tabs · three hero layouts · two list densities · responsive at 860 px · bilingual UI · Noto Sans SC inlined · fully offline.
 
+Each report has a scholarly, evidence-bounded title authored after screening. The verbatim user request remains in audit metadata, while language, date, database, journal-tier, and export constraints stay in Methods rather than being repeated in the visual H1.
+
 <table>
   <tr>
     <td width="50%" valign="top">
@@ -150,6 +152,7 @@ papers.json         Full structured data (UnifiedPaperEntity[])
 kg_classified.json  Internal KG with per-paper RCS scores
 execution_log.json  PRISMA-S 16-item disclosure log
 summary.md          300-word executive summary in the main agent's voice
+metadata.json       Separate original request · search topic · display title
 ```
 
 <br/>

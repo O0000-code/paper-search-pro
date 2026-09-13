@@ -39,6 +39,7 @@ Main agent generates this once at start, never changes mid-search.
 ├── kg_classified.json           # Internal KG: papers + RCS + flags + sources
 ├── kg.json                      # Pre-classification KG (federated dedup output)
 ├── summary.md                   # Executive summary written by main agent
+├── metadata.json                # original_user_query + search_topic + display_title + run metadata
 ├── execution_log.json           # PRISMA-S 16-item + stop reason + errors
 ├── curve.json                   # Discovery curve + saturation estimate + CI
 ├── concept_model.json           # STEP 11.5 only — platform-independent concept model (layer-1 LLM output)
@@ -81,6 +82,7 @@ Main agent generates this once at start, never changes mid-search.
 | `raw/citations.json` | `openalex_helper citation-network` (STEP 9) | Citation expansion seeds | `{references, cited_by}` per seed, appended |
 | `batches/batch_NNN.jsonl` | Main agent (STEP 6) | Classifier input shard | One paper per line: `{paper_id, title, abstract, year, venue}` |
 | `classifications/batch_NNN_result.json` | Inline SubAgent (STEP 6) | RCS classification output | `[{paper_id, rcs, reasoning, flag}]` |
+| `metadata.json` | `data_materialization.py` (STEP 12) | Separates audit identity from visual identity | `{query (legacy), original_user_query, search_topic, display_title, language, ...run metadata}` |
 | `report_data.json` | `data_materialization.py` (STEP 12) | Intermediate for HTML/MD renderers | `{chart_data, paper_list, metadata, prisma_log}` |
 
 ## HTML renderer
@@ -92,6 +94,9 @@ Main agent generates this once at start, never changes mid-search.
   HTML cleanly; the bundle is ~990 KB pristine and ~1.7 MB hydrated for a
   typical 250-paper report.
 - No per-render config flag — `html_renderer_webartifacts.py` is the only path.
+- The HTML and Markdown H1 read only `metadata.display_title`. Legacy
+  `metadata.query` is treated as the verbatim request and never promoted to a
+  heading. Missing titles fall back to `Literature Search Report` / `文献检索报告`.
 
 ## Cleanup convention
 
