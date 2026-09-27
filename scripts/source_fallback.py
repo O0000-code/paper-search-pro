@@ -32,17 +32,23 @@ _MISSING_FIELDS = "institutions, funders, topics, FWCI, open impact"
 # skipped rather than asked without it (which would return other types).
 _SS_TYPES = {
     "review": "Review",
-    "article": "JournalArticle",
+    "article": "JournalArticle,Conference",
     "book": "Book",
     "book-chapter": "BookSection",
     "dataset": "Dataset",
     "editorial": "Editorial",
     "letter": "LettersAndComments",
 }
-_CROSSREF_TYPES = {
+_CROSSREF_TYPES = {  # https://api.crossref.org/types
     "article": ("journal-article", "proceedings-article"),
     "preprint": ("posted-content",),
+    "book": ("book", "monograph", "edited-book"),
     "book-chapter": ("book-chapter",),
+    "dataset": ("dataset",),
+    "dissertation": ("dissertation",),
+    "report": ("report",),
+    "standard": ("standard",),
+    "peer-review": ("peer-review",),
 }
 
 

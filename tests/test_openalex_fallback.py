@@ -595,3 +595,63 @@ def test_verify_title_falls_back_to_crossref_or_says_unchecked(monkeypatch):
     r = agent_search._verify_one_ref(ref, oa_ready=True, cr_ready=True, ss_ready=False)
     assert r["exists"] is False and r["unchecked"] is True
     assert "NOT checked" in r["note"]
+
+
+def test_type_maps_cover_crossref_types(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ss_helper, "search", lambda q, **k: [])
+    monkeypatch.setattr(crossref_helper, "search_works",
+                        lambda q, **k: calls.append(k["types"]) or [_paper("10.3/b", "crossref")])
+    exc = OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
+    for t in ("book", "dataset", "dissertation"):
+        assert source_fallback.serve_list("search", {"query": "q", "limit": 3, "work_type": t}, exc).served
+    assert calls[0] == ("book", "monograph", "edited-book") and calls[1] == ("dataset",)
+
+
+def test_malformed_crossref_record_is_skipped_not_fatal(monkeypatch):
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return {"message": {"items": [
+                {"title": ["Bad"], "is-referenced-by-count": "n/a", "issued": "oops"},
+                {"title": ["Good"], "DOI": "10.1/g"},
+            ]}}
+
+    class _Sess:
+        def get(self, *a, **k):
+            return _Resp()
+
+    monkeypatch.setattr(crossref_helper, "_get_session", lambda: _Sess())
+    got = crossref_helper.search_works("q", limit=5)
+    assert [p.title for p in got] == ["Bad", "Good"] and got[0].citation_count == 0
+
+
+def test_verify_crossref_failure_is_unchecked(monkeypatch):
+    def down(*_a, **_k):
+        raise OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
+
+    def broken(*_a, **_k):
+        raise ValueError("parser blew up")
+
+    monkeypatch.setattr(agent_search.openalex_helper, "search_works", down)
+    monkeypatch.setattr(crossref_helper, "search_works", broken)
+    r = agent_search._verify_one_ref({"title": "Some title"}, oa_ready=True, cr_ready=True,
+                                     ss_ready=False)
+    assert r["unchecked"] is True and r["exists"] is False
+
+
+def test_fallback_off_envelope_reports_kept_partial(monkeypatch):
+    def partial_then_down(*_a, **_k):
+        exc = OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
+        exc.partial = [_paper("10.1/oa", "openalex")]
+        raise exc
+
+    monkeypatch.setattr(oah, "search_works", partial_then_down)
+    cfg = Config()
+    cfg.quota_fallback = False
+    out, err, code = _run_cli(monkeypatch, ["--json-envelope", "search", "q"], config=cfg)
+    env = json.loads(out)
+    assert code == oah.EXIT_SOURCE_UNAVAILABLE and env["meta"]["count"] == 1
+    assert env["meta"]["source"] == "openalex (partial)"
+    assert env["meta"]["fallback"]["kept_openalex_partial"] == 1

@@ -883,19 +883,21 @@ EXIT_SOURCE_UNAVAILABLE = 3
 
 def _empty_payload(cmd: str, exc: OpenAlexUnavailable):
     """The command's result shape with nothing (or only what OpenAlex returned
-    before the cutoff) in it, so stdout stays one valid JSON document."""
+    before the cutoff) in it, so stdout stays one valid JSON document.
+    Returns ``(payload, count, kept_openalex_records)``."""
     from . import source_fallback
 
     if cmd in source_fallback.LIST_COMMANDS:
         kept = list(exc.partial or []) if isinstance(exc.partial, list) else []
-        return _entity_list_to_json(kept), len(kept)
+        return _entity_list_to_json(kept), len(kept), len(kept)
     if cmd == "citation-network":
         part = exc.partial if isinstance(exc.partial, dict) else {}
+        refs, cited = part.get("references") or [], part.get("cited_by") or []
         return {
-            "references": _entity_list_to_json(part.get("references") or []),
-            "cited_by": _entity_list_to_json(part.get("cited_by") or []),
-        }, None
-    return {}, None
+            "references": _entity_list_to_json(refs),
+            "cited_by": _entity_list_to_json(cited),
+        }, None, len(refs) + len(cited)
+    return {}, None, 0
 
 
 def _fallback_args(args) -> dict:
@@ -1125,9 +1127,10 @@ def _main_cli() -> None:
         payload, count = _run_command(args)
     except OpenAlexUnavailable as exc:
         if not getattr(config, "quota_fallback", True):
-            payload, count = _empty_payload(args.cmd, exc)
+            payload, count, kept = _empty_payload(args.cmd, exc)
             fallback_meta = {"reason": exc.reason, "reset_seconds": exc.reset_seconds,
-                             "served_by": [], "kept_openalex_partial": 0}
+                             "served_by": ["openalex (partial)"] if kept else [],
+                             "kept_openalex_partial": kept}
             served = False
             notice = (
                 f"[paper-search-pro] OpenAlex unavailable ({exc.describe()}). Automatic "

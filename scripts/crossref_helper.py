@@ -381,6 +381,13 @@ _TYPE_MAP = {
 _JATS_TAG = re.compile(r"<[^>]+>")
 
 
+def _as_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def record_to_entity(rec: Dict[str, Any]) -> UnifiedPaperEntity:
     """One CrossRef work record -> UnifiedPaperEntity (sources=["crossref"])."""
     doi = (rec.get("DOI") or "").strip().lower() or None
@@ -388,11 +395,14 @@ def record_to_entity(rec: Dict[str, Any]) -> UnifiedPaperEntity:
     title = html.unescape(titles[0]).strip() if titles else ""
     authors = []
     for a in rec.get("author") or []:
+        if not isinstance(a, dict):
+            continue
         name = " ".join(x for x in (a.get("given"), a.get("family")) if x) or a.get("name") or ""
         if name:
             authors.append(Author(name=html.unescape(name)))
     year = None
-    parts = (rec.get("issued") or {}).get("date-parts") or []
+    issued = rec.get("issued")
+    parts = (issued.get("date-parts") if isinstance(issued, dict) else None) or []
     if parts and parts[0] and parts[0][0]:
         try:
             year = int(parts[0][0])
@@ -413,7 +423,7 @@ def record_to_entity(rec: Dict[str, Any]) -> UnifiedPaperEntity:
         venue=html.unescape(containers[0]) if containers else None,
         issn=issns[0] if issns else None,
         type=_TYPE_MAP.get(rec.get("type") or ""),
-        citation_count=int(rec.get("is-referenced-by-count") or 0),
+        citation_count=_as_int(rec.get("is-referenced-by-count")),
         doi_url=f"https://doi.org/{doi}" if doi else None,
         sources=["crossref"],
     )
@@ -456,7 +466,13 @@ def search_works(
             items = (resp.json().get("message") or {}).get("items") or []
         except ValueError:
             break
-        out.extend(record_to_entity(it) for it in items if it.get("title"))
+        for it in items:
+            if not isinstance(it, dict) or not it.get("title"):
+                continue
+            try:
+                out.append(record_to_entity(it))
+            except Exception:
+                continue  # one malformed record must not sink the page
         if len(items) < rows:
             break
         offset += rows

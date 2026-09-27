@@ -1175,7 +1175,10 @@ def _verify_one_ref(
         except OpenAlexUnavailable as exc:
             # A spent budget is not evidence that the paper is missing: check the
             # title in CrossRef instead, or say plainly that it was not checked.
-            candidates = crossref_helper.search_works(title, limit=5) if cr_ready else []
+            try:
+                candidates = crossref_helper.search_works(title, limit=5) if cr_ready else []
+            except Exception:
+                candidates = []
             if not candidates:
                 result["unchecked"] = True
                 result["note"] = (
