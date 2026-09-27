@@ -11,7 +11,9 @@
 // clipboard + new tab; copy-only when no URL resolves) · chevron. Rows start
 // collapsed (the action works without expanding). The body is separated by a
 // dashed rule (user ruling 2026-07-25: no grey fills) and shows the strategy
-// broken at top-level concept blocks — AND/NOT heavier, OR receded —
+// broken at top-level concept blocks and de-noised for a professional reader:
+// the strategy is shown verbatim (no paraphrase layer), search terms in ink,
+// syntax (field tags, quotes, parentheses, OR) receded; AND/NOT stay heavier;
 // unverified controlled-vocabulary headings underlined in place, then the
 // review notes. Copy always yields the raw strategy_string, byte-for-byte.
 //
@@ -361,6 +363,43 @@ export function segmentStrategy(line: string): Seg[] {
   return out
 }
 
+// Syntax a professional reads past: field tags, field-scope wrappers,
+// parentheses, CNKI's SU %=, EBSCO's MH/DE prefixes, ERIC's descriptor:.
+const SYNTAX_RE =
+  /(\[[^\]]*\]|:(?:ti|ab|kw)(?:,(?:ti|ab|kw))*|\.(?:ti|ab|kw|sh|mp|tw)(?:,(?:ti|ab|kw|sh|mp|tw))*\.|TITLE-ABS-KEY\(|\b[A-Z]{2,}=\(?|%=|\bSU\b|\b(?:MH|MM|MJ|DE)\b|descriptor:|[()])/
+
+const INK = "hsl(var(--foreground))"
+
+/** Terms in ink; everything syntactic inherits the block's muted colour.
+ *  Lossless — it only wraps text, never rewrites it. */
+function inkTerms(text: string, keyBase: string): React.ReactNode[] {
+  if (text[0] === '"' || text[0] === "'") {
+    const close = text.lastIndexOf(text[0])
+    if (close > 0) {
+      return [
+        text[0],
+        <span key={keyBase + "i"} style={{ color: INK }}>
+          {text.slice(1, close)}
+        </span>,
+        text.slice(close),
+      ]
+    }
+  }
+  return text.split(SYNTAX_RE).flatMap((part, i) => {
+    if (!part) return []
+    if (i % 2 === 1) return [part]
+    return part.split(/(\s+)/).map((w, j) =>
+      /\S/.test(w) ? (
+        <span key={`${keyBase}-${i}-${j}`} style={{ color: INK }}>
+          {w}
+        </span>
+      ) : (
+        w
+      ),
+    )
+  })
+}
+
 function renderLine(line: string, flagged: Map<string, FlagKind>): React.ReactNode[] {
   return segmentStrategy(line).map((g, i) => {
     // Weight follows structure, not frequency: AND/NOT join concept blocks
@@ -368,14 +407,14 @@ function renderLine(line: string, flagged: Map<string, FlagKind>): React.ReactNo
     // → recedes so the terms stay the readable layer.
     if (g.kind === "strong") {
       return (
-        <span key={i} style={{ fontWeight: 600, color: "hsl(var(--foreground))" }}>
+        <span key={i} style={{ fontWeight: 600, color: INK }}>
           {g.text}
         </span>
       )
     }
     if (g.kind === "soft") {
       return (
-        <span key={i} style={{ color: "hsl(var(--muted-foreground))" }}>
+        <span key={i} style={{ opacity: 0.75 }}>
           {g.text}
         </span>
       )
@@ -402,7 +441,14 @@ function renderLine(line: string, flagged: Map<string, FlagKind>): React.ReactNo
         </span>
       )
     }
-    return <React.Fragment key={i}>{g.text}</React.Fragment>
+    if (g.kind === "cv") {
+      return (
+        <span key={i} style={{ color: INK }}>
+          {g.text}
+        </span>
+      )
+    }
+    return <React.Fragment key={i}>{inkTerms(g.text, `t${i}`)}</React.Fragment>
   })
 }
 
@@ -671,9 +717,9 @@ function StrategyRow({
             style={{
               margin: 0,
               fontFamily: "var(--font-mono)",
-              fontSize: 12.5,
+              fontSize: 12,
               lineHeight: 1.8,
-              color: "hsl(var(--foreground) / 0.82)",
+              color: "hsl(var(--muted-foreground))",
               whiteSpace: "pre-wrap",
               overflowWrap: "break-word",
               tabSize: 2,
