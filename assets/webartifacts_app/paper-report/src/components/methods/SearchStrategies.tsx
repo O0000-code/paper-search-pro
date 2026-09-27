@@ -799,7 +799,7 @@ function WithheldRow({ s, divider }: { s: SearchStrategyEntry; divider: boolean 
 function GroupHeader({ label, count }: { label: string; count: number }) {
   // Same header as the Audit tab's PhaseGroup: mono label + count + hairline.
   return (
-    <div style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "14px 4px" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 0" }}>
       <span
         style={{
           fontFamily: "var(--font-mono)",
@@ -897,10 +897,12 @@ export function SearchStrategies({ data }: { data: NormalizedData }) {
 
   return (
     <section style={{ marginBottom: 56 }}>
+      {/* Vertical alignment lives in index.css (.rd-strategy-head): the
+          toggle sits on the description's last baseline. */}
       <div
+        className="rd-strategy-head"
         style={{
           display: "flex",
-          alignItems: "flex-end",
           justifyContent: "space-between",
           gap: 16,
         }}
@@ -916,7 +918,7 @@ export function SearchStrategies({ data }: { data: NormalizedData }) {
               alignItems: "center",
               gap: 6,
               marginBottom: 16,
-              padding: "4px 2px",
+              padding: "4px 0",
               border: 0,
               background: "transparent",
               cursor: "pointer",

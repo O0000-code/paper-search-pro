@@ -319,7 +319,7 @@ function ReportShell({
       />
 
       {tab === "findings" && view === "compact" && RowComponent === PaperRowIndex && (
-        <div style={{ maxWidth: 1240, margin: "0 auto", padding: "0 40px" }}>
+        <div className="rd-list" style={{ maxWidth: 1240, margin: "0 auto", padding: "0 40px" }}>
           <PaperRowIndexHeader />
         </div>
       )}

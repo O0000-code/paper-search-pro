@@ -78,7 +78,7 @@ export function MethodsTab({ data, onSelectPaper }: MethodsTabProps) {
       style={{
         maxWidth: 1240,
         margin: "0 auto",
-        padding: "32px 40px 80px",
+        padding: "32px 56px 80px",
         fontFamily: "var(--font-sans)",
       }}
     >
@@ -173,17 +173,24 @@ export function MethodsTab({ data, onSelectPaper }: MethodsTabProps) {
           Extensions tab (user ruling: strategies are a deliverable, not part
           of the methods narrative; see components/extensions/ExtensionsTab). */}
 
+      {/* Each section spans three shared rows (header / card / note) via
+          subgrid, so the two cards start and end on the same lines even when
+          one side's description or note wraps to an extra line. Layout lives
+          in index.css (.rd-methods-pair): engines without subgrid keep the
+          original flex column. */}
       <div
+        className="rd-methods-pair"
         style={{
           display: "grid",
           gridTemplateColumns: "1fr 1fr",
-          gap: 32,
+          columnGap: 32,
+          rowGap: 0,
           marginBottom: 56,
           alignItems: "stretch",
         }}
       >
         {yearBins.length > 0 && (
-          <section style={{ display: "flex", flexDirection: "column" }}>
+          <section>
             <SectionHeader
               kicker={t("timeKicker")}
               title={t("publicationsTitle")}
@@ -201,7 +208,7 @@ export function MethodsTab({ data, onSelectPaper }: MethodsTabProps) {
               <div style={{ flex: 1 }} />
             </Card>
             {insights.time && (
-              <div style={{ marginTop: 14 }}>
+              <div className="rd-pair-note" style={{ marginTop: 14 }}>
                 <KickerAlert variant="info" Icon={Info}>
                   {insights.time}
                 </KickerAlert>
@@ -211,7 +218,7 @@ export function MethodsTab({ data, onSelectPaper }: MethodsTabProps) {
         )}
 
         {rcsBins.length > 0 && (
-          <section style={{ display: "flex", flexDirection: "column" }}>
+          <section>
             <SectionHeader
               kicker={t("qualityKicker")}
               title={t("rcsDistTitle")}
@@ -278,7 +285,7 @@ export function MethodsTab({ data, onSelectPaper }: MethodsTabProps) {
               </div>
             </Card>
             {insights.quality && (
-              <div style={{ marginTop: 14 }}>
+              <div className="rd-pair-note" style={{ marginTop: 14 }}>
                 <KickerAlert variant="info" Icon={Info}>
                   {insights.quality}
                 </KickerAlert>
@@ -341,7 +348,8 @@ export function MethodsTab({ data, onSelectPaper }: MethodsTabProps) {
           title={t("allocationTitle")}
           sub={t("allocationSub")}
         />
-        <Card style={{ padding: "24px 28px", borderRadius: 12, boxShadow: "none" }}>
+        {/* 24 sides like the cards stacked above and below it */}
+        <Card style={{ padding: "24px 24px", borderRadius: 12, boxShadow: "none" }}>
           <TierAllocation
             papers={data.papers}
             totalScreened={totalScreened}

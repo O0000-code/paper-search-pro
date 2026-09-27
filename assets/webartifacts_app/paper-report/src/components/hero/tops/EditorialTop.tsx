@@ -172,7 +172,8 @@ export function EditorialTop({
           style={{
             maxWidth: 1240,
             margin: "0 auto",
-            padding: "0 40px",
+            // 56 = the page content edge the paper list's text sits on
+            padding: "0 56px",
             display: "flex",
             alignItems: "stretch",
           }}
@@ -215,6 +216,7 @@ export function EditorialTop({
           })}
           <div style={{ flex: 1 }} />
           <span
+            className="rd-nav-meta"
             style={{
               alignSelf: "center",
               fontSize: 11,
@@ -239,13 +241,16 @@ export function EditorialTop({
             style={{
               maxWidth: 1240,
               margin: "0 auto",
-              padding: "14px 40px",
+              padding: "14px 56px",
               display: "flex",
               alignItems: "center",
               gap: 18,
+              // wraps whenever chips + search don't fit, never overflows
+              flexWrap: "wrap",
+              rowGap: 10,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 14, fontSize: 11.5 }}>
+            <div className="rd-chip-group" style={{ display: "flex", alignItems: "center", gap: 14, rowGap: 8, flexWrap: "wrap", fontSize: 11.5 }}>
               {tierChips
                 .filter((t) => t.count > 0)
                 .map(({ tier, label, count }) => {
@@ -259,6 +264,7 @@ export function EditorialTop({
                         display: "inline-flex",
                         alignItems: "baseline",
                         gap: 5,
+                        whiteSpace: "nowrap",
                         padding: "4px 0",
                         color: active
                           ? "hsl(var(--foreground))"
@@ -306,7 +312,7 @@ export function EditorialTop({
               />
             )}
             <div style={{ flex: 1 }} />
-            <div style={{ flex: "0 0 220px" }}>
+            <div style={{ flex: "0 0 220px", marginLeft: "auto" }}>
               <SearchInput
                 placeholder={t("searchPlaceholder")}
                 value={search}

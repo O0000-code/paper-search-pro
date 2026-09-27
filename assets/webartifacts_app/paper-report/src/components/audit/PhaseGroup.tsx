@@ -37,13 +37,15 @@ export function PhaseGroup({ phase, items, index }: PhaseGroupProps) {
         marginBottom: index === PHASE_ORDER.length - 1 ? 0 : 36,
       }}
     >
+      {/* Flush with the list's border on both ends; centred so the hairline
+          sits on the label's midline. */}
       <div
         style={{
           display: "flex",
-          alignItems: "baseline",
+          alignItems: "center",
           gap: 12,
           marginBottom: 0,
-          padding: "14px 4px",
+          padding: "14px 0",
         }}
       >
         <span

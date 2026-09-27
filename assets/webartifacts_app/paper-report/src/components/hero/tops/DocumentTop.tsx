@@ -110,13 +110,24 @@ export function DocumentTop({
               borderRadius: 4,
               padding: "4px 10px",
               marginBottom: 32,
+              // a long search ID truncates instead of running off a phone
+              maxWidth: "100%",
             }}
           >
-            <span style={{ color: "hsl(var(--foreground))", fontWeight: 600 }}>
+            <span style={{ color: "hsl(var(--foreground))", fontWeight: 600, flexShrink: 0 }}>
               {t("discoveryReport")}
             </span>
-            <span style={{ margin: "0 8px", opacity: 0.5 }}>·</span>
-            <span>{m.searchId || m.skillVersion}</span>
+            <span style={{ margin: "0 8px", opacity: 0.5, flexShrink: 0 }}>·</span>
+            <span
+              style={{
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {m.searchId || m.skillVersion}
+            </span>
           </div>
 
           {/* Big title */}
@@ -267,21 +278,27 @@ export function DocumentTop({
           style={{
             maxWidth: 1240,
             margin: "0 auto",
-            padding: "0 40px",
+            // 56 = the page content edge the paper list's text sits on
+            padding: "0 56px",
             display: "flex",
             alignItems: "stretch",
             gap: 0,
           }}
         >
-          {TAB_ITEMS.map((it) => {
+          {TAB_ITEMS.map((it, i) => {
             const active = it.value === tab
             return (
               <button
                 key={it.value}
                 type="button"
                 onClick={() => setTab(it.value)}
+                className="rd-doc-tab"
                 style={{
                   padding: "14px 18px",
+                  whiteSpace: "nowrap",
+                  // first label's text on the content edge; its underline
+                  // bleeds into the gutter like the rows' hover fill
+                  marginLeft: i === 0 ? -18 : 0,
                   fontSize: 13,
                   fontWeight: active ? 600 : 400,
                   color: active
@@ -309,6 +326,7 @@ export function DocumentTop({
           })}
           <div style={{ flex: 1 }} />
           <span
+            className="rd-nav-meta"
             style={{
               alignSelf: "center",
               fontSize: 11,
@@ -335,24 +353,32 @@ export function DocumentTop({
             style={{
               maxWidth: 1240,
               margin: "0 auto",
-              padding: "14px 40px",
+              padding: "14px 56px",
               display: "flex",
               alignItems: "center",
               gap: 0,
+              // wraps whenever chips + search don't fit (tier + zone chips
+              // are long on rank-annotated reports), never overflows
+              flexWrap: "wrap",
+              rowGap: 10,
             }}
           >
             {/* Tier group — label + relevance-tier chips (left cluster).
                 1:1 with TARGET top-3-document.jsx: tier group + zone filter on
                 the left, search pushed to the far right by a flex spacer. */}
             <div
+              className="rd-chip-group"
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 12,
+                flexWrap: "wrap",
+                rowGap: 8,
               }}
             >
               <span
                 style={{
+                  whiteSpace: "nowrap",
                   fontSize: 11,
                   color: "hsl(var(--muted-foreground))",
                   fontFamily: "var(--font-mono)",
@@ -379,6 +405,7 @@ export function DocumentTop({
                       display: "inline-flex",
                       alignItems: "baseline",
                       gap: 5,
+                      whiteSpace: "nowrap",
                       fontSize: 12,
                       color: active
                         ? "hsl(var(--foreground))"
@@ -433,7 +460,7 @@ export function DocumentTop({
             )}
             <div style={{ flex: 1 }} />
             {/* Search — right-aligned (TARGET top-3-document.jsx) */}
-            <div style={{ flex: "0 0 240px" }}>
+            <div style={{ flex: "0 0 240px", marginLeft: "auto" }}>
               <SearchInput
                 placeholder={t("searchWithin")}
                 value={search}

@@ -90,6 +90,7 @@ export function SwissTop({
             style={{
               display: "flex",
               justifyContent: "space-between",
+              gap: 16,
               fontSize: 10.5,
               color: "hsl(var(--muted-foreground))",
               fontFamily: "var(--font-mono)",
@@ -99,18 +100,32 @@ export function SwissTop({
               marginBottom: 60,
             }}
           >
-            <span>{m.searchId || m.skillVersion}</span>
-            <span>{date.replace(/-/g, ".")}</span>
+            <span
+              style={{
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {m.searchId || m.skillVersion}
+            </span>
+            <span style={{ flexShrink: 0 }}>{date.replace(/-/g, ".")}</span>
           </div>
 
           {/* 12-col grid: query | gutter | 16 | 96% */}
           <div
             style={{
               display: "grid",
-              gridTemplateColumns:
-                "minmax(0, 6fr) 1fr minmax(0, 2.2fr) minmax(0, 2.2fr)",
+              // Last column hugs its content, so its widest line (the big
+              // numeral, any digit count) ends on the page's right content
+              // edge like the date and search box. The first stat column
+              // keeps its 2.2fr share, but never narrower than its content.
+              gridTemplateColumns: "minmax(0, 6fr) 1fr minmax(max-content, 2.2fr) auto",
               gap: 0,
-              alignItems: "start",
+              // stretch: the two stat columns' dividers are equally tall even
+              // when one sub-caption wraps to an extra line
+              alignItems: "stretch",
             }}
           >
             {/* Scholarly report title */}
@@ -146,8 +161,15 @@ export function SwissTop({
 
             <div />
 
-            {/* 16 — highly relevant */}
-            <div style={{ borderLeft: "1px solid hsl(var(--border))", paddingLeft: 24 }}>
+            {/* 16 — highly relevant. paddingRight mirrors the 24 on the far
+                side of the next divider (the columns are content-width now). */}
+            <div
+              style={{
+                borderLeft: "1px solid hsl(var(--border))",
+                paddingLeft: 24,
+                paddingRight: 24,
+              }}
+            >
               <div
                 style={{
                   fontSize: 10.5,
@@ -221,7 +243,9 @@ export function SwissTop({
               >
                 {coverage !== undefined ? Math.round(coverage * 100) : "—"}
                 {coverage !== undefined && (
-                  <span style={{ fontSize: 56, marginLeft: 2 }}>%</span>
+                  // marginRight 2: the % glyph overhangs its box by ~2px; this
+                  // puts its ink on the same edge as the date and scores
+                  <span style={{ fontSize: 56, marginLeft: 2, marginRight: 2 }}>%</span>
                 )}
               </div>
               <div
@@ -344,8 +368,12 @@ export function SwissTop({
               margin: "0 auto",
               padding: "14px 56px",
               display: "flex",
-              alignItems: "center",
+              // baseline: the 10.5px label and the 11.5px chips share one
+              alignItems: "baseline",
               gap: 0,
+              // long English tier + zone chips wrap instead of overflowing
+              flexWrap: "wrap",
+              rowGap: 8,
             }}
           >
             <div

@@ -95,7 +95,7 @@ export function PaperSheet({
         //   so the ↑/↓/✕ trio sits together per TARGET layout).
         // - Override default p-6 + gap-4 + shadow-lg to match TARGET zero padding
         //   and rely on inner sections for spacing.
-        className="w-[680px] sm:max-w-[680px] p-0 gap-0 flex flex-col [&>button.absolute]:hidden"
+        className="w-[min(680px,100vw)] sm:max-w-[680px] p-0 gap-0 flex flex-col [&>button.absolute]:hidden"
         style={{
           background: "hsl(var(--card))",
           // Gate the drop shadow on open state so the offscreen sheet
@@ -126,7 +126,9 @@ export function PaperSheet({
             {/* Header row — tier pill + nav buttons */}
             <div
               style={{
-                padding: "20px 24px 16px",
+                // right 12, not 24: the ghost buttons' icons sit ~12px inside
+                // their boxes, so the ✕ ink lands on the body's right edge
+                padding: "20px 12px 16px 24px",
                 borderBottom: "1px solid hsl(var(--border))",
                 display: "flex",
                 alignItems: "center",

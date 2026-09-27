@@ -1203,6 +1203,32 @@
 }
 .rd-jump:active { transform: translateX(0) scale(0.94); }
 
+/* Alignment polish (2026-09-27). Everything below the hero shares one pair
+   of content edges: 56px inside the 1240 container (16 / 12 on small
+   screens). The paper list reaches it as 40 + the rows' own 16, so the row
+   hover fill can bleed into the gutter while the text stays on the edge. */
+
+/* Methods tab, year / RCS pair: each section spans three shared rows
+   (header / card / note) so the two cards and the two notes start and end on
+   the same lines. Without subgrid support the sections stay the original
+   flex column (card fills the leftover height). */
+.rd-methods-pair > section { display: flex; flex-direction: column; }
+@supports (grid-template-rows: subgrid) {
+  .rd-methods-pair > section {
+    display: grid;
+    grid-template-rows: subgrid;
+    grid-row: span 3;
+  }
+  .rd-pair-note { display: grid; } /* the note fills its shared row */
+}
+
+/* Extensions header: the expand-all toggle sits on the description's last
+   baseline (older engines: bottom edge). */
+.rd-strategy-head { align-items: flex-end; }
+@supports (align-items: last baseline) {
+  .rd-strategy-head { align-items: last baseline; }
+}
+
 /* Print stylesheet — match on-screen layout, surgically fix text overflow.
    delta change 4 (2026-05-23). Hides floating chrome, demotes stickies,
    strips shadow/blur, A4 18mm × 14mm margins, lets truncated rows wrap
@@ -1356,6 +1382,11 @@
        width), with margin: 0 auto centering it on the page. */
     width: 1240px !important;
     zoom: 0.64;
+    /* The zoom also shrinks the 56px side inset to ~36px; scale it by 1/0.64
+       so the printed hero keeps the same 56px edge as the list and tab
+       bodies below it (which aren't zoomed). */
+    padding-left: 87.5px !important;
+    padding-right: 87.5px !important;
   }
 
   /* ───────────────────────────────────────────────────────────────────
@@ -1385,10 +1416,9 @@
   .rd-paper-row > .tabular:first-of-type {
     text-align: left !important;
   }
-  /* TierHeader is the first <div> child of each tier <section> that contains
-     paper rows. Use :has() to scope precisely without adding a className.
-     Safari 15.4+, Chrome 105+, Firefox 121+ all support :has(). */
-  section:has(.rd-paper-row) > div:first-child {
+  /* Every tier group head, collapsed ones included (a :has(.rd-paper-row)
+     scope missed the collapsed Peripheral group, which has no rows). */
+  .rd-tier-head {
     padding-left: 0 !important;
     padding-right: 0 !important;
     /* Keep the flex `gap: 12` so the section count, horizontal rule, and
@@ -1400,8 +1430,19 @@
      visible child and sits at X=0 — aligning vertically with #01, FINDINGS,
      and FILTER. On screen the dot is a useful visual hierarchy marker; on
      paper the section text + horizontal rule already convey grouping. */
-  section:has(.rd-paper-row) > div:first-child > *:first-child {
+  .rd-tier-head > :first-child {
     display: none !important;
+  }
+  /* Rows print without side padding, so the list container carries the page's
+     56px content edge itself (same edge as the tabs, toolbar and tab bodies). */
+  .rd-list {
+    padding-left: 56px !important;
+    padding-right: 56px !important;
+  }
+  .rd-list-head,
+  .rd-list-empty {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
   }
 }
 
@@ -1469,6 +1510,31 @@
     padding-top: 24px !important;
     padding-bottom: 48px !important;
   }
+  /* Paper list: the rows keep their 16px padding, so the container drops its
+     40px and the row text lands on the nav's 16px edge. */
+  .rd-list {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  /* Editorial / Document nav meta (version · date, § · n) repeats the hero:
+     it gives way first, so the tabs stay on one line. */
+  .rd-nav-meta {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Tier chips wrap as whole chips, never inside a label. */
+  .rd-chip-group {
+    flex-wrap: wrap !important;
+    row-gap: 8px !important;
+  }
+  /* Document's first tab: text on the 16px edge, underline from the screen
+     edge (the rows' hover fill does the same at this width). */
+  .rd-doc-tab:first-child {
+    margin-left: -16px !important;
+    padding-left: 16px !important;
+  }
 
   /* ---- 2. SwissTop hero — 4-col grid → 1-col stack ---- */
   /* The grid template is `minmax(0, 6fr) 1fr minmax(0, 2.2fr) minmax(0, 2.2fr)`,
@@ -1490,6 +1556,7 @@
   .rd-hero-swiss [style*="border-left"][style*="padding-left: 24px"] {
     border-left: none !important;
     padding-left: 0 !important;
+    padding-right: 0 !important; /* first stat column's desktop-only 24 */
     padding-top: 20px !important;
     border-top: 1px solid hsl(var(--border)) !important;
   }
@@ -1534,7 +1601,7 @@
     font-size: 28px !important;
   }
   /* Editorial toolbar — tier chips + search + view toggle: wrap. */
-  .rd-hero-editorial[style*="background"] > div[style*="14px 40px"] {
+  .rd-hero-editorial[style*="background"] > div[style*="14px 56px"] {
     flex-wrap: wrap !important;
     row-gap: 10px !important;
   }
@@ -1553,12 +1620,14 @@
     line-height: 1.65 !important;
   }
   /* Document toolbar — search + tier chips + view toggle: wrap. */
-  .rd-hero-document > div[style*="14px 40px"] {
+  .rd-hero-document > div[style*="14px 56px"] {
     flex-wrap: wrap !important;
     row-gap: 10px !important;
   }
+  /* Full-width second line once it wraps (same as Swiss) — `1 1 180px`
+     shared the line with the flex spacer and left the box indented. */
   .rd-hero-document [style*="flex: 0 0 240px"] {
-    flex: 1 1 180px !important;
+    flex: 1 1 100% !important;
   }
 
   /* ---- 7. MethodsTab 2-col grids → 1-col stack ---- */
@@ -1567,9 +1636,18 @@
      column so each card spans full width. */
   .rd-tab-methods [style*="grid-template-columns: 2fr 1fr"],
   .rd-tab-methods [style*="grid-template-columns: 1fr 2fr"],
-  .rd-tab-methods [style*="grid-template-columns: 1fr 1fr"] {
+  .rd-tab-methods [style*="grid-template-columns: 1fr 1fr"],
+  .rd-tab-methods [style*="grid-template-columns: 1fr 280px"] {
     grid-template-columns: 1fr !important;
     gap: 24px !important;
+  }
+  /* The year / RCS pair shares subgrid rows: no gap inside a section, the
+     24px goes between the stacked sections instead. */
+  .rd-tab-methods .rd-methods-pair {
+    row-gap: 0 !important;
+  }
+  .rd-tab-methods .rd-methods-pair > section + section {
+    margin-top: 24px;
   }
 
   /* ---- 8. AuditTab grids → 1-col stack ---- */
@@ -1592,6 +1670,23 @@
     flex-wrap: wrap !important;
     row-gap: 8px !important;
     gap: 16px !important;
+  }
+}
+
+/* Index density on narrow screens: seven columns can't fit, keep
+   # · title · year · RCS (authors, venue and cites are in the detail sheet). */
+@media screen and (max-width: 600px) {
+  .rd-row-index,
+  .rd-list-head {
+    grid-template-columns: 34px minmax(0, 1fr) 52px 90px !important;
+  }
+  .rd-row-index > :nth-child(3),
+  .rd-row-index > :nth-child(5),
+  .rd-row-index > :nth-child(6),
+  .rd-list-head > :nth-child(3),
+  .rd-list-head > :nth-child(5),
+  .rd-list-head > :nth-child(6) {
+    display: none !important;
   }
 }
 
@@ -1622,6 +1717,30 @@
   .rd-tab-extensions {
     padding-left: 12px !important;
     padding-right: 12px !important;
+  }
+  .rd-nav-meta {
+    display: none !important;
+  }
+  /* Document tabs: half the side padding so four labels fit one line; the
+     first label still starts on the content edge. */
+  .rd-doc-tab {
+    padding-left: 9px !important;
+    padding-right: 9px !important;
+  }
+  .rd-doc-tab:first-child {
+    margin-left: -12px !important;
+    padding-left: 12px !important;
+  }
+  /* …and the paper list's rows / group heads follow (container is 0 here). */
+  .rd-paper-row,
+  .rd-tier-head {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+  .rd-list-head,
+  .rd-list-empty {
+    margin-left: 12px !important;
+    margin-right: 12px !important;
   }
   /* ComplianceSummary big-number — 56px → 40px so it fits next to "/ 16". */
   .rd-tab-audit [style*="font-size: 56px"] {

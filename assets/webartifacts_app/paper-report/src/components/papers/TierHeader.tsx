@@ -28,12 +28,16 @@ export function TierHeader({ tier, count, collapsed, onToggle }: TierHeaderProps
   const descKey = tier ? tier.toLowerCase() + "Desc" : ""
   const tierDesc = S[descKey] || TIER_DESC[tier]
   return (
+    // Horizontal padding = the paper rows' padding, so the dot sits on the
+    // same edge as `#01` and the chevron ends where the scores end. Centred
+    // (not baseline) so the hairline and chevron sit on the label's midline.
     <div
+      className="rd-tier-head"
       style={{
         display: "flex",
-        alignItems: "baseline",
+        alignItems: "center",
         gap: 12,
-        padding: "30px 4px 12px",
+        padding: "30px 16px 12px",
         cursor: "pointer",
       }}
       onClick={onToggle}
@@ -65,16 +69,24 @@ export function TierHeader({ tier, count, collapsed, onToggle }: TierHeaderProps
       <div
         style={{
           flex: 1,
+          minWidth: 12,
           height: 1,
           background: "hsl(var(--border))",
           margin: "0 4px",
         }}
       />
+      {/* One line always (ellipsis on phones): a wrapped description would
+          put the centred label between its two lines. */}
       <span
+        title={tierDesc}
         style={{
           fontSize: 11,
           color: "hsl(var(--muted-foreground))",
           fontFamily: "var(--font-mono)",
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
         }}
       >
         {tierDesc}
@@ -84,6 +96,9 @@ export function TierHeader({ tier, count, collapsed, onToggle }: TierHeaderProps
           color: "hsl(var(--muted-foreground))",
           display: "inline-flex",
           opacity: 0.6,
+          // the glyph sits ~2px inside its box: pull it so its ink ends
+          // on the same edge as the scores below
+          marginRight: -2,
         }}
       >
         {collapsed ? (

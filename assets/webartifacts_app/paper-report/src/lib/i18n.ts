@@ -58,6 +58,9 @@ const STRINGS = {
     // Paper row / card
     cites: 'cites', influential: '★ influential', noPapersMatch: 'No papers match these filters. Lower the RCS threshold or clear the search.',
     fieldDefining: 'field-defining', authorsUnspecified: 'Authors unspecified',
+    // Index-density column header
+    idxColTitle: 'Title', idxColAuthors: 'Authors', idxColYear: 'Year',
+    idxColVenue: 'Venue', idxColCites: 'Cites',
 
     // Detail Sheet
     tldrLabel: 'TL;DR — Semantic Scholar', whyThisPaper: 'Why this paper',
@@ -318,7 +321,7 @@ const STRINGS = {
     extensionsRoman: 'IV. 拓展',
 
     result: '结果', highlyRelevant: '高相关', closelyRelated: '密切相关',
-    papersScreened: '篇文献已筛选', from: '共筛选', estimatedCoverage: '估算覆盖率',
+    papersScreened: '篇文献', from: '共筛选', estimatedCoverage: '估算覆盖率',
     coverageNote: '模型估算本次检索已覆盖该查询全部相关文献的 {pct}%。',
     tier: '相关性档', tierLabel: '档级', showAllTiers: '显示所有档', papersTotal: '篇总计',
     query: '查询', researchTopic: '研究主题',
@@ -347,6 +350,8 @@ const STRINGS = {
     cites: '次引用', influential: '★ 高影响力引用',
     noPapersMatch: '没有文献符合当前筛选条件。降低 RCS 阈值或清除搜索词。',
     fieldDefining: '领域定义性', authorsUnspecified: '作者信息未提供',
+    idxColTitle: '标题', idxColAuthors: '作者', idxColYear: '年份',
+    idxColVenue: '来源', idxColCites: '被引',
 
     tldrLabel: '一句话摘要 · Semantic Scholar', whyThisPaper: '为何收录这篇',
     abstractLabel: '摘要', authorsLabel: '作者', metadataLabel: '元数据',

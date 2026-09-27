@@ -82,7 +82,8 @@ export function PaperRowCatalog({ paper, index, onSelect }: PaperRowCatalogProps
           fontSize: 11,
           fontWeight: 500,
           color: "hsl(var(--muted-foreground))",
-          textAlign: "right",
+          // left: `#` starts on the content edge, under the group dot
+          textAlign: "left",
         }}
       >
         #{String(index + 1).padStart(2, "0")}

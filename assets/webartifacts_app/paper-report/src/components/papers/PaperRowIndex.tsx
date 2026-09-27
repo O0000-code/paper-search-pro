@@ -22,7 +22,7 @@ export function PaperRowIndex({ paper, index, onSelect }: PaperRowIndexProps) {
     <button
       type="button"
       onClick={() => onSelect(paper)}
-      className="rd-paper-row"
+      className="rd-paper-row rd-row-index"
       style={{
         display: "grid",
         // # · title · authors · year · venue · cites · tier+rcs
@@ -55,7 +55,8 @@ export function PaperRowIndex({ paper, index, onSelect }: PaperRowIndexProps) {
           fontSize: 10.5,
           fontWeight: 500,
           color: "hsl(var(--muted-foreground))",
-          textAlign: "right",
+          // left: `#` starts on the content edge, under the group dot
+          textAlign: "left",
         }}
       >
         #{String(index + 1).padStart(2, "0")}

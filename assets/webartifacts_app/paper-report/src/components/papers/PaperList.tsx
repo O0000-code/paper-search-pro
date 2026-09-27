@@ -80,16 +80,25 @@ export function PaperList({
   let globalIdx = 0
 
   return (
-    <div style={{ maxWidth: 1240, margin: "0 auto", padding: "0 40px 80px" }}>
+    // 40 + the rows' own 16px = text on the page's 56px content edge; the
+    // hover fill bleeds 16px past it (index.css `.rd-list` handles ≤860px).
+    // (row view only — the dormant card view keeps its original container)
+    <div
+      className={view === "card" ? undefined : "rd-list"}
+      style={{ maxWidth: 1240, margin: "0 auto", padding: "0 40px 80px" }}
+    >
       {searched.length === 0 && (
+        // margin 16 = the rows' padding: the dashed border sits on the
+        // content edge (index.css adjusts it on phones and in print)
         <div
+          className={view === "card" ? undefined : "rd-list-empty"}
           style={{
             padding: 56,
             textAlign: "center",
             border: "1px dashed hsl(var(--border))",
             borderRadius: "var(--radius)",
             color: "hsl(var(--muted-foreground))",
-            marginTop: 32,
+            margin: view === "card" ? "32px 0 0" : "32px 16px 0",
           }}
         >
           <Info style={{ width: 20, height: 20, display: "inline-block" }} />

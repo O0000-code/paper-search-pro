@@ -20,7 +20,7 @@ export function ExtensionsTab({ data }: { data: NormalizedData }) {
       style={{
         maxWidth: 1240,
         margin: "0 auto",
-        padding: "32px 40px 80px",
+        padding: "32px 56px 80px",
         fontFamily: "var(--font-sans)",
       }}
     >
