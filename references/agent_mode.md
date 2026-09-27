@@ -623,6 +623,12 @@ retrieval*, not which sea you fish or which supplemental sources are added.
 - `auto` — OpenAlex normally, but a run-level quota probe stickily falls back to
   SS when the OpenAlex USD budget runs low (`quota_fallback`,
   `quota_fallback_threshold_usd`). `meta.ratelimit.switched_source` reports it.
+- Whatever the setting, if OpenAlex stops serving mid-run (budget spent,
+  throttled, down), the remaining retrieval is served by Semantic Scholar, then
+  CrossRef. `meta.ratelimit.switched_source` becomes true, and
+  `meta.ratelimit.fallback` gives `{reason, reset_seconds, served_by}`.
+  `source_used` names the fallback source, and the OpenAlex-only steps
+  (deepening, open-impact lookups, ISSN backfill) are skipped.
 
 `meta.source_used` always tells you which source actually served the run.
 

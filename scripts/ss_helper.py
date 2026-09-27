@@ -393,10 +393,13 @@ def cross_validate_citation(
 # keys; we use:
 #   - citationCount:desc   (impact — the R-07-mandated primary ordering)
 #   - publicationDate:desc (recency — analogue of OA publication_date:desc)
-#   - <no sort>            (SS bulk's own text-match ordering — analogue of OA
-#                           relevance; we do NOT touch the relevance ENDPOINT,
-#                           only the default ordering of the bulk endpoint).
-# Papers appearing in >=2 strategies get an appearance-count boost, identical in
+# A third "<no sort>" strategy used to stand in for relevance. It did not: the
+# bulk endpoint's default order is paperId ascending (API docs: "The default
+# field is paperId and the default order is asc"; seen live 2026-09-28, where
+# "working memory training older adults" opened with a glioma exercise RCT), so
+# it added arbitrary matches. It was dropped rather than replaced by the
+# relevance endpoint, which R-07 keeps banned.
+# Papers appearing in both strategies get an appearance-count boost, identical in
 # spirit to the OpenAlex cross-strategy boost.
 #
 # Rate limit: SS is 1 RPS even with a key, and 429s immediately with NO key on
@@ -406,7 +409,8 @@ def cross_validate_citation(
 
 import os as _os  # noqa: E402  (local alias; avoid touching module top imports)
 
-_SS_BULK_URL = "https://api.semanticscholar.org/graph/v1/paper/search/bulk"
+_SS_GRAPH_URL = "https://api.semanticscholar.org/graph/v1"
+_SS_BULK_URL = _SS_GRAPH_URL + "/paper/search/bulk"
 
 # Fields requested from the bulk endpoint. publicationVenue is requested as the
 # nested object so we get .issn (R-08: SS ISSN lives ONLY in
@@ -421,8 +425,25 @@ _SEARCH_FIELDS = (
     "citationCount,influentialCitationCount,openAccessPdf,authors.name,authors.authorId"
 )
 
-# SS bulk supported sort keys we use. None = the endpoint's default ordering.
-_SEARCH_STRATEGIES = ("citationCount:desc", "publicationDate:desc", None)
+# The references/citations endpoints reject nested author fields
+# ("Unrecognized or unsupported fields: [authors.authorId, authors.name]",
+# verified 2026-09-28); plain `authors` returns the same {authorId, name} pairs.
+_LINK_FIELDS = _SEARCH_FIELDS.replace("authors.name,authors.authorId", "authors")
+
+# SS bulk sort keys we use (see the header comment for why there is no third).
+_SEARCH_STRATEGIES = ("citationCount:desc", "publicationDate:desc")
+
+# 429 handling for our own HTTP calls: the keyless shared pool throttles often,
+# so wait (Retry-After when sent) and retry a few times before giving up.
+_HTTP_429_RETRIES = 3
+_HTTP_MAX_WAIT_S = 20.0
+
+# Set once a configured key is refused (401/403); later calls in this process
+# go keyless directly instead of paying for the refusal again.
+_key_rejected = False
+
+# Indirection so tests can exercise the retry paths without real sleeping.
+_sleep = time.sleep
 
 # Hard cap on pages fetched per strategy, so a huge result set can't run away.
 _MAX_PAGES_PER_STRATEGY = 5
@@ -440,6 +461,52 @@ def _api_key_from_config() -> Optional[str]:
     source MUST have a key or it 429s on the shared pool)."""
     key = _api_key or _os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
     return (key or "").strip() or None
+
+
+def _ss_get(url: str, params: Dict[str, object], *, api_key: Optional[str], session=None):
+    """GET ``url`` from the SS graph API; returns the Response or None.
+
+    * A refused key (401/403) is retried once without it and the process stays
+      keyless from then on, with one stderr line asking the user to renew the key
+      — a dead key must not silently turn every SS call into an empty result.
+    * 429 waits (Retry-After when sent, else 2/4/8 s, capped) and retries.
+    * Network errors return None; callers treat that like an empty page.
+    """
+    import sys
+
+    import requests  # local import: keeps module top imports byte-identical
+
+    global _key_rejected
+    sess = session or requests
+    key = None if _key_rejected else api_key
+    throttled = 0
+    while True:
+        headers = {"x-api-key": key} if key else {}
+        try:
+            res = sess.get(url, params=params, headers=headers, timeout=60)
+        except Exception:
+            return None
+        if res.status_code in (401, 403) and key:
+            _key_rejected = True
+            key = None
+            print(
+                f"[paper-search-pro] Semantic Scholar rejected the configured API key "
+                f"(HTTP {res.status_code}); continuing without a key. Renew "
+                f"semantic_scholar_api_key in ~/.paper-search-pro/config.yaml "
+                f"(https://www.semanticscholar.org/product/api#api-key-form).",
+                file=sys.stderr,
+            )
+            continue
+        if res.status_code == 429 and throttled < _HTTP_429_RETRIES:
+            throttled += 1
+            retry_after = None
+            try:
+                retry_after = float((getattr(res, "headers", None) or {}).get("Retry-After"))
+            except (TypeError, ValueError):
+                pass
+            _sleep(min(retry_after if retry_after else 2.0 ** throttled, _HTTP_MAX_WAIT_S))
+            continue
+        return res
 
 
 def _ss_doi_from_external_ids(ext: object) -> Optional[str]:
@@ -555,19 +622,21 @@ def _bulk_search_one_strategy(
     year_max: Optional[int],
     limit: int,
     session=None,
+    filters: Optional[Dict[str, str]] = None,
 ) -> List[UnifiedPaperEntity]:
     """Run a single bulk-search strategy (one sort key) and return entities.
 
     Paginates via the bulk endpoint's continuation `token` up to limit /
     _MAX_PAGES_PER_STRATEGY. Network/HTTP errors degrade to whatever was
-    collected so far (never raises) — a flaky strategy must not kill the run."""
-    import requests  # local import: keeps module top imports byte-identical
-
-    headers = {"x-api-key": api_key} if api_key else {}
+    collected so far (never raises) — a flaky strategy must not kill the run.
+    ``filters`` passes extra bulk parameters through (``publicationTypes``,
+    ``venue``)."""
     params: Dict[str, object] = {
         "query": query,
         "fields": _SEARCH_FIELDS,
     }
+    if filters:
+        params.update(filters)
     if sort:
         params["sort"] = sort
     # SS bulk year filter is a single "year" param accepting ranges like
@@ -577,15 +646,13 @@ def _bulk_search_one_strategy(
         hi = str(year_max) if year_max is not None else ""
         params["year"] = f"{lo}-{hi}"
 
-    sess = session or requests
     entities: List[UnifiedPaperEntity] = []
     token: Optional[str] = None
     for page in range(_MAX_PAGES_PER_STRATEGY):
         if token:
             params["token"] = token
-        try:
-            res = sess.get(_SS_BULK_URL, params=params, headers=headers, timeout=60)
-        except Exception:
+        res = _ss_get(_SS_BULK_URL, params, api_key=api_key, session=session)
+        if res is None:
             break
         if res.status_code != 200:
             # 429 (no key / over rate) or transient — stop this strategy.
@@ -612,6 +679,8 @@ def search(
     year_max: Optional[int] = None,
     total_per_strategy: int = 50,
     session=None,
+    filters: Optional[Dict[str, str]] = None,
+    strategies: Optional[tuple] = None,
 ) -> List[UnifiedPaperEntity]:
     """Independent SS primary search (multi-strategy double-sort, bulk endpoint).
 
@@ -627,8 +696,9 @@ def search(
     """
     api_key = _api_key_from_config()
 
+    sorts = strategies or _SEARCH_STRATEGIES
     seen: Dict[str, "tuple[UnifiedPaperEntity, int]"] = {}
-    for i, sort in enumerate(_SEARCH_STRATEGIES):
+    for i, sort in enumerate(sorts):
         strat = _bulk_search_one_strategy(
             query,
             sort,
@@ -637,6 +707,7 @@ def search(
             year_max=year_max,
             limit=total_per_strategy,
             session=session,
+            filters=filters,
         )
         for p in strat:
             pid = p.paper_id
@@ -647,7 +718,7 @@ def search(
                 seen[pid] = (p, 1)
         # Sleep between strategies (each strategy already slept between its own
         # pages; this guards the strategy boundary). Skip after the last.
-        if i < len(_SEARCH_STRATEGIES) - 1:
+        if i < len(sorts) - 1:
             time.sleep(_RATE_LIMIT_SLEEP)
 
     return [
@@ -661,6 +732,62 @@ def search(
 # ---------------------------------------------------------------------------
 # CLI entry point — light glue for ad-hoc invocation.
 # ---------------------------------------------------------------------------
+
+
+def get_paper(doi: str, session=None) -> Optional[UnifiedPaperEntity]:
+    """Look one paper up by DOI (the OpenAlex ``get`` fallback). None if absent."""
+    bare = _normalize_doi_for_lookup(doi)
+    if not bare:
+        return None
+    res = _ss_get(
+        f"{_SS_GRAPH_URL}/paper/DOI:{bare}",
+        {"fields": _SEARCH_FIELDS},
+        api_key=_api_key_from_config(),
+        session=session,
+    )
+    if res is None or res.status_code != 200:
+        return None
+    try:
+        return _ss_record_to_entity(res.json())
+    except Exception:
+        return None
+
+
+def citation_network(
+    doi: str, refs_limit: int = 50, cited_by_limit: int = 100, session=None
+) -> Dict[str, List[UnifiedPaperEntity]]:
+    """References + citing papers for one DOI (the OpenAlex ``citation-network``
+    fallback). Same ``{"references", "cited_by"}`` shape; empty lists when SS
+    has nothing or cannot be reached."""
+    out: Dict[str, List[UnifiedPaperEntity]] = {"references": [], "cited_by": []}
+    bare = _normalize_doi_for_lookup(doi)
+    if not bare:
+        return out
+    api_key = _api_key_from_config()
+    for key, path, inner, limit in (
+        ("references", "references", "citedPaper", refs_limit),
+        ("cited_by", "citations", "citingPaper", cited_by_limit),
+    ):
+        if limit <= 0:
+            continue
+        res = _ss_get(
+            f"{_SS_GRAPH_URL}/paper/DOI:{bare}/{path}",
+            {"fields": _LINK_FIELDS, "limit": min(limit, 1000)},
+            api_key=api_key,
+            session=session,
+        )
+        if res is not None and res.status_code == 200:
+            try:
+                rows = res.json().get("data") or []
+            except Exception:
+                rows = []
+            for row in rows:
+                rec = row.get(inner) if isinstance(row, dict) else None
+                if isinstance(rec, dict) and rec.get("title"):
+                    out[key].append(_ss_record_to_entity(rec))
+            out[key] = out[key][:limit]
+        time.sleep(_RATE_LIMIT_SLEEP)
+    return out
 
 
 def _entity_from_dict(d: Dict) -> UnifiedPaperEntity:

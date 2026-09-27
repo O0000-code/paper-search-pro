@@ -28,6 +28,13 @@ from scripts.config import load_config  # noqa: E402
 from scripts.types import UnifiedPaperEntity  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _fast_and_isolated(monkeypatch):
+    """No real sleeping on 429 retries; a refused key must not leak across tests."""
+    monkeypatch.setattr(ss_helper, "_sleep", lambda _s: None)
+    monkeypatch.setattr(ss_helper, "_key_rejected", False)
+
+
 # ---------------------------------------------------------------------------
 # Shared fixtures — well-known DOIs with documented empirical values.
 # ---------------------------------------------------------------------------
@@ -359,12 +366,13 @@ def test_search_double_sort_merge_and_boost():
     pages = {
         "citationCount:desc": [only_cited, shared],
         "publicationDate:desc": [only_recent, shared],
-        None: [shared],
     }
     sess = _FakeBulkSession(pages)
     results = ss_helper.search("q", total_per_strategy=10, session=sess)
     ids = [p.paper_id for p in results]
-    # Shared appears in all 3 strategies -> must be first despite lower cites.
+    # No unsorted request: the bulk default order is paperId, not relevance.
+    assert all(c["params"].get("sort") for c in sess.calls), sess.calls
+    # Shared appears in both strategies -> must be first despite lower cites.
     assert ids[0] == "10.1/shared", ids
     # All three unique papers present.
     assert set(ids) == {"10.1/shared", "10.1/cited", "10.1/recent"}
@@ -376,7 +384,7 @@ def test_search_double_sort_merge_and_boost():
 def test_search_passes_year_filter_param():
     """year_min/year_max must be sent to SS as a single `year=lo-hi` param."""
     rec = _ss_record(doi="10.1/y", paper_id="Y")
-    sess = _FakeBulkSession({"citationCount:desc": [rec], "publicationDate:desc": [], None: []})
+    sess = _FakeBulkSession({"citationCount:desc": [rec], "publicationDate:desc": []})
     ss_helper.search("q", year_min=2015, year_max=2020, total_per_strategy=5, session=sess)
     # Every call should carry the year range.
     assert sess.calls, "no HTTP calls made"

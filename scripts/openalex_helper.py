@@ -24,6 +24,8 @@ from pyalex import (
     invert_abstract,
 )
 
+from . import openalex_guard
+from .openalex_guard import OpenAlexUnavailable
 from .types import Author, Config, UnifiedPaperEntity
 
 
@@ -394,6 +396,29 @@ def _year_filter(year_min: Optional[int], year_max: Optional[int]) -> Optional[s
     return None
 
 
+def _collect_pages(q, limit: int, per_page: int) -> List[UnifiedPaperEntity]:
+    """Page through query ``q`` until ``limit`` entities or an empty page.
+
+    Every request goes through :func:`openalex_guard.call`. When OpenAlex
+    becomes unavailable mid-crawl, the entities already collected ride along on
+    the exception (``exc.partial``) so the fallback can keep them.
+    """
+    pages = (limit + per_page - 1) // per_page
+    entities: List[UnifiedPaperEntity] = []
+    try:
+        for page in range(1, pages + 1):
+            batch = openalex_guard.call(lambda page=page: q.get(per_page=per_page, page=page))
+            if not batch:
+                break
+            entities.extend(_to_entity(w) for w in batch)
+            if len(entities) >= limit:
+                break
+    except OpenAlexUnavailable as exc:
+        exc.partial = entities[:limit]
+        raise
+    return entities[:limit]
+
+
 def search_works(
     query: str,
     year_min: Optional[int] = None,
@@ -408,17 +433,7 @@ def search_works(
         q = q.filter(publication_year=year_filter)
     if work_type:
         q = q.filter(type=work_type)
-    per_page = min(limit, _PER_PAGE)
-    pages = (limit + per_page - 1) // per_page
-    entities: List[UnifiedPaperEntity] = []
-    for page in range(1, pages + 1):
-        batch = q.get(per_page=per_page, page=page)
-        if not batch:
-            break
-        entities.extend(_to_entity(w) for w in batch)
-        if len(entities) >= limit:
-            break
-    return entities[:limit]
+    return _collect_pages(q, limit, min(limit, _PER_PAGE))
 
 
 def search_top_n_pages(
@@ -442,19 +457,7 @@ def search_top_n_pages(
     year_filter = _year_filter(year_min, year_max)
     if year_filter is not None:
         q = q.filter(publication_year=year_filter)
-
-    per_page = _PER_PAGE
-    pages_needed = (total_papers + per_page - 1) // per_page
-
-    entities: List[UnifiedPaperEntity] = []
-    for page in range(1, pages_needed + 1):
-        batch = q.get(per_page=per_page, page=page)
-        if not batch:
-            break
-        entities.extend(_to_entity(w) for w in batch)
-        if len(entities) >= total_papers:
-            break
-    return entities[:total_papers]
+    return _collect_pages(q, total_papers, _PER_PAGE)
 
 
 def double_sort_search(
@@ -469,15 +472,25 @@ def double_sort_search(
     Per SA-V2: multi-strategy OpenAlex deep crawl > L2 booster pseudo-recall.
     Returns papers sorted by (appearance_count desc, citation_count desc).
     """
-    s1 = search_top_n_pages(query, total_per_strategy, "cited_by_count:desc",
-                            year_min=year_min, year_max=year_max)
-    s2 = search_top_n_pages(query, total_per_strategy, "publication_date:desc",
-                            year_min=year_min, year_max=year_max)
-    s3 = search_top_n_pages(query, total_per_strategy, "relevance_score:desc",
-                            year_min=year_min, year_max=year_max)
+    strategies: List[List[UnifiedPaperEntity]] = []
+    try:
+        for sort in ("cited_by_count:desc", "publication_date:desc", "relevance_score:desc"):
+            strategies.append(
+                search_top_n_pages(query, total_per_strategy, sort,
+                                   year_min=year_min, year_max=year_max)
+            )
+    except OpenAlexUnavailable as exc:
+        # Keep the finished strategies plus the interrupted one's first pages.
+        strategies.append(exc.partial)
+        exc.partial = _merge_strategies(strategies)
+        raise
+    return _merge_strategies(strategies)
 
+
+def _merge_strategies(strategies: List[List[UnifiedPaperEntity]]) -> List[UnifiedPaperEntity]:
+    """Cross-strategy boost: papers seen by more strategies rank first."""
     seen: Dict[str, Tuple[UnifiedPaperEntity, int]] = {}
-    for strategy_papers in (s1, s2, s3):
+    for strategy_papers in strategies:
         for p in strategy_papers:
             pid = p.paper_id
             if pid in seen:
@@ -502,7 +515,7 @@ def get_work(openalex_id_or_doi: str) -> UnifiedPaperEntity:
     # DOI must be passed as full URL form to pyalex
     if s.startswith("10."):
         s = f"https://doi.org/{s}"
-    raw = Works()[s]
+    raw = openalex_guard.call(lambda: Works()[s])
     # pyalex returns Work objects (dict-like); ensure we have a dict
     if hasattr(raw, "items"):
         return _to_entity(dict(raw))
@@ -522,17 +535,7 @@ def find_seminal_papers(
         .filter(publication_year=f"<{year_max + 1}")
         .sort(cited_by_count="desc")
     )
-    per_page = min(limit, _PER_PAGE)
-    pages = (limit + per_page - 1) // per_page
-    entities: List[UnifiedPaperEntity] = []
-    for page in range(1, pages + 1):
-        batch = q.get(per_page=per_page, page=page)
-        if not batch:
-            break
-        entities.extend(_to_entity(w) for w in batch)
-        if len(entities) >= limit:
-            break
-    return entities[:limit]
+    return _collect_pages(q, limit, min(limit, _PER_PAGE))
 
 
 def find_review_articles(
@@ -546,17 +549,7 @@ def find_review_articles(
     year_filter = _year_filter(year_min, year_max)
     if year_filter is not None:
         q = q.filter(publication_year=year_filter)
-    per_page = min(limit, _PER_PAGE)
-    pages = (limit + per_page - 1) // per_page
-    entities: List[UnifiedPaperEntity] = []
-    for page in range(1, pages + 1):
-        batch = q.get(per_page=per_page, page=page)
-        if not batch:
-            break
-        entities.extend(_to_entity(w) for w in batch)
-        if len(entities) >= limit:
-            break
-    return entities[:limit]
+    return _collect_pages(q, limit, min(limit, _PER_PAGE))
 
 
 def _resolve_source_ids(journal_names: List[str], max_per_name: int = 1) -> List[str]:
@@ -568,7 +561,11 @@ def _resolve_source_ids(journal_names: List[str], max_per_name: int = 1) -> List
     ids: List[str] = []
     for name in journal_names:
         try:
-            results = Sources().search(name).get(per_page=max_per_name)
+            results = openalex_guard.call(
+                lambda name=name: Sources().search(name).get(per_page=max_per_name)
+            )
+        except OpenAlexUnavailable:
+            raise
         except Exception:
             continue
         for s in results:
@@ -593,7 +590,7 @@ def get_source_impact(issn: str) -> Optional[Dict[str, Optional[float]]]:
         return None
     try:
         # OpenAlex Sources can be filtered by issn (accepts hyphenated form).
-        results = Sources().filter(issn=issn).get(per_page=1)
+        results = openalex_guard.call(lambda: Sources().filter(issn=issn).get(per_page=1))
     except Exception:
         return None
     if not results:
@@ -627,17 +624,7 @@ def search_in_journal_list(
         return []
     pipe = "|".join(source_ids)
     q = Works().search(query).filter(primary_location={"source": {"id": pipe}})
-    per_page = min(limit, _PER_PAGE)
-    pages = (limit + per_page - 1) // per_page
-    entities: List[UnifiedPaperEntity] = []
-    for page in range(1, pages + 1):
-        batch = q.get(per_page=per_page, page=page)
-        if not batch:
-            break
-        entities.extend(_to_entity(w) for w in batch)
-        if len(entities) >= limit:
-            break
-    return entities[:limit]
+    return _collect_pages(q, limit, min(limit, _PER_PAGE))
 
 
 def get_citation_network(
@@ -650,50 +637,65 @@ def get_citation_network(
     s = openalex_id.strip()
     if s.startswith("10."):
         s = f"https://doi.org/{s}"
-    raw_work = Works()[s]
+    raw_work = openalex_guard.call(lambda: Works()[s])
     work = dict(raw_work) if hasattr(raw_work, "items") else raw_work
     # The raw OA W-ID for forward citation
     bare_id = _strip_oa_prefix(work.get("id")) or openalex_id
 
-    # Backward refs (referenced_works is a list of W-IDs)
-    referenced_ids = (work.get("referenced_works") or [])[:refs_limit]
     refs: List[UnifiedPaperEntity] = []
-    if referenced_ids:
-        bare_refs = [_strip_oa_prefix(r) for r in referenced_ids if r]
-        ref_pipe = "|".join([r for r in bare_refs if r])
-        if ref_pipe:
-            try:
-                batch_per_page = min(len(bare_refs), _PER_PAGE)
-                pages = (len(bare_refs) + batch_per_page - 1) // batch_per_page
-                for page in range(1, pages + 1):
-                    batch = (
-                        Works()
-                        .filter(openalex_id=ref_pipe)
-                        .get(per_page=batch_per_page, page=page)
-                    )
-                    if not batch:
-                        break
-                    refs.extend(_to_entity(w) for w in batch)
-                    if len(refs) >= refs_limit:
-                        break
-            except Exception:
-                refs = []
-
-    # Forward cited_by
     cited_by: List[UnifiedPaperEntity] = []
     try:
-        cited_q = Works().filter(cites=bare_id)
-        per_page = _PER_PAGE
-        pages = (cited_by_limit + per_page - 1) // per_page
-        for page in range(1, pages + 1):
-            batch = cited_q.get(per_page=per_page, page=page)
-            if not batch:
-                break
-            cited_by.extend(_to_entity(w) for w in batch)
-            if len(cited_by) >= cited_by_limit:
-                break
-    except Exception:
-        cited_by = []
+        # Backward refs (referenced_works is a list of W-IDs)
+        referenced_ids = (work.get("referenced_works") or [])[:refs_limit]
+        if referenced_ids:
+            bare_refs = [_strip_oa_prefix(r) for r in referenced_ids if r]
+            ref_pipe = "|".join([r for r in bare_refs if r])
+            if ref_pipe:
+                try:
+                    batch_per_page = min(len(bare_refs), _PER_PAGE)
+                    pages = (len(bare_refs) + batch_per_page - 1) // batch_per_page
+                    for page in range(1, pages + 1):
+                        batch = openalex_guard.call(
+                            lambda page=page: Works()
+                            .filter(openalex_id=ref_pipe)
+                            .get(per_page=batch_per_page, page=page)
+                        )
+                        if not batch:
+                            break
+                        refs.extend(_to_entity(w) for w in batch)
+                        if len(refs) >= refs_limit:
+                            break
+                except OpenAlexUnavailable:
+                    raise
+                except Exception:
+                    refs = []
+
+        # Forward cited_by
+        try:
+            cited_q = Works().filter(cites=bare_id)
+            per_page = _PER_PAGE
+            pages = (cited_by_limit + per_page - 1) // per_page
+            for page in range(1, pages + 1):
+                batch = openalex_guard.call(
+                    lambda page=page: cited_q.get(per_page=per_page, page=page)
+                )
+                if not batch:
+                    break
+                cited_by.extend(_to_entity(w) for w in batch)
+                if len(cited_by) >= cited_by_limit:
+                    break
+        except OpenAlexUnavailable:
+            raise
+        except Exception:
+            cited_by = []
+    except OpenAlexUnavailable as exc:
+        # The seed itself resolved, so its DOI lets the fallback redo the network.
+        exc.partial = {
+            "doi": _strip_doi_prefix(work.get("doi")),
+            "references": refs[:refs_limit],
+            "cited_by": cited_by[:cited_by_limit],
+        }
+        raise
 
     return {"references": refs[:refs_limit], "cited_by": cited_by[:cited_by_limit]}
 
@@ -711,12 +713,14 @@ def get_author_profile(author_id_or_name: str) -> dict:
     raw_author = None
     if is_id:
         try:
-            raw_author = Authors()[s]
+            raw_author = openalex_guard.call(lambda: Authors()[s])
+        except OpenAlexUnavailable:
+            raise
         except Exception:
             raw_author = None
 
     if raw_author is None:
-        results = Authors().search(s).get(per_page=1)
+        results = openalex_guard.call(lambda: Authors().search(s).get(per_page=1))
         if not results:
             raise ValueError(f"Author not found: {author_id_or_name!r}")
         raw_author = results[0]
@@ -762,8 +766,8 @@ def analyze_topic_trends(
     Returns {year: count} dict. Per SA-Z2 F23 verified.
     """
     yr_low, yr_high = year_range
-    result = (
-        Works()
+    result = openalex_guard.call(
+        lambda: Works()
         .search(topic)
         .filter(publication_year=f"{yr_low}-{yr_high}")
         .group_by("publication_year")
@@ -831,22 +835,161 @@ _AGENT_SEARCH_NUDGE = (
 _NUDGE_ON_SUBCOMMANDS = {"search", "double-sort"}
 
 
-def _wrap_envelope(data, *, command: str, count: Optional[int] = None) -> dict:
+def _wrap_envelope(
+    data,
+    *,
+    command: str,
+    count: Optional[int] = None,
+    fallback: Optional[dict] = None,
+    ok: bool = True,
+) -> dict:
     """Wrap any command result in the ai-native-cli-spec success envelope.
 
     ``data`` is passed through as-is (a list for search-like commands, a dict for
     get/author/trends). ``meta`` carries the command name and a count when the
     result is a list, so an agent can tell how much it got without re-counting.
+    When OpenAlex was unavailable, ``meta.fallback`` says why and which source
+    served the call, and ``meta.source`` names that source.
     """
-    meta = {"command": command, "source": "openalex"}
+    source = "openalex"
+    if fallback:
+        source = "+".join(fallback.get("served_by") or []) or "none"
+    meta = {"command": command, "source": source}
     if count is not None:
         meta["count"] = count
+    if fallback:
+        meta["fallback"] = fallback
     return {
-        "ok": True,
+        "ok": ok,
         "schema_version": _ENVELOPE_SCHEMA_VERSION,
         "data": data,
         "meta": meta,
     }
+
+
+# Exit status when OpenAlex was unavailable and no fallback could serve the call:
+# stdout still carries a valid empty result, so a `> file` redirect never leaves
+# unparseable JSON behind.
+EXIT_SOURCE_UNAVAILABLE = 3
+
+
+def _fallback_args(args) -> dict:
+    """The command arguments source_fallback needs, as a plain dict."""
+    a = {k: getattr(args, k, None) for k in
+         ("query", "topic", "limit", "year_min", "year_max", "sort", "work_type")}
+    a["n"] = getattr(args, "n", None) or getattr(args, "total_per_strategy", None)
+    if args.cmd == "journal-list":
+        a["journals"] = JOURNAL_PRESETS.get(args.preset) or []
+    return a
+
+
+def _serve_fallback(args, exc: OpenAlexUnavailable, config: Config):
+    """Serve ``args.cmd`` from the fallback sources.
+
+    Returns ``(payload, count, fallback_meta, served, note)``; ``payload`` always
+    has the shape the OpenAlex command would have printed.
+    """
+    from . import source_fallback
+
+    source_fallback.init(config)
+    count: Optional[int] = None
+    size = "nothing"
+    if args.cmd in source_fallback.LIST_COMMANDS:
+        res = source_fallback.serve_list(args.cmd, _fallback_args(args), exc)
+        payload = _entity_list_to_json(res.papers or [])
+        count = len(res.papers or [])
+        size = f"{count} records"
+    elif args.cmd == "get":
+        res = source_fallback.serve_get(args.id)
+        payload = _to_dict(res.payload) if res.payload is not None else {}
+        size = "1 record" if res.payload is not None else size
+    elif args.cmd == "citation-network":
+        res = source_fallback.serve_citation_network(
+            args.openalex_id, args.refs_limit, args.cited_by_limit, exc
+        )
+        net = res.payload or {"references": [], "cited_by": []}
+        payload = {
+            "references": _entity_list_to_json(net["references"]),
+            "cited_by": _entity_list_to_json(net["cited_by"]),
+        }
+        size = f"{len(net['references'])} references, {len(net['cited_by'])} citing papers"
+    else:  # author / trends: OpenAlex-only analytics
+        res = source_fallback.FallbackResult(
+            served=False, why_not="this is OpenAlex-only analytics with no equivalent elsewhere"
+        )
+        payload = {}
+    fallback_meta = {
+        "reason": exc.reason,
+        "reset_seconds": exc.reset_seconds,
+        "served_by": res.served_by,
+        "kept_openalex_partial": res.kept_partial,
+    }
+    return payload, count, fallback_meta, res.served, source_fallback.notice(
+        args.cmd, exc, res, size
+    )
+
+
+def _run_command(args):
+    """Run one CLI subcommand against OpenAlex; returns ``(payload, count)``."""
+    payload = None
+    count: Optional[int] = None
+
+    if args.cmd == "search":
+        results = search_works(
+            args.query,
+            year_min=args.year_min,
+            year_max=args.year_max,
+            limit=args.limit,
+            work_type=args.work_type,
+        )
+        payload = _entity_list_to_json(results)
+        count = len(results)
+    elif args.cmd == "get":
+        payload = _to_dict(get_work(args.id))
+    elif args.cmd == "deep":
+        results = search_top_n_pages(
+            args.query, total_papers=args.n, sort=args.sort,
+            year_min=args.year_min, year_max=args.year_max,
+        )
+        payload = _entity_list_to_json(results)
+        count = len(results)
+    elif args.cmd == "double-sort":
+        results = double_sort_search(
+            args.query, year_min=args.year_min, year_max=args.year_max,
+            total_per_strategy=args.total_per_strategy,
+        )
+        payload = _entity_list_to_json(results)
+        count = len(results)
+    elif args.cmd == "seminal":
+        results = find_seminal_papers(args.topic, year_max=args.year_max, limit=args.limit)
+        payload = _entity_list_to_json(results)
+        count = len(results)
+    elif args.cmd == "reviews":
+        results = find_review_articles(
+            args.topic, limit=args.limit,
+            year_min=args.year_min, year_max=args.year_max,
+        )
+        payload = _entity_list_to_json(results)
+        count = len(results)
+    elif args.cmd == "journal-list":
+        results = search_in_journal_list(args.query, preset_name=args.preset, limit=args.limit)
+        payload = _entity_list_to_json(results)
+        count = len(results)
+    elif args.cmd == "citation-network":
+        result = get_citation_network(
+            args.openalex_id, refs_limit=args.refs_limit, cited_by_limit=args.cited_by_limit
+        )
+        payload = {
+            "references": _entity_list_to_json(result["references"]),
+            "cited_by": _entity_list_to_json(result["cited_by"]),
+        }
+    elif args.cmd == "author":
+        payload = get_author_profile(args.author)
+    elif args.cmd == "trends":
+        payload = analyze_topic_trends(args.topic, year_range=(args.year_min, args.year_max))
+    elif args.cmd == "presets":
+        payload = {name: len(journals) for name, journals in JOURNAL_PRESETS.items()}
+    return payload, count
 
 
 def _main_cli() -> None:
@@ -944,73 +1087,32 @@ def _main_cli() -> None:
     p_presets = sub.add_parser("presets", help="List available journal presets")
 
     args = parser.parse_args()
-    init_pyalex(load_config())
+    config = load_config()
+    init_pyalex(config)
 
     # Compute the command result as `payload` (+ `count` for list-like results).
     # We serialise ONCE at the end so the --json-envelope branch is the only
     # difference; the default (no-flag) path is byte-for-byte identical to before.
-    payload = None
-    count: Optional[int] = None
-
-    if args.cmd == "search":
-        results = search_works(
-            args.query,
-            year_min=args.year_min,
-            year_max=args.year_max,
-            limit=args.limit,
-            work_type=args.work_type,
-        )
-        payload = _entity_list_to_json(results)
-        count = len(results)
-    elif args.cmd == "get":
-        payload = _to_dict(get_work(args.id))
-    elif args.cmd == "deep":
-        results = search_top_n_pages(
-            args.query, total_papers=args.n, sort=args.sort,
-            year_min=args.year_min, year_max=args.year_max,
-        )
-        payload = _entity_list_to_json(results)
-        count = len(results)
-    elif args.cmd == "double-sort":
-        results = double_sort_search(
-            args.query, year_min=args.year_min, year_max=args.year_max,
-            total_per_strategy=args.total_per_strategy,
-        )
-        payload = _entity_list_to_json(results)
-        count = len(results)
-    elif args.cmd == "seminal":
-        results = find_seminal_papers(args.topic, year_max=args.year_max, limit=args.limit)
-        payload = _entity_list_to_json(results)
-        count = len(results)
-    elif args.cmd == "reviews":
-        results = find_review_articles(
-            args.topic, limit=args.limit,
-            year_min=args.year_min, year_max=args.year_max,
-        )
-        payload = _entity_list_to_json(results)
-        count = len(results)
-    elif args.cmd == "journal-list":
-        results = search_in_journal_list(args.query, preset_name=args.preset, limit=args.limit)
-        payload = _entity_list_to_json(results)
-        count = len(results)
-    elif args.cmd == "citation-network":
-        result = get_citation_network(
-            args.openalex_id, refs_limit=args.refs_limit, cited_by_limit=args.cited_by_limit
-        )
-        payload = {
-            "references": _entity_list_to_json(result["references"]),
-            "cited_by": _entity_list_to_json(result["cited_by"]),
-        }
-    elif args.cmd == "author":
-        payload = get_author_profile(args.author)
-    elif args.cmd == "trends":
-        payload = analyze_topic_trends(args.topic, year_range=(args.year_min, args.year_max))
-    elif args.cmd == "presets":
-        payload = {name: len(journals) for name, journals in JOURNAL_PRESETS.items()}
+    fallback_meta = None
+    served = True
+    notice = None
+    try:
+        payload, count = _run_command(args)
+    except OpenAlexUnavailable as exc:
+        if not getattr(config, "quota_fallback", True):
+            print(
+                f"[paper-search-pro] OpenAlex unavailable ({exc.describe()}). Automatic "
+                "fallback is off (quota_fallback: false in ~/.paper-search-pro/config.yaml).",
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_SOURCE_UNAVAILABLE)
+        payload, count, fallback_meta, served, notice = _serve_fallback(args, exc, config)
 
     if getattr(args, "json_envelope", False):
         # Agent path: wrap in the structured envelope. stdout stays a single JSON doc.
-        envelope = _wrap_envelope(payload, command=args.cmd, count=count)
+        envelope = _wrap_envelope(
+            payload, command=args.cmd, count=count, fallback=fallback_meta, ok=served
+        )
         json.dump(envelope, sys.stdout, default=str, indent=2)
     else:
         # Default path: byte-for-byte identical to pre-v2.2 output.
@@ -1025,6 +1127,10 @@ def _main_cli() -> None:
     # human STEP 9 citation expansion does not get spammed.
     if getattr(args, "json_envelope", False) or args.cmd in _NUDGE_ON_SUBCOMMANDS:
         print(_AGENT_SEARCH_NUDGE, file=sys.stderr)
+    if notice:
+        print(notice, file=sys.stderr)
+    if not served:
+        sys.exit(EXIT_SOURCE_UNAVAILABLE)
 
 
 if __name__ == "__main__":

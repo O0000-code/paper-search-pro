@@ -4,7 +4,11 @@ Architecture (paper-search-pro v2.0):
 - No new dependencies: uses ``requests`` (already vendored via openalex stack).
 - No API key required; uses CrossRef's *polite pool* by embedding a mailto in
   the User-Agent header (5 req/s/1conc -> 10 req/s/3conc, ~6x throughput).
-- L3 role: enrichment ONLY, never an independent search source.
+- L3 role: enrichment. The one exception is :func:`search_works`, the last
+  retrieval tier used only when OpenAlex AND Semantic Scholar cannot serve a
+  call (see ``openalex_helper``'s fallback). CrossRef needs no key and its
+  polite pool is stable, so it keeps a run moving; its records carry no
+  influential citations and abstracts only where publishers deposit them.
 
 Empirical findings driving this implementation (see 22_crossref_research.md,
 24_v1_l3_enrichment_test.md, 25_round2_synthesis.md):
@@ -48,18 +52,20 @@ import sys
 import time
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
+import html
+import re
 from typing import Any, Dict, List, Optional
 
 import requests
 
 # Avoid circular: import types via package-relative path; CLI mode shims this.
 try:
-    from .types import Config, UnifiedPaperEntity
+    from .types import Author, Config, UnifiedPaperEntity
 except ImportError:  # pragma: no cover - CLI-only fallback
     SCRIPTS_DIR = Path(__file__).resolve().parent
     SKILL_ROOT = SCRIPTS_DIR.parent
     sys.path.insert(0, str(SKILL_ROOT))
-    from scripts.types import Config, UnifiedPaperEntity  # type: ignore
+    from scripts.types import Author, Config, UnifiedPaperEntity  # type: ignore
 
 
 # =============================================================================
@@ -350,6 +356,115 @@ def enrich_all(papers: List[UnifiedPaperEntity]) -> List[UnifiedPaperEntity]:
             _mark_source(p)
 
     return papers
+
+
+# =============================================================================
+# Last-tier retrieval (OpenAlex + Semantic Scholar both unavailable)
+# =============================================================================
+
+# Relevance order only: sorting by is-referenced-by-count ranks the most-cited
+# works that match ANY query word (seen live 2026-09-28: "working memory
+# training older adults" -> LSTM, cholesterol guidelines, HISAT), so callers
+# that want citation order re-sort a relevance-ranked set locally instead.
+_SEARCH_SELECT = (
+    "DOI,title,author,container-title,ISSN,issued,abstract,"
+    "is-referenced-by-count,type"
+)
+_SEARCH_TYPES = ("journal-article", "proceedings-article", "posted-content", "book-chapter")
+_SEARCH_PAGE = 100
+_TYPE_MAP = {
+    "journal-article": "article",
+    "proceedings-article": "article",
+    "posted-content": "preprint",
+    "book-chapter": "book-chapter",
+}
+_JATS_TAG = re.compile(r"<[^>]+>")
+
+
+def record_to_entity(rec: Dict[str, Any]) -> UnifiedPaperEntity:
+    """One CrossRef work record -> UnifiedPaperEntity (sources=["crossref"])."""
+    doi = (rec.get("DOI") or "").strip().lower() or None
+    titles = rec.get("title") or []
+    title = html.unescape(titles[0]).strip() if titles else ""
+    authors = []
+    for a in rec.get("author") or []:
+        name = " ".join(x for x in (a.get("given"), a.get("family")) if x) or a.get("name") or ""
+        if name:
+            authors.append(Author(name=html.unescape(name)))
+    year = None
+    parts = (rec.get("issued") or {}).get("date-parts") or []
+    if parts and parts[0] and parts[0][0]:
+        try:
+            year = int(parts[0][0])
+        except (TypeError, ValueError):
+            year = None
+    containers = rec.get("container-title") or []
+    issns = rec.get("ISSN") or []
+    abstract = rec.get("abstract")
+    if abstract:
+        abstract = html.unescape(_JATS_TAG.sub(" ", abstract))
+        abstract = re.sub(r"\s+", " ", abstract).strip() or None
+    return UnifiedPaperEntity(
+        doi=doi,
+        title=title,
+        abstract=abstract or None,
+        authors=authors,
+        year=year,
+        venue=html.unescape(containers[0]) if containers else None,
+        issn=issns[0] if issns else None,
+        type=_TYPE_MAP.get(rec.get("type") or ""),
+        citation_count=int(rec.get("is-referenced-by-count") or 0),
+        doi_url=f"https://doi.org/{doi}" if doi else None,
+        sources=["crossref"],
+    )
+
+
+def search_works(
+    query: str,
+    *,
+    year_min: Optional[int] = None,
+    year_max: Optional[int] = None,
+    limit: int = 50,
+) -> List[UnifiedPaperEntity]:
+    """Relevance-ranked CrossRef search. Never raises; [] when unreachable."""
+    filters = [f"type:{t}" for t in _SEARCH_TYPES]
+    if year_min is not None:
+        filters.append(f"from-pub-date:{year_min}")
+    if year_max is not None:
+        filters.append(f"until-pub-date:{year_max}")
+    out: List[UnifiedPaperEntity] = []
+    offset = 0
+    while len(out) < limit:
+        rows = min(_SEARCH_PAGE, limit - len(out))
+        params = {
+            "query": query,
+            "rows": rows,
+            "offset": offset,
+            "select": _SEARCH_SELECT,
+            "filter": ",".join(filters),
+        }
+        try:
+            resp = _get_session().get(_BASE_URL, params=params, timeout=_TIMEOUT * 2)
+        except requests.RequestException:
+            break
+        if resp.status_code != 200:
+            break
+        try:
+            items = (resp.json().get("message") or {}).get("items") or []
+        except ValueError:
+            break
+        out.extend(record_to_entity(it) for it in items if it.get("title"))
+        if len(items) < rows:
+            break
+        offset += rows
+        time.sleep(_RATE_LIMIT_SLEEP)
+    return out[:limit]
+
+
+def get_entity(doi: str) -> Optional[UnifiedPaperEntity]:
+    """One DOI -> UnifiedPaperEntity, or None (arXiv DOIs are never in CrossRef)."""
+    rec = _fetch_doi(doi)
+    return record_to_entity(rec) if rec else None
 
 
 # =============================================================================

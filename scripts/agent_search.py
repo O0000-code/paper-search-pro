@@ -75,13 +75,14 @@ import math
 import re
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .types import Config, UnifiedPaperEntity
 
 # These imports are the deterministic core the agent path REUSES (no new search
 # logic invented here — same backends the human path uses, R-14/enhance-not-rewrite).
-from . import openalex_helper, ss_helper, quota_guard, crossref_helper
+from . import openalex_helper, ss_helper, quota_guard, crossref_helper, source_fallback
+from .openalex_guard import OpenAlexUnavailable
 # Chinese supplemental sources (v2.3.0, B1): independent primary sources that emit
 # the SAME UnifiedPaperEntity shape, so their results fold into federated dedup
 # exactly like an openalex/ss strategy list. Explicit-flag only in the agent path
@@ -464,12 +465,15 @@ def _retrieve(
     year_min: Optional[int],
     year_max: Optional[int],
     per_strategy: int,
-) -> Tuple[List[List[UnifiedPaperEntity]], List[str]]:
+) -> Tuple[List[List[UnifiedPaperEntity]], List[str], Optional[Dict[str, Any]]]:
     """Run the multi-strategy retrieval for the chosen source.
 
-    Returns (strategy_results, warnings). ``strategy_results`` is a list of
-    per-strategy entity lists (so the caller can compute marginal yield). We
-    reuse the *existing* multi-strategy backends rather than reinventing:
+    Returns (strategy_results, warnings, fallback). ``strategy_results`` is a list
+    of per-strategy entity lists (so the caller can compute marginal yield).
+    ``fallback`` is None normally; when OpenAlex could not serve the run (budget
+    spent, throttled, down) it describes the switch, and the remaining strategies
+    were served by Semantic Scholar / CrossRef instead. We reuse the *existing*
+    multi-strategy backends rather than reinventing:
 
       - OpenAlex: the three double_sort strategies (cited / recent / relevance),
         run individually so we can measure per-strategy yield. (double_sort_search
@@ -498,11 +502,32 @@ def _retrieve(
                     year_min=year_min,
                     year_max=year_max,
                 )
+            except OpenAlexUnavailable as exc:
+                # OpenAlex cannot serve the rest of this run: keep what it already
+                # returned and let the fallback sources supply one more strategy.
+                results.append(list(exc.partial or []))
+                exc.partial = []
+                res = source_fallback.serve_list(
+                    "double-sort",
+                    {"query": query, "year_min": year_min, "year_max": year_max,
+                     "n": per_strategy},
+                    exc,
+                )
+                results.append(res.papers or [])
+                warnings.append(
+                    f"openalex unavailable ({exc.describe()}); "
+                    f"switched to {' + '.join(res.served_by) or 'no fallback source'}"
+                )
+                return results, warnings, {
+                    "reason": exc.reason,
+                    "reset_seconds": exc.reset_seconds,
+                    "served_by": res.served_by,
+                }
             except Exception as exc:  # one bad strategy must not kill the run
                 warnings.append(f"openalex strategy {sort} failed: {exc}")
                 batch = []
             results.append(batch)
-        return results, warnings
+        return results, warnings, None
 
     # Semantic Scholar primary.
     try:
@@ -517,7 +542,7 @@ def _retrieve(
             "semantic_scholar returned 0 papers (no key -> 429 on shared pool is "
             "the most common cause; set semantic_scholar_api_key)."
         )
-    return [merged], warnings
+    return [merged], warnings, None
 
 
 # ===========================================================================
@@ -1545,11 +1570,20 @@ def run_agent_search(
     # re-retrieves at greater depth — but the FIRST pass is identical to the
     # non-rank path, so the default behaviour is unchanged.
     cur_per_strategy = per_strategy
-    strategy_results, retr_warnings = _retrieve(
+    source_fallback.init(config)
+    strategy_results, retr_warnings, fallback = _retrieve(
         search_query, source_used, year_min=year_min, year_max=year_max,
         per_strategy=cur_per_strategy,
     )
     warnings.extend(retr_warnings)
+    # OpenAlex went unavailable mid-run: report the switch and keep every later
+    # step (deepening, open-impact lookups, ISSN backfill) off OpenAlex.
+    openalex_down = fallback is not None
+    if openalex_down:
+        ratelimit["switched_source"] = True
+        ratelimit["fallback"] = fallback
+        if fallback["served_by"]:
+            source_used = fallback["served_by"][0]
 
     # ---- Chinese supplemental sources (agent path: explicit --with-* only) -------
     # Each is an independent primary source in the same UnifiedPaperEntity shape, so
@@ -1669,7 +1703,7 @@ def run_agent_search(
             prev_unique = len(unique)
             cur_per_strategy *= 2  # grow retrieval depth one level
             deepen_rounds += 1
-            more_results, more_warn = _retrieve(
+            more_results, more_warn, _more_fallback = _retrieve(
                 search_query, source_used, year_min=year_min, year_max=year_max,
                 per_strategy=cur_per_strategy,
             )
@@ -1747,7 +1781,7 @@ def run_agent_search(
     # search and never forces a switch — it just leaves that paper unjoined.
     issn_backfilled = 0
     issn_backfill_attempted = 0
-    if enrich_journal and issn_backfill and source_used == "semantic_scholar":
+    if enrich_journal and issn_backfill and source_used == "semantic_scholar" and not openalex_down:
         # Initialise OpenAlex once for the free DOI lookups (idempotent, cheap).
         try:
             openalex_helper.init_pyalex(config)

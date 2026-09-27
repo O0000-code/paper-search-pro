@@ -76,7 +76,9 @@ search_language: auto            # auto | en | zh | both
 #                      stickily fall back to SS for the rest of the run
 primary_source: "openalex"
 
-# Only relevant when primary_source == "auto". Allows the quota-driven switch.
+# When OpenAlex cannot serve a call (daily budget spent, persistent throttling,
+# outage), serve it from Semantic Scholar, then CrossRef, so the run continues.
+# false = stop with an error instead. Also allows the "auto" pre-flight switch.
 quota_fallback: true
 
 # USD remaining (OpenAlex X-RateLimit-Remaining-USD) at/below which "auto" mode

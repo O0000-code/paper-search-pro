@@ -95,7 +95,17 @@ After deciding, **say one sentence to the user**: *"I detected [medical signal: 
 
 ## Primary source selection & quota fallback
 
-*(v2.2, additive. **Default behaviour is unchanged: OpenAlex is the primary source and STEP 3 runs exactly as written above.** This section only applies when the user has set `primary_source` in `~/.paper-search-pro/config.yaml`, or has asked for quota-driven fallback. It governs the **human 14-STEP path**; the headless `agent_search` path consumes the same config automatically — see `references/agent_mode.md`.)*
+*(v2.2, additive. **Default behaviour is unchanged: OpenAlex is the primary source and STEP 3 runs exactly as written above.** The config knob below only applies when the user has set `primary_source` in `~/.paper-search-pro/config.yaml`. It governs the **human 14-STEP path**; the headless `agent_search` path consumes the same config automatically — see `references/agent_mode.md`.)*
+
+### Automatic fallback when OpenAlex cannot serve a call (no action needed)
+
+Independent of `primary_source`, every `openalex_helper` call that OpenAlex cannot serve is served elsewhere, so a spent budget no longer stops a run:
+
+- **What counts as "cannot serve":** a 429 whose headers show the daily budget is spent (`X-RateLimit-Remaining` below `X-RateLimit-Credits-Required`, or no USD left; this is the official OpenAlex CLI's test) switches at once. Other 429s are throttling: the helper honours `Retry-After` and retries 3 times first. Server errors and network failures get one retry. A rejected OpenAlex key also counts. 400/404 do **not** switch: they mean the query or ID is wrong.
+- **Where it goes:** Semantic Scholar first (the configured key; keyless if SS refuses the key, with a stderr line asking the user to renew it), then CrossRef (keyless; relevance-ranked, abstracts only where publishers deposit them). `search` / `deep` / `double-sort` / `seminal` use both tiers; `reviews` and `journal-list` use SS only, since CrossRef cannot filter reviews or a venue list; `get` and `citation-network` need a DOI; `author` / `trends` have no equivalent.
+- **What is kept:** OpenAlex records fetched before the cutoff stay in the output, listed first. Fallback records carry `sources: ["semantic_scholar"]` or `["crossref"]`, so PRISMA-S item 1 lists the databases that actually served the run.
+- **What you do:** relay the stderr line to the user in one sentence and continue. Exit `3` means nothing could serve that call; its stdout is a valid empty result, so skip that call. Set `quota_fallback: false` to get the old hard stop back.
+- **Skip the OpenAlex backfill below** after such a switch: those lookups would hit the same wall.
 
 `config.primary_source` (in `~/.paper-search-pro/config.yaml`) selects which source serves the **primary retrieval** in STEP 3:
 
@@ -125,7 +135,7 @@ PYTHONPATH=$PSP_HOME \
   python3 -m scripts.quota_guard --mode run
 ```
 
-`--mode run` reads OpenAlex's `X-RateLimit-Remaining-USD` header and emits a sticky verdict: `should_switch: true` when remaining USD is at/below `quota_fallback_threshold_usd` (default `0.05`). **A failed probe (`ok: false`) means "stay on OpenAlex" — absence of evidence is not exhaustion; never switch on a failed probe.**
+This pre-flight check only picks the engine up front; a budget that runs out mid-run is handled by the automatic fallback above. `--mode run` reads OpenAlex's `X-RateLimit-Remaining-USD` header and emits a sticky verdict: `should_switch: true` when remaining USD is at/below `quota_fallback_threshold_usd` (default `0.05`). **A failed probe (`ok: false`) means "stay on OpenAlex" — absence of evidence is not exhaustion; never switch on a failed probe.**
 
 ### If switching to Semantic Scholar for this run
 

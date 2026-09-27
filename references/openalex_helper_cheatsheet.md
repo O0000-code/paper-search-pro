@@ -91,6 +91,10 @@ Per-paper (`UnifiedPaperEntity`): `doi`, `arxiv_id`, `openalex_id`, `pmid`, `pmc
 
 Names are RESOLVED to OpenAlex source IDs at runtime (display_name filter is unreliable; SA-Z2 §4 verified).
 
+## When OpenAlex cannot serve a call
+
+A spent daily budget, persistent throttling or an outage no longer ends the call with a traceback. The helper serves the same subcommand from Semantic Scholar, then CrossRef. The JSON shape is unchanged, and it prints one stderr line starting `[paper-search-pro] OpenAlex unavailable`. With `--json-envelope`, `meta.source` names the source that served the call and `meta.fallback` records the reason and the reset countdown. Exit `3` means no source could serve the call: stdout is an empty `[]` / `{}`, so skip that call and continue. `get` and `citation-network` need a DOI to fall back; `author` and `trends` have no fallback. Details: `source_routing.md` § *Automatic fallback*.
+
 ## Empirical warnings (SA-Y2 / SA-Z2 verified)
 
 - **per_page hard-capped at 20** — pyalex returns ~25k-token payloads when per_page>20 even though API accepts up to 200. Helper internally enforces `_PER_PAGE=20` and pages.
