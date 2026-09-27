@@ -378,6 +378,22 @@ _PER_PAGE = 20
 # =============================================================================
 
 
+def _year_filter(year_min: Optional[int], year_max: Optional[int]) -> Optional[str]:
+    """One ``publication_year`` filter value, both ends inclusive.
+
+    Both bounds must go in a single range value: two separate ``filter()``
+    calls on the same key are joined by pyalex as ``>A+<B``, which OpenAlex
+    rejects ("Value for param publication_year must be a number").
+    """
+    if year_min is not None and year_max is not None:
+        return f"{year_min}-{year_max}"
+    if year_min is not None:
+        return f">{year_min - 1}"
+    if year_max is not None:
+        return f"<{year_max + 1}"
+    return None
+
+
 def search_works(
     query: str,
     year_min: Optional[int] = None,
@@ -387,10 +403,9 @@ def search_works(
 ) -> List[UnifiedPaperEntity]:
     """Keyword search with optional year + type filter. Default top-25 by relevance."""
     q = Works().search(query)
-    if year_min is not None:
-        q = q.filter(publication_year=f">{year_min - 1}")
-    if year_max is not None:
-        q = q.filter(publication_year=f"<{year_max + 1}")
+    year_filter = _year_filter(year_min, year_max)
+    if year_filter is not None:
+        q = q.filter(publication_year=year_filter)
     if work_type:
         q = q.filter(type=work_type)
     per_page = min(limit, _PER_PAGE)
@@ -424,10 +439,9 @@ def search_top_n_pages(
         sort_field, sort_dir = sort.split(":", 1)
 
     q = Works().search(query).sort(**{sort_field: sort_dir})
-    if year_min is not None:
-        q = q.filter(publication_year=f">{year_min - 1}")
-    if year_max is not None:
-        q = q.filter(publication_year=f"<{year_max + 1}")
+    year_filter = _year_filter(year_min, year_max)
+    if year_filter is not None:
+        q = q.filter(publication_year=year_filter)
 
     per_page = _PER_PAGE
     pages_needed = (total_papers + per_page - 1) // per_page
@@ -447,6 +461,7 @@ def double_sort_search(
     query: str,
     year_min: Optional[int] = None,
     total_per_strategy: int = 50,
+    year_max: Optional[int] = None,
 ) -> List[UnifiedPaperEntity]:
     """Multi-strategy combine: cited + recent + relevance. Boost rank when paper
     appears in >=2 strategies (cross-strategy boost).
@@ -454,9 +469,12 @@ def double_sort_search(
     Per SA-V2: multi-strategy OpenAlex deep crawl > L2 booster pseudo-recall.
     Returns papers sorted by (appearance_count desc, citation_count desc).
     """
-    s1 = search_top_n_pages(query, total_per_strategy, "cited_by_count:desc", year_min=year_min)
-    s2 = search_top_n_pages(query, total_per_strategy, "publication_date:desc", year_min=year_min)
-    s3 = search_top_n_pages(query, total_per_strategy, "relevance_score:desc", year_min=year_min)
+    s1 = search_top_n_pages(query, total_per_strategy, "cited_by_count:desc",
+                            year_min=year_min, year_max=year_max)
+    s2 = search_top_n_pages(query, total_per_strategy, "publication_date:desc",
+                            year_min=year_min, year_max=year_max)
+    s3 = search_top_n_pages(query, total_per_strategy, "relevance_score:desc",
+                            year_min=year_min, year_max=year_max)
 
     seen: Dict[str, Tuple[UnifiedPaperEntity, int]] = {}
     for strategy_papers in (s1, s2, s3):
@@ -518,12 +536,16 @@ def find_seminal_papers(
 
 
 def find_review_articles(
-    topic: str, limit: int = 10, year_min: Optional[int] = None
+    topic: str,
+    limit: int = 10,
+    year_min: Optional[int] = None,
+    year_max: Optional[int] = None,
 ) -> List[UnifiedPaperEntity]:
-    """Filter type='review' with optional year_min."""
+    """Filter type='review' with optional year_min / year_max (inclusive)."""
     q = Works().filter(type="review").search(topic)
-    if year_min is not None:
-        q = q.filter(publication_year=f">{year_min - 1}")
+    year_filter = _year_filter(year_min, year_max)
+    if year_filter is not None:
+        q = q.filter(publication_year=year_filter)
     per_page = min(limit, _PER_PAGE)
     pages = (limit + per_page - 1) // per_page
     entities: List[UnifiedPaperEntity] = []
@@ -874,12 +896,14 @@ def _main_cli() -> None:
         help="cited_by_count:desc | publication_date:desc | relevance_score:desc",
     )
     p_deep.add_argument("--year-min", type=int)
+    p_deep.add_argument("--year-max", type=int)
 
     # double-sort
     p_double = sub.add_parser("double-sort", help="Multi-strategy combine + boost")
     p_double.add_argument("query")
     p_double.add_argument("--n", type=int, default=50, dest="total_per_strategy")
     p_double.add_argument("--year-min", type=int)
+    p_double.add_argument("--year-max", type=int)
 
     # seminal
     p_seminal = sub.add_parser("seminal", help="High-cited classic papers")
@@ -892,6 +916,7 @@ def _main_cli() -> None:
     p_reviews.add_argument("topic")
     p_reviews.add_argument("--limit", type=int, default=10)
     p_reviews.add_argument("--year-min", type=int)
+    p_reviews.add_argument("--year-max", type=int)
 
     # journal-list
     p_journal = sub.add_parser("journal-list", help="Search within journal whitelist preset")
@@ -941,13 +966,15 @@ def _main_cli() -> None:
         payload = _to_dict(get_work(args.id))
     elif args.cmd == "deep":
         results = search_top_n_pages(
-            args.query, total_papers=args.n, sort=args.sort, year_min=args.year_min
+            args.query, total_papers=args.n, sort=args.sort,
+            year_min=args.year_min, year_max=args.year_max,
         )
         payload = _entity_list_to_json(results)
         count = len(results)
     elif args.cmd == "double-sort":
         results = double_sort_search(
-            args.query, year_min=args.year_min, total_per_strategy=args.total_per_strategy
+            args.query, year_min=args.year_min, year_max=args.year_max,
+            total_per_strategy=args.total_per_strategy,
         )
         payload = _entity_list_to_json(results)
         count = len(results)
@@ -956,7 +983,10 @@ def _main_cli() -> None:
         payload = _entity_list_to_json(results)
         count = len(results)
     elif args.cmd == "reviews":
-        results = find_review_articles(args.topic, limit=args.limit, year_min=args.year_min)
+        results = find_review_articles(
+            args.topic, limit=args.limit,
+            year_min=args.year_min, year_max=args.year_max,
+        )
         payload = _entity_list_to_json(results)
         count = len(results)
     elif args.cmd == "journal-list":
