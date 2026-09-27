@@ -17,6 +17,7 @@ Background (per 24_v2_l2_booster_test.md and 25_round2_synthesis.md):
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Dict, List, Optional
 
@@ -128,6 +129,11 @@ def _parse_pmid_record(rec: dict) -> Dict:
             year = int(_xml_str(pub_date["Year"]))
         except (ValueError, TypeError):
             year = None
+    elif "MedlineDate" in pub_date:
+        # Free-text issue dates such as "2021 Jan-Feb" or "1998 Dec-1999 Jan";
+        # the first four-digit year is the issue year.
+        m = re.search(r"\b(\d{4})\b", _xml_str(pub_date["MedlineDate"]))
+        year = int(m.group(1)) if m else None
 
     return {
         "pmid": pmid,
@@ -227,11 +233,36 @@ def get_paper_by_pmid(pmid: str) -> Optional[Dict]:
 # L2 Audit-tier: Independent search by MeSH (PRISMA workflow only)
 # ---------------------------------------------------------------------------
 
+def _pdat_clause(year_min: Optional[int], year_max: Optional[int]) -> str:
+    """PubMed publication-date range clause, inclusive on both ends.
+
+    A start year alone keeps the historical ``{year_min}:3000[dp]`` form.
+    """
+    if not year_min and not year_max:
+        return ""
+    lo = year_min if year_min else 1000  # PubMed holds records from the 1780s
+    hi = year_max if year_max else 3000
+    return f" AND ({lo}:{hi}[dp])"
+
+
+def _drop_after(records: List[Dict], year_max: Optional[int]) -> List[Dict]:
+    """Drop records whose parsed year is after ``year_max``.
+
+    ``[dp]`` also matches the electronic date, so an article e-published inside
+    the range but printed the next year comes back with that later year.
+    Records with no parsed year are kept.
+    """
+    if not year_max:
+        return records
+    return [r for r in records if r.get("year") is None or r["year"] <= year_max]
+
+
 def search_by_mesh(
     mesh_term: str,
     year_min: Optional[int] = None,
     publication_types: Optional[List[str]] = None,
     limit: int = 25,
+    year_max: Optional[int] = None,
 ) -> List[Dict]:
     """Independent PubMed search using MeSH precision.
 
@@ -240,15 +271,17 @@ def search_by_mesh(
     """
     _ensure_init()
     term = f'"{mesh_term}"[MeSH Terms]'
-    if year_min:
-        term += f" AND ({year_min}:3000[dp])"
+    term += _pdat_clause(year_min, year_max)
     if publication_types:
         type_filter = " OR ".join(f'"{pt}"[Publication Type]' for pt in publication_types)
         term += f" AND ({type_filter})"
 
     time.sleep(_RATE_LIMIT_SLEEP)
     try:
-        handle = Entrez.esearch(db="pubmed", term=term, retmax=limit)
+        # Over-fetch when an end year is set: _drop_after() may remove
+        # boundary records, and the caller still expects up to `limit`.
+        retmax = limit * 2 if year_max else limit
+        handle = Entrez.esearch(db="pubmed", term=term, retmax=retmax)
         record = Entrez.read(handle)
         handle.close()
     except Exception:
@@ -267,21 +300,30 @@ def search_by_mesh(
         return []
 
     articles = records.get("PubmedArticle", []) or []
-    return [_parse_pmid_record(art) for art in articles]
+    return _drop_after(
+        [_parse_pmid_record(art) for art in articles], year_max
+    )[:limit]
 
 
-def search_keyword(query: str, year_min: Optional[int] = None, limit: int = 25) -> List[Dict]:
+def search_keyword(
+    query: str,
+    year_min: Optional[int] = None,
+    limit: int = 25,
+    year_max: Optional[int] = None,
+) -> List[Dict]:
     """Generic PubMed keyword search (auto-expands to MeSH internally). Audit-tier
     secondary path when no explicit MeSH term is known.
     """
     _ensure_init()
     term = query
-    if year_min:
-        term += f" AND ({year_min}:3000[dp])"
+    term += _pdat_clause(year_min, year_max)
 
     time.sleep(_RATE_LIMIT_SLEEP)
     try:
-        handle = Entrez.esearch(db="pubmed", term=term, retmax=limit)
+        # Over-fetch when an end year is set: _drop_after() may remove
+        # boundary records, and the caller still expects up to `limit`.
+        retmax = limit * 2 if year_max else limit
+        handle = Entrez.esearch(db="pubmed", term=term, retmax=retmax)
         record = Entrez.read(handle)
         handle.close()
     except Exception:
@@ -300,7 +342,9 @@ def search_keyword(query: str, year_min: Optional[int] = None, limit: int = 25) 
         return []
 
     articles = records.get("PubmedArticle", []) or []
-    return [_parse_pmid_record(art) for art in articles]
+    return _drop_after(
+        [_parse_pmid_record(art) for art in articles], year_max
+    )[:limit]
 
 
 # ---------------------------------------------------------------------------
@@ -330,6 +374,7 @@ if __name__ == "__main__":
     p_mesh = sub.add_parser("search-mesh", help="Audit-tier MeSH search")
     p_mesh.add_argument("mesh_term")
     p_mesh.add_argument("--year-min", type=int, default=None)
+    p_mesh.add_argument("--year-max", type=int, default=None)
     p_mesh.add_argument("--pub-type", action="append", default=None,
                         help='Repeat to add filters, e.g. --pub-type "Clinical Trial"')
     p_mesh.add_argument("--limit", type=int, default=25)
@@ -337,6 +382,7 @@ if __name__ == "__main__":
     p_kw = sub.add_parser("search", help="Generic keyword search")
     p_kw.add_argument("query")
     p_kw.add_argument("--year-min", type=int, default=None)
+    p_kw.add_argument("--year-max", type=int, default=None)
     p_kw.add_argument("--limit", type=int, default=25)
 
     p_pmid = sub.add_parser("by-pmid", help="Fetch one record by PMID")
@@ -357,10 +403,12 @@ if __name__ == "__main__":
             print(out_text)
     elif args.cmd == "search-mesh":
         results = search_by_mesh(args.mesh_term, year_min=args.year_min,
+                                 year_max=args.year_max,
                                  publication_types=args.pub_type, limit=args.limit)
         print(json.dumps(results, ensure_ascii=False, indent=2, default=str))
     elif args.cmd == "search":
-        results = search_keyword(args.query, year_min=args.year_min, limit=args.limit)
+        results = search_keyword(args.query, year_min=args.year_min,
+                                 year_max=args.year_max, limit=args.limit)
         print(json.dumps(results, ensure_ascii=False, indent=2, default=str))
     elif args.cmd == "by-pmid":
         result = get_paper_by_pmid(args.pmid)
