@@ -603,6 +603,8 @@ PYTHONPATH=$PSP_HOME \
     --min-rcs 5
 ```
 
+If 12a–12c print `No scholarly display title was given`, `DISPLAY_TITLE` was empty: the report H1 is the generic fallback. Write the title (STEP 11, `references/report_title.md`) and re-run 12a–12c; nothing needs re-searching.
+
 `data_materialization` accepts `--wall-clock-seconds` if you tracked elapsed time yourself; otherwise the helper computes it from session timestamps when available.
 
 ### STEP 13 — Write PRISMA-S log

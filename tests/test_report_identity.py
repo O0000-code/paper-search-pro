@@ -181,3 +181,57 @@ def test_legacy_markdown_metadata_falls_back_to_generic_h1(tmp_path):
 
     assert first_line == "# 文献检索报告"
     assert RAW_ZH not in first_line
+
+
+def test_generic_title_is_re_resolved_in_the_render_language():
+    """A stored fallback is not an authored title: rendering the same data in
+    English must not show the Chinese generic title (and vice versa)."""
+    payload = _build_report_data(
+        metadata={"query": RAW_ZH, "display_title": "文献检索报告", "language": "zh"},
+        paper_list=[],
+        chart_data={},
+        prisma_log_raw={},
+        language="en",
+    )
+    assert payload["metadata"]["display_title"] == "Literature Search Report"
+
+
+def test_authored_title_survives_a_language_switch():
+    payload = _build_report_data(
+        metadata={"query": RAW_ZH, "display_title": TITLE_ZH, "language": "zh"},
+        paper_list=[],
+        chart_data={},
+        prisma_log_raw={},
+        language="en",
+    )
+    assert payload["metadata"]["display_title"] == TITLE_ZH
+
+
+def test_missing_title_is_reported_on_stderr(tmp_path, capsys):
+    materialize(_kg(), tmp_path, user_query=RAW_ZH, language="zh", summary="Summary")
+    err = capsys.readouterr().err
+    assert "No scholarly display title was given" in err
+    assert "文献检索报告" in err and "report_title.md" in err
+
+    materialize(_kg(), tmp_path, user_query=RAW_ZH, display_title=TITLE_ZH,
+                language="zh", summary="Summary")
+    assert "display title" not in capsys.readouterr().err
+
+
+def test_title_copied_from_request_is_reported(capsys):
+    from scripts.report_identity import warn_about_title
+
+    warn_about_title(build_report_identity(
+        original_user_query="Children's trust in social robots",
+        display_title="children's trust in social robots",
+    ))
+    assert "identical to the user's request" in capsys.readouterr().err
+
+
+def test_markdown_stub_summary_names_the_topic_not_the_request(tmp_path):
+    materialize(_kg(), tmp_path, user_query=RAW_ZH, search_topic=TOPIC, language="zh")
+    output = tmp_path / "stub.md"
+    render_md(tmp_path, output, summary="")
+    text = output.read_text(encoding="utf-8")
+    assert f"This report addresses: _{TOPIC}_." in text
+    assert RAW_ZH not in text

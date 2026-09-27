@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .report_identity import build_report_identity
+from .report_identity import authored_title, build_report_identity, warn_about_title
 from .types import UnifiedPaperEntity
 
 
@@ -68,6 +68,7 @@ def render_md(
         display_title=display_title or metadata.get("display_title", ""),
         language=language or metadata.get("language"),
     )
+    warn_about_title(identity)
     metadata.update(identity)
     metadata.setdefault("tier", tier)
 
@@ -90,6 +91,17 @@ def render_md(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(md_text, encoding="utf-8")
     return output_path
+
+
+def _summary_subject(metadata: Dict[str, Any]) -> str:
+    """What the stub summary says the report is about: the normalized search
+    topic, else an authored title. Never the raw request, and never the generic
+    fallback title (which would say nothing)."""
+    return (
+        (metadata.get("search_topic") or "").strip()
+        or authored_title(metadata.get("display_title"))
+        or "the retained literature"
+    )
 
 
 def _fallback_summary(
@@ -128,7 +140,7 @@ def _fallback_summary(
     )
 
     parts = [
-        f"This report addresses: _{metadata.get('display_title', '')}_.",
+        f"This report addresses: _{_summary_subject(metadata)}_.",
         f"In **{metadata.get('tier', 'standard')}** tier, "
         f"{metadata.get('papers_evaluated', 0)} records were screened, "
         f"of which **{metadata.get('highly_relevant_count', 0)}** scored highly relevant (RCS >= 7). "

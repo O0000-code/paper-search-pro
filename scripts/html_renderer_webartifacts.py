@@ -24,7 +24,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .report_identity import build_report_identity
+from .report_identity import build_report_identity, warn_about_title
 
 log = logging.getLogger(__name__)
 
@@ -187,6 +187,7 @@ def _build_report_data(
         display_title=display_title or meta_out.get("display_title", ""),
         language=language or meta_out.get("language"),
     )
+    warn_about_title(identity)
     meta_out.update(identity)
 
     out: Dict[str, Any] = {

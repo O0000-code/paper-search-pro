@@ -12,6 +12,7 @@ import { t } from "@/lib/i18n"
 import type { NormalizedData, NormalizedPaper, Tier } from "@/lib/types"
 
 import type { TierFilter } from "../TierStrip"
+import { ReportTitle } from "../ReportTitle"
 
 export interface DocumentTopProps {
   data: NormalizedData
@@ -142,7 +143,7 @@ export function DocumentTop({
               fontFamily: "var(--font-sans)",
             }}
           >
-            {m.displayTitle}
+            <ReportTitle text={m.displayTitle} />
           </h1>
 
           {/* Abstract block */}

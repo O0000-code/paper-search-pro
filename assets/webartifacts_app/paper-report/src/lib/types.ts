@@ -20,6 +20,9 @@ export type Tier =
 export interface NormalizedMeta {
   /** Scholarly, evidence-bounded report title used by every visual H1. */
   displayTitle: string
+  /** True when no title was authored and displayTitle is the generic
+   *  "Literature Search Report" / "文献检索报告" fallback. */
+  displayTitleIsFallback: boolean
   /** Verbatim user request retained for audit; never rendered as the H1. */
   originalUserQuery?: string
   /** Normalized semantic retrieval topic without operational instructions. */

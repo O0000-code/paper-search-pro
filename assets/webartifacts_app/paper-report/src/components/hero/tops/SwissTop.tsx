@@ -13,6 +13,7 @@ import { t } from "@/lib/i18n"
 import type { NormalizedData, NormalizedPaper, Tier } from "@/lib/types"
 
 import type { TierFilter } from "../TierStrip"
+import { ReportTitle } from "../ReportTitle"
 
 export interface SwissTopProps {
   data: NormalizedData
@@ -140,7 +141,12 @@ export function SwissTop({
                   marginBottom: 18,
                   lineHeight: 1,
                   height: 12,
+                  // A generic fallback H1 is not a research topic: hide the
+                  // label but keep its box so the row stays aligned with the
+                  // stat columns' labels.
+                  visibility: m.displayTitleIsFallback ? "hidden" : undefined,
                 }}
+                aria-hidden={m.displayTitleIsFallback || undefined}
               >
                 {t("researchTopic")}
               </div>
@@ -155,7 +161,7 @@ export function SwissTop({
                   fontFamily: "var(--font-sans)",
                 }}
               >
-                {m.displayTitle}
+                <ReportTitle text={m.displayTitle} />
               </h1>
             </div>
 

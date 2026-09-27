@@ -12,6 +12,7 @@ import { t } from "@/lib/i18n"
 import type { NormalizedData, NormalizedPaper, Tier } from "@/lib/types"
 
 import type { TierFilter } from "../TierStrip"
+import { ReportTitle } from "../ReportTitle"
 
 export interface EditorialTopProps {
   data: NormalizedData
@@ -115,7 +116,7 @@ export function EditorialTop({
               fontFamily: "var(--font-sans)",
             }}
           >
-            {m.displayTitle}
+            <ReportTitle text={m.displayTitle} />
           </h1>
 
           {/* Finding — one sentence, no boxes */}

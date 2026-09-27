@@ -14,6 +14,7 @@ arbitrary natural-language request.
 from __future__ import annotations
 
 import re
+import sys
 from typing import Any, Dict, Optional
 
 from .detect_language import detect_language
@@ -23,6 +24,10 @@ DEFAULT_DISPLAY_TITLES = {
     "en": "Literature Search Report",
     "zh": "文献检索报告",
 }
+
+# A stored generic title is a fallback, not an authored title: it is re-resolved
+# in the language of each render instead of being carried over verbatim.
+_GENERIC_TITLES = frozenset(DEFAULT_DISPLAY_TITLES.values())
 
 
 def resolve_report_language(
@@ -51,6 +56,12 @@ def normalize_one_line(value: Any) -> str:
     return re.sub(r"^#{1,6}\s*", "", text).strip()
 
 
+def authored_title(value: Any) -> str:
+    """The authored title, or "" when it is absent or only a generic fallback."""
+    title = normalize_one_line(value)
+    return "" if title in _GENERIC_TITLES else title
+
+
 def resolve_display_title(
     display_title: Any,
     *,
@@ -63,11 +74,35 @@ def resolve_display_title(
     language.  It is never returned as the display title.
     """
 
-    title = normalize_one_line(display_title)
+    title = authored_title(display_title)
     if title:
         return title
     lang = resolve_report_language(language, original_user_query)
     return DEFAULT_DISPLAY_TITLES[lang]
+
+
+def warn_about_title(identity: Dict[str, str]) -> None:
+    """Print one stderr line when the H1 is not an authored scholarly title.
+
+    The generic fallback keeps a raw request out of the H1, but it is a safety
+    net, not the goal; without this line a forgotten STEP 11 title would ship
+    silently.
+    """
+    title = identity.get("display_title", "")
+    if title in _GENERIC_TITLES:
+        print(
+            f"[paper-search-pro] No scholarly display title was given, so the report "
+            f"H1 is the generic '{title}'. Write one per references/report_title.md "
+            f"(STEP 11) and pass it as --display-title to STEP 12a-12c.",
+            file=sys.stderr,
+        )
+    elif title and normalize_one_line(identity.get("original_user_query")).casefold() == title.casefold():
+        print(
+            "[paper-search-pro] The display title is identical to the user's request. "
+            "Check that it reads as a scholarly title (references/report_title.md); "
+            "the request itself is kept in the audit metadata.",
+            file=sys.stderr,
+        )
 
 
 def build_report_identity(

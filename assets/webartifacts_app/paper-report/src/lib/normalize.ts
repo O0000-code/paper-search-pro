@@ -9,7 +9,7 @@
 // Output is always NormalizedData; downstream zones never see raw fields.
 
 import { rcsTier, shortAuthors } from "./format"
-import { getLang, t } from "./i18n"
+import { getLang, STRINGS, t } from "./i18n"
 import type {
   AuthorRef,
   ChartDataBins,
@@ -87,10 +87,28 @@ interface RawShape {
   search_strategies?: SearchStrategiesPayload
 }
 
+// Both languages' generic titles count as "not authored": a payload that stored
+// one is re-titled in the active UI language (mirrors report_identity.py).
+const GENERIC_TITLES = new Set<string>([
+  STRINGS.en.reportDefaultTitle,
+  STRINGS.zh.reportDefaultTitle,
+])
+
+function resolveTitle(value: string | undefined): {
+  displayTitle: string
+  displayTitleIsFallback: boolean
+} {
+  const title = (value ?? "").replace(/\s+/g, " ").trim()
+  if (!title || GENERIC_TITLES.has(title)) {
+    return { displayTitle: t("reportDefaultTitle"), displayTitleIsFallback: true }
+  }
+  return { displayTitle: title, displayTitleIsFallback: false }
+}
+
 export function normalize(raw: RawShape | null | undefined): NormalizedData {
   if (!raw) {
     return {
-      meta: { displayTitle: t("reportDefaultTitle") },
+      meta: resolveTitle(undefined),
       papers: [],
       chartData: {},
       prismaLog: {},
@@ -113,14 +131,12 @@ export function normalize(raw: RawShape | null | undefined): NormalizedData {
       lang === "zh" && md.search_topic_zh
         ? md.search_topic_zh
         : md.search_topic
-    const resolvedDisplayTitle =
-      (lang === "zh" && md.display_title_zh
-        ? md.display_title_zh
-        : md.display_title
-      )?.trim() || t("reportDefaultTitle")
+    const title = resolveTitle(
+      lang === "zh" && md.display_title_zh ? md.display_title_zh : md.display_title,
+    )
     return {
       meta: {
-        displayTitle: resolvedDisplayTitle,
+        ...title,
         originalUserQuery: resolvedOriginalQuery,
         searchTopic: resolvedSearchTopic,
         query: resolvedOriginalQuery,
@@ -176,8 +192,7 @@ export function normalize(raw: RawShape | null | undefined): NormalizedData {
   const legacyMeta = (raw.reportMeta ?? {}) as Partial<NormalizedData["meta"]>
   const meta: NormalizedData["meta"] = {
     ...legacyMeta,
-    displayTitle:
-      (legacyMeta.displayTitle || "").trim() || t("reportDefaultTitle"),
+    ...resolveTitle(legacyMeta.displayTitle),
     originalUserQuery: legacyMeta.originalUserQuery ?? legacyMeta.query,
   }
   return {

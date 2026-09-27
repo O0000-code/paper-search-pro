@@ -26,7 +26,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .report_identity import build_report_identity
+from .report_identity import build_report_identity, warn_about_title
 from .types import UnifiedPaperEntity
 
 
@@ -608,6 +608,7 @@ def _build_metadata(
         display_title=display_title,
         language=language,
     )
+    warn_about_title(identity)
     return {
         "search_id": search_id,
         **identity,
