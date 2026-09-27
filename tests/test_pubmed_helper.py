@@ -17,6 +17,7 @@ from pathlib import Path
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SKILL_ROOT))
 
+import pytest  # noqa: E402
 from Bio import Entrez  # noqa: E402
 
 from scripts.config import load_config  # noqa: E402
@@ -49,6 +50,7 @@ def test_init_sets_entrez_globals():
 # Test 2: search_by_mesh respects limit, returns dicts with mesh_terms
 # ---------------------------------------------------------------------------
 
+@pytest.mark.live
 def test_search_by_mesh_metformin_with_year_min():
     results = search_by_mesh("Metformin", year_min=2020, limit=10)
     assert isinstance(results, list)
@@ -69,6 +71,7 @@ def test_search_by_mesh_metformin_with_year_min():
 # Test 3: publication_types filter actually filters to RCT/Clinical Trial
 # ---------------------------------------------------------------------------
 
+@pytest.mark.live
 def test_search_by_mesh_clinical_trial_filter():
     """PubMed's '[Publication Type]' filter walks the MeSH tree, so
     'Clinical Trial' matches its subtypes too (Randomized Controlled Trial,
@@ -132,6 +135,7 @@ def test_enrich_skips_papers_without_pmid():
 # Test 5: enrich_with_mesh on real PMID adds mesh_terms + sources
 # ---------------------------------------------------------------------------
 
+@pytest.mark.live
 def test_enrich_with_mesh_on_real_paper():
     # PMID 33301246 = BNT162b2 NEJM 2020 — known to have 19 MeSH terms (SA-W3 T8)
     paper = UnifiedPaperEntity(
@@ -156,6 +160,7 @@ def test_enrich_with_mesh_on_real_paper():
 # Test 6: PMC URL format + pmcid normalization
 # ---------------------------------------------------------------------------
 
+@pytest.mark.live
 def test_pmc_url_format():
     paper = UnifiedPaperEntity(
         doi="10.1056/nejmoa2034577",
@@ -174,6 +179,7 @@ def test_pmc_url_format():
 # Test 7: enrich does not duplicate 'pubmed' in sources if called twice
 # ---------------------------------------------------------------------------
 
+@pytest.mark.live
 def test_enrich_sources_no_duplicate():
     paper = UnifiedPaperEntity(
         doi="10.1056/nejmoa2034577",
@@ -191,6 +197,7 @@ def test_enrich_sources_no_duplicate():
 # Test 8: keyword search Count > MeSH search Count (SA-W3 T5: 35K vs 21K)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.live
 def test_keyword_count_greater_than_mesh_count():
     """Keyword 'metformin' (Title/Abstract/synonyms) > MeSH 'Metformin' (precise).
 
@@ -226,6 +233,7 @@ def test_keyword_count_greater_than_mesh_count():
 # Test 9: get_paper_by_pmid returns parsed dict with expected fields
 # ---------------------------------------------------------------------------
 
+@pytest.mark.live
 def test_get_paper_by_pmid_smoke():
     rec = get_paper_by_pmid("33301246")
     assert rec is not None
@@ -244,6 +252,7 @@ def test_get_paper_by_pmid_smoke():
 # Test 10: search_keyword returns parsed dicts (smoke test)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.live
 def test_search_keyword_smoke():
     results = search_keyword("metformin AND diabetes", year_min=2024, limit=3)
     assert isinstance(results, list)

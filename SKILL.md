@@ -247,6 +247,8 @@ PYTHONPATH=$PSP_HOME \
     > "$SEARCH_DIR/raw/openalex.json"
 ```
 
+If the STEP 1 query plan has an end year, add `--year-max YYYY` (inclusive) to either command.
+
 The full subcommand + flag reference (`search` / `double-sort` / `seminal` / `reviews` / `journal-list` / `citation-network`, all verified against argparse) is in `references/openalex_helper_cheatsheet.md` — read it before reaching for anything beyond the two commands above. For Deep+Audit, also call topic-specific subcommands (e.g. `seminal`, `reviews`, `journal-list`), append outputs to `$SEARCH_DIR/raw/openalex_*.json`, and federate them all together in STEP 5.
 
 ### STEP 4 — Run L2 boosters (if enabled by STEP 2)

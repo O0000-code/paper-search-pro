@@ -32,6 +32,7 @@ python3 -m scripts.pubmed_helper search-mesh "Diabetes Mellitus, Type 2" \
     --limit 25 \
     > ./paper-search-results/<id>/raw/pubmed.json
 # Quote multi-word MeSH terms exactly as they appear in NCBI MeSH browser.
+# End year: add --year-max YYYY (inclusive). search-mesh and search both accept it.
 
 # search-mesh with publication-type filter (PRISMA RCT inclusion)
 python3 -m scripts.pubmed_helper search-mesh "Irritable Bowel Syndrome" \

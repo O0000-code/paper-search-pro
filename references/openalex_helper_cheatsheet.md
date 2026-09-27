@@ -42,6 +42,7 @@ python3 -m scripts.openalex_helper deep "working memory training" --n 100 \
 python3 -m scripts.openalex_helper double-sort "attachment human-robot interaction" \
     --n 50 --year-min 2018 > raw/openalex.json
 # Combines cited + recent + relevance, papers seen in ≥2 strategies ranked higher.
+# End year: add --year-max YYYY (inclusive). search / deep / double-sort / reviews all accept it.
 
 # Seminal — high-cited classics (Deep tier signature move)
 python3 -m scripts.openalex_helper seminal "prospect theory" --year-max 2000 --limit 15
