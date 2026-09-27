@@ -227,6 +227,15 @@ export interface StrategyDeepLink {
   url_kind?: string | null
 }
 
+export interface StrategyVocabTerm {
+  term?: string
+  vocab?: string | null
+  /** verified | not_found | pending_manual | unverified */
+  status?: string | null
+  /** CMeSH soft check: hit | empty | unavailable | off */
+  soft_crosscheck?: string | null
+}
+
 export interface SearchStrategyEntry {
   platform?: string
   host?: string | null
@@ -235,6 +244,7 @@ export interface SearchStrategyEntry {
   strategy_lines?: string[] | null
   deep_link?: StrategyDeepLink | null
   review_points?: string[] | null
+  controlled_vocab_terms?: StrategyVocabTerm[] | null
   vocab_verification_status?: string | null
 }
 

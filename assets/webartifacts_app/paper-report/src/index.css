@@ -1447,7 +1447,8 @@
   .rd-hero-editorial > div,
   .rd-hero-document > div,
   .rd-tab-methods,
-  .rd-tab-audit {
+  .rd-tab-audit,
+  .rd-tab-extensions {
     padding-left: 16px !important;
     padding-right: 16px !important;
   }
@@ -1463,7 +1464,8 @@
     padding-bottom: 32px !important;
   }
   .rd-tab-methods,
-  .rd-tab-audit {
+  .rd-tab-audit,
+  .rd-tab-extensions {
     padding-top: 24px !important;
     padding-bottom: 48px !important;
   }
@@ -1616,7 +1618,8 @@
   .rd-hero-editorial > div,
   .rd-hero-document > div,
   .rd-tab-methods,
-  .rd-tab-audit {
+  .rd-tab-audit,
+  .rd-tab-extensions {
     padding-left: 12px !important;
     padding-right: 12px !important;
   }

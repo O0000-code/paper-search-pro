@@ -2,7 +2,8 @@
 // 0.1em) + h2 (17px Geist 600 -0.005em) + sub (12.5px muted max-w-72ch leading-1.55)
 
 export interface SectionHeaderProps {
-  kicker: string
+  /** Optional — a section whose title already says it all omits the kicker. */
+  kicker?: string
   title: string
   sub?: string
 }
@@ -10,6 +11,7 @@ export interface SectionHeaderProps {
 export function SectionHeader({ kicker, title, sub }: SectionHeaderProps) {
   return (
     <div style={{ marginBottom: 16 }}>
+      {kicker && (
       <div
         style={{
           fontSize: 10.5,
@@ -23,6 +25,7 @@ export function SectionHeader({ kicker, title, sub }: SectionHeaderProps) {
       >
         {kicker}
       </div>
+      )}
       <h2
         style={{
           margin: 0,
