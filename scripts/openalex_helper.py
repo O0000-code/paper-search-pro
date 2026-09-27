@@ -575,7 +575,9 @@ def _resolve_source_ids(journal_names: List[str], max_per_name: int = 1) -> List
     return ids
 
 
-def get_source_impact(issn: str) -> Optional[Dict[str, Optional[float]]]:
+def get_source_impact(
+    issn: str, *, raise_unavailable: bool = False
+) -> Optional[Dict[str, Optional[float]]]:
     """Look up a journal's OPEN impact figures from its OpenAlex source (v2.2).
 
     Returns ``{"two_year_mean_citedness": float|None, "h_index": int|None,
@@ -585,12 +587,18 @@ def get_source_impact(issn: str) -> Optional[Dict[str, Optional[float]]]:
     Data is OpenAlex ``summary_stats`` (CC0, zero-dependency). R-09: the
     ``two_year_mean_citedness`` is an OPEN journal-impact figure, NOT the official
     Clarivate JIF — callers must label it as such and use it for relative
-    ranking/filtering only. Never raises (a flaky lookup just degrades to None)."""
+    ranking/filtering only. Never raises (a flaky lookup just degrades to None),
+    except that ``raise_unavailable=True`` lets OpenAlexUnavailable through so a
+    caller can tell "OpenAlex is down" from "this journal has no figure"."""
     if not issn:
         return None
     try:
         # OpenAlex Sources can be filtered by issn (accepts hyphenated form).
         results = openalex_guard.call(lambda: Sources().filter(issn=issn).get(per_page=1))
+    except OpenAlexUnavailable:
+        if raise_unavailable:
+            raise
+        return None
     except Exception:
         return None
     if not results:
@@ -873,6 +881,23 @@ def _wrap_envelope(
 EXIT_SOURCE_UNAVAILABLE = 3
 
 
+def _empty_payload(cmd: str, exc: OpenAlexUnavailable):
+    """The command's result shape with nothing (or only what OpenAlex returned
+    before the cutoff) in it, so stdout stays one valid JSON document."""
+    from . import source_fallback
+
+    if cmd in source_fallback.LIST_COMMANDS:
+        kept = list(exc.partial or []) if isinstance(exc.partial, list) else []
+        return _entity_list_to_json(kept), len(kept)
+    if cmd == "citation-network":
+        part = exc.partial if isinstance(exc.partial, dict) else {}
+        return {
+            "references": _entity_list_to_json(part.get("references") or []),
+            "cited_by": _entity_list_to_json(part.get("cited_by") or []),
+        }, None
+    return {}, None
+
+
 def _fallback_args(args) -> dict:
     """The command arguments source_fallback needs, as a plain dict."""
     a = {k: getattr(args, k, None) for k in
@@ -1100,13 +1125,16 @@ def _main_cli() -> None:
         payload, count = _run_command(args)
     except OpenAlexUnavailable as exc:
         if not getattr(config, "quota_fallback", True):
-            print(
+            payload, count = _empty_payload(args.cmd, exc)
+            fallback_meta = {"reason": exc.reason, "reset_seconds": exc.reset_seconds,
+                             "served_by": [], "kept_openalex_partial": 0}
+            served = False
+            notice = (
                 f"[paper-search-pro] OpenAlex unavailable ({exc.describe()}). Automatic "
-                "fallback is off (quota_fallback: false in ~/.paper-search-pro/config.yaml).",
-                file=sys.stderr,
+                "fallback is off (quota_fallback: false in ~/.paper-search-pro/config.yaml)."
             )
-            sys.exit(EXIT_SOURCE_UNAVAILABLE)
-        payload, count, fallback_meta, served, notice = _serve_fallback(args, exc, config)
+        else:
+            payload, count, fallback_meta, served, notice = _serve_fallback(args, exc, config)
 
     if getattr(args, "json_envelope", False):
         # Agent path: wrap in the structured envelope. stdout stays a single JSON doc.

@@ -295,6 +295,7 @@ def test_cli_fallback_off_restores_hard_stop(monkeypatch):
     out, err, code = _run_cli(monkeypatch, ["search", "q"], config=cfg)
     assert code == oah.EXIT_SOURCE_UNAVAILABLE
     assert "quota_fallback: false" in err
+    assert json.loads(out) == []  # a `> file` redirect still gets valid JSON
 
 
 def test_cli_get_with_w_id_cannot_fall_back(monkeypatch):
@@ -462,3 +463,135 @@ def test_agent_retrieve_switches_mid_run(monkeypatch):
     assert fallback == {"reason": "budget_exhausted", "reset_seconds": 60,
                         "served_by": ["semantic_scholar"]}
     assert any("switched to semantic_scholar" in w for w in warnings)
+
+
+# --------------------------------------------------------------------------
+# Follow-ups from the Codex review
+# --------------------------------------------------------------------------
+
+
+def test_search_type_filter_is_never_dropped(monkeypatch):
+    calls = {"ss": [], "cr": []}
+    monkeypatch.setattr(ss_helper, "search", lambda q, **k: calls["ss"].append(k) or [])
+    monkeypatch.setattr(crossref_helper, "search_works",
+                        lambda q, **k: calls["cr"].append(k) or [_paper("10.3/a", "crossref")])
+    exc = OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
+    res = source_fallback.serve_list("search", {"query": "q", "limit": 5, "work_type": "review"}, exc)
+    assert calls["ss"][0]["filters"] == {"publicationTypes": "Review"}
+    assert calls["cr"] == [] and not res.served  # CrossRef cannot filter reviews
+    res = source_fallback.serve_list("search", {"query": "q", "limit": 5, "work_type": "article"}, exc)
+    assert calls["cr"][0]["types"] == ("journal-article", "proceedings-article") and res.served
+    calls["ss"].clear()
+    source_fallback.serve_list("search", {"query": "q", "limit": 5, "work_type": "paratext"}, exc)
+    assert calls["ss"] == []  # unknown type: not asked without the filter
+
+
+def test_citation_partial_is_reported_as_kept(monkeypatch):
+    def down(*_a, **_k):
+        exc = OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
+        exc.partial = {"doi": "10.9/s", "references": [_paper("10.9/r0", "openalex")],
+                       "cited_by": []}
+        raise exc
+
+    monkeypatch.setattr(oah, "get_citation_network", down)
+    monkeypatch.setattr(ss_helper, "citation_network",
+                        lambda doi, **k: {"references": [], "cited_by": []})
+    out, err, code = _run_cli(monkeypatch, ["citation-network", "W1"])
+    assert code == 0 and len(json.loads(out)["references"]) == 1
+    assert "kept the 1 OpenAlex records" in err and "empty result" not in err
+
+
+def test_agent_retrieve_respects_fallback_off(monkeypatch):
+    def down(query, total_papers, sort, year_min=None, year_max=None):
+        raise OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
+
+    monkeypatch.setattr(agent_search.openalex_helper, "search_top_n_pages", down)
+    monkeypatch.setattr(ss_helper, "search", lambda *a, **k: pytest.fail("fallback ran"))
+    _r, warnings, fb = agent_search._retrieve("q", "openalex", year_min=None, year_max=None,
+                                              per_strategy=5, allow_fallback=False)
+    assert fb["served_by"] == [] and any("quota_fallback: false" in w for w in warnings)
+
+
+def _agent_targets(monkeypatch, *, search_top_n_pages, impact):
+    monkeypatch.setattr(agent_search.openalex_helper, "search_top_n_pages", search_top_n_pages)
+    monkeypatch.setattr(agent_search.openalex_helper, "init_pyalex", lambda c: None)
+    monkeypatch.setattr(agent_search.openalex_helper, "get_source_impact", impact)
+    monkeypatch.setattr(agent_search.quota_guard, "evaluate",
+                        lambda c, mode="probe", **k: type("Q", (), {
+                            "ok": True, "should_switch": False,
+                            "to_dict": lambda self: {"ok": True}})())
+    monkeypatch.setattr(agent_search.journal_rank, "load", lambda **k: None)
+    monkeypatch.setattr(source_fallback, "init", lambda c: None)
+
+
+def _journal_paper(doi):
+    p = _paper(doi, "openalex", cites=50)
+    p.title = p.abstract = "alpha beta"
+    p.issn = "1234-5678"
+    return p
+
+
+def test_agent_min_impact_is_skipped_not_emptying_when_openalex_is_down(monkeypatch):
+    def impact(issn, raise_unavailable=False):
+        raise OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
+
+    _agent_targets(monkeypatch, impact=impact,
+                   search_top_n_pages=lambda q, **k: [_journal_paper("10.1/a")])
+    env = agent_search.run_agent_search("alpha beta", Config(), per_strategy=5,
+                                        min_impact=1.0, now_year=2026)
+    assert env["ok"] is True and len(env["data"]) == 1
+    assert any("--min-impact not applied" in w for w in env["meta"]["warnings"])
+
+
+def test_agent_switch_is_sticky_even_when_fallback_found_nothing(monkeypatch):
+    calls = {"impact": 0}
+
+    def fetch(query, total_papers, sort, year_min=None, year_max=None):
+        if sort == "cited_by_count:desc":
+            return [_journal_paper("10.1/a")]
+        raise OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
+
+    def impact(issn, raise_unavailable=False):
+        calls["impact"] += 1
+        return {"two_year_mean_citedness": 3.0}
+
+    _agent_targets(monkeypatch, search_top_n_pages=fetch, impact=impact)
+    monkeypatch.setattr(ss_helper, "search", lambda *a, **k: [])
+    monkeypatch.setattr(crossref_helper, "search_works", lambda *a, **k: [])
+    env = agent_search.run_agent_search("alpha beta", Config(), per_strategy=5, now_year=2026)
+    rl = env["meta"]["ratelimit"]
+    assert env["ok"] is True and calls["impact"] == 0  # no OpenAlex call after the outage
+    assert rl["fallback"]["reason"] == "budget_exhausted" and rl["switched_source"] is False
+
+
+def test_agent_auto_without_ss_key_starts_on_openalex(monkeypatch):
+    _agent_targets(monkeypatch, impact=lambda issn, **k: None,
+                   search_top_n_pages=lambda q, **k: [_journal_paper("10.1/a")])
+    monkeypatch.setattr(agent_search.quota_guard, "evaluate",
+                        lambda c, mode="probe", **k: type("Q", (), {
+                            "ok": True, "should_switch": True,
+                            "to_dict": lambda self: {"ok": True}})())
+    monkeypatch.setattr(ss_helper, "_api_key_from_config", lambda: None)
+    cfg = Config()
+    cfg.primary_source = "auto"
+    env = agent_search.run_agent_search("alpha beta", cfg, per_strategy=5, now_year=2026)
+    assert env["ok"] is True and env["meta"]["source_used"] == "openalex"
+    assert any("no Semantic Scholar key" in w for w in env["meta"]["warnings"])
+
+
+def test_verify_title_falls_back_to_crossref_or_says_unchecked(monkeypatch):
+    def down(*_a, **_k):
+        raise OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
+
+    monkeypatch.setattr(agent_search.openalex_helper, "search_works", down)
+    ref = {"title": "Training and plasticity of working memory"}
+    hit = _paper("10.1016/j.tics.2010.05.002", "crossref")
+    hit.title = "Training and plasticity of working memory"
+    monkeypatch.setattr(crossref_helper, "search_works", lambda *a, **k: [hit])
+    r = agent_search._verify_one_ref(ref, oa_ready=True, cr_ready=True, ss_ready=False)
+    assert r["exists"] is True and r["matched_source"] == "crossref"
+
+    monkeypatch.setattr(crossref_helper, "search_works", lambda *a, **k: [])
+    r = agent_search._verify_one_ref(ref, oa_ready=True, cr_ready=True, ss_ready=False)
+    assert r["exists"] is False and r["unchecked"] is True
+    assert "NOT checked" in r["note"]

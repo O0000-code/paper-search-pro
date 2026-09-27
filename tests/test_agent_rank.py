@@ -122,7 +122,7 @@ def _oa_targets(papers_by_sort, lookup):
     return [
         (agent_search.openalex_helper, "search_top_n_pages", fake_search),
         (agent_search.openalex_helper, "init_pyalex", lambda cfg: None),
-        (agent_search.openalex_helper, "get_source_impact", lambda issn: None),
+        (agent_search.openalex_helper, "get_source_impact", lambda issn, **kw: None),
         (agent_search.quota_guard, "evaluate", lambda config, mode="probe", **kw: _FakeQuota()),
         (agent_search.journal_rank, "load", lambda **kw: lookup),
     ]
@@ -261,7 +261,7 @@ def test_adaptive_deepening_finds_more_survivors():
     targets = [
         (agent_search.openalex_helper, "search_top_n_pages", fake_search),
         (agent_search.openalex_helper, "init_pyalex", lambda cfg: None),
-        (agent_search.openalex_helper, "get_source_impact", lambda issn: None),
+        (agent_search.openalex_helper, "get_source_impact", lambda issn, **kw: None),
         (agent_search.quota_guard, "evaluate", lambda config, mode="probe", **kw: _FakeQuota()),
         (agent_search.journal_rank, "load", lambda **kw: lookup),
     ]
@@ -303,7 +303,7 @@ def test_deepening_saturates_when_no_new_papers():
     targets = [
         (agent_search.openalex_helper, "search_top_n_pages", fake_search),
         (agent_search.openalex_helper, "init_pyalex", lambda cfg: None),
-        (agent_search.openalex_helper, "get_source_impact", lambda issn: None),
+        (agent_search.openalex_helper, "get_source_impact", lambda issn, **kw: None),
         (agent_search.quota_guard, "evaluate", lambda config, mode="probe", **kw: _FakeQuota()),
         (agent_search.journal_rank, "load", lambda **kw: lookup),
     ]

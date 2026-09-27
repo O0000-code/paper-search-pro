@@ -228,7 +228,7 @@ def test_find_cached_csv_picks_newest():
 # ===========================================================================
 
 
-def _fake_impact(issn):
+def _fake_impact(issn, **kw):
     if "0022" in issn:
         return {"two_year_mean_citedness": 2.72, "h_index": 757}
     if "1234" in issn:

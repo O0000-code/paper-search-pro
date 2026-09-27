@@ -85,7 +85,8 @@ A strong title behaves like a rigorous paper or review title:
 - “find”, “search”, “help me”, “report”, “literature review” when they merely
   describe the requested operation;
 - claims such as “effects”, “impact”, or “efficacy” when the retained evidence is
-  qualitative, descriptive, or methodological.
+  qualitative, descriptive, methodological, or correlational (cross-sectional
+  designs support “association”, not “effect”).
 
 An eligibility fact can enter the title only when it is also part of the
 scientific meaning. Examples: “Adolescent development during the COVID-19
@@ -94,6 +95,10 @@ pandemic” legitimately keeps the historical period; “papers published after
 meta-analysis; “PubMed RCT filter” is never title copy.
 
 ## Cross-language examples
+
+The examples show the method, not reusable titles. Even for a request that
+matches one of them, derive the title from the papers the run actually retained:
+an axis the final corpus does not carry must not appear.
 
 ### Chinese request with operational constraints
 

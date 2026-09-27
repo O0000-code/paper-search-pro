@@ -465,6 +465,7 @@ def _retrieve(
     year_min: Optional[int],
     year_max: Optional[int],
     per_strategy: int,
+    allow_fallback: bool = True,
 ) -> Tuple[List[List[UnifiedPaperEntity]], List[str], Optional[Dict[str, Any]]]:
     """Run the multi-strategy retrieval for the chosen source.
 
@@ -507,6 +508,16 @@ def _retrieve(
                 # returned and let the fallback sources supply one more strategy.
                 results.append(list(exc.partial or []))
                 exc.partial = []
+                if not allow_fallback:
+                    warnings.append(
+                        f"openalex unavailable ({exc.describe()}); automatic fallback "
+                        "is off (quota_fallback: false)"
+                    )
+                    return results, warnings, {
+                        "reason": exc.reason,
+                        "reset_seconds": exc.reset_seconds,
+                        "served_by": [],
+                    }
                 res = source_fallback.serve_list(
                     "double-sort",
                     {"query": query, "year_min": year_min, "year_max": year_max,
@@ -1158,8 +1169,21 @@ def _verify_one_ref(
 
     # ---- Title path: weaker; require a close token-set match (anti-FP). ----
     if title and oa_ready:
+        label, source = "OpenAlex", "openalex"
         try:
             candidates = openalex_helper.search_works(title, limit=5)
+        except OpenAlexUnavailable as exc:
+            # A spent budget is not evidence that the paper is missing: check the
+            # title in CrossRef instead, or say plainly that it was not checked.
+            candidates = crossref_helper.search_works(title, limit=5) if cr_ready else []
+            if not candidates:
+                result["unchecked"] = True
+                result["note"] = (
+                    f"OpenAlex unavailable ({exc.describe()}) and CrossRef gave no "
+                    "candidates: this title-only ref was NOT checked (not a not-found ruling)."
+                )
+                return result
+            label, source = "CrossRef", "crossref"
         except Exception:
             candidates = []
         best = None
@@ -1171,9 +1195,9 @@ def _verify_one_ref(
                 best = cand
         if best is not None and best_ratio >= _TITLE_MATCH_THRESHOLD:
             result["exists"] = True
-            result["matched_source"] = "openalex"
+            result["matched_source"] = source
             result["canonical"] = _canonical_from_entity(best)
-            note = f"Title matched in OpenAlex (token overlap {best_ratio:.2f})."
+            note = f"Title matched in {label} (token overlap {best_ratio:.2f})."
             if doi:
                 # DOI failed but the title resolved — flag the likely-wrong DOI.
                 note += (
@@ -1186,11 +1210,11 @@ def _verify_one_ref(
         if best is not None and best_ratio > 0.0:
             result["note"] = (
                 f"No confident title match (best token overlap {best_ratio:.2f} < "
-                f"{_TITLE_MATCH_THRESHOLD}); closest OpenAlex title: "
+                f"{_TITLE_MATCH_THRESHOLD}); closest {label} title: "
                 f"{best.title!r}. Treat as NOT verified."
             )
         else:
-            result["note"] = "Title not found in OpenAlex. Treat as NOT verified."
+            result["note"] = f"Title not found in {label}. Treat as NOT verified."
         return result
 
     if title and not oa_ready:
@@ -1273,6 +1297,7 @@ def verify_references(refs: List[Dict], config: Config) -> Dict:
         data.append(ruling)
 
     verified = sum(1 for r in data if r["exists"])
+    unchecked = sum(1 for r in data if r.get("unchecked"))
     meta = {
         "mode": "verify_references",
         "sources_available": {
@@ -1283,8 +1308,10 @@ def verify_references(refs: List[Dict], config: Config) -> Dict:
         "summary": {
             "total": len(data),
             "verified": verified,
-            "not_found": len(data) - verified,
+            "not_found": len(data) - verified - unchecked,
             "by_source": by_source,
+            # Emitted only when some refs could not be checked (R-19: absent otherwise).
+            **({"unchecked": unchecked} if unchecked else {}),
         },
         "title_match_threshold": _TITLE_MATCH_THRESHOLD,
         "warnings": warnings,
@@ -1540,6 +1567,17 @@ def run_agent_search(
 
     # SS-as-primary requires a key (R-06). Surface a config error early rather
     # than silently returning [] from a 429.
+    if source_used == "semantic_scholar" and switched:
+        ss_helper.init(config)
+        if not ss_helper._api_key_from_config():
+            # auto chose SS because OpenAlex's budget is low, but keyed SS is not
+            # available. Start on OpenAlex anyway: if it runs out, _retrieve
+            # switches to keyless SS / CrossRef instead of the run failing here.
+            source_used, switched = "openalex", False
+            warnings.append(
+                "auto: OpenAlex budget is low but no Semantic Scholar key is configured; "
+                "starting on OpenAlex, with automatic fallback if it runs out."
+            )
     if source_used == "semantic_scholar":
         ss_helper.init(config)
         if not ss_helper._api_key_from_config():
@@ -1571,19 +1609,27 @@ def run_agent_search(
     # non-rank path, so the default behaviour is unchanged.
     cur_per_strategy = per_strategy
     source_fallback.init(config)
+    allow_fallback = bool(getattr(config, "quota_fallback", True))
     strategy_results, retr_warnings, fallback = _retrieve(
         search_query, source_used, year_min=year_min, year_max=year_max,
-        per_strategy=cur_per_strategy,
+        per_strategy=cur_per_strategy, allow_fallback=allow_fallback,
     )
     warnings.extend(retr_warnings)
-    # OpenAlex went unavailable mid-run: report the switch and keep every later
-    # step (deepening, open-impact lookups, ISSN backfill) off OpenAlex.
-    openalex_down = fallback is not None
-    if openalex_down:
-        ratelimit["switched_source"] = True
-        ratelimit["fallback"] = fallback
-        if fallback["served_by"]:
-            source_used = fallback["served_by"][0]
+    # OpenAlex went unavailable mid-run: report it and keep every later step
+    # (deepening, open-impact lookups, ISSN backfill) off OpenAlex. Sticky: once
+    # down, it stays down for the rest of this run.
+    openalex_down = False
+
+    def _mark_openalex_down(fb: Dict[str, Any]) -> None:
+        nonlocal openalex_down, source_used
+        openalex_down = True
+        ratelimit["switched_source"] = bool(fb["served_by"])
+        ratelimit["fallback"] = fb
+        if fb["served_by"]:
+            source_used = fb["served_by"][0]
+
+    if fallback is not None:
+        _mark_openalex_down(fallback)
 
     # ---- Chinese supplemental sources (agent path: explicit --with-* only) -------
     # Each is an independent primary source in the same UnifiedPaperEntity shape, so
@@ -1699,15 +1745,18 @@ def run_agent_search(
             len(kept_now) < target
             and deepen_rounds < max_deepen_rounds
             and source_used == "openalex"  # SS search() has no depth knob (one shot)
+            and not openalex_down
         ):
             prev_unique = len(unique)
             cur_per_strategy *= 2  # grow retrieval depth one level
             deepen_rounds += 1
-            more_results, more_warn, _more_fallback = _retrieve(
+            more_results, more_warn, more_fallback = _retrieve(
                 search_query, source_used, year_min=year_min, year_max=year_max,
-                per_strategy=cur_per_strategy,
+                per_strategy=cur_per_strategy, allow_fallback=allow_fallback,
             )
             warnings.extend(more_warn)
+            if more_fallback is not None:
+                _mark_openalex_down(more_fallback)
             # Re-dedup the deeper superset (deterministic sorts => stable superset).
             # Chinese sources have no depth knob, so re-append their constant lists
             # so they survive the deeper re-dedup (no-op when --with-* was not used).
@@ -1769,7 +1818,7 @@ def run_agent_search(
     # OpenAlex open-impact lookup (CC0) is only meaningful on the OpenAlex path (and
     # after an SS-primary ISSN backfill, below). SS-primary runs otherwise skip it.
     impact_lookup = None
-    if enrich_journal and source_used == "openalex":
+    if enrich_journal and source_used == "openalex" and not openalex_down:
         impact_lookup = openalex_helper.get_source_impact
 
     # ---- SS-primary ISSN backfill (R-08) ----
@@ -1806,7 +1855,7 @@ def run_agent_search(
             # A backfilled ISSN makes the OpenAlex open-impact figure reachable for
             # those journals; enable the (CC0) impact lookup so SS papers do not lose
             # impact relative to the OpenAlex path.
-            if issn_backfilled and impact_lookup is None:
+            if issn_backfilled and impact_lookup is None and not openalex_down:
                 impact_lookup = openalex_helper.get_source_impact
 
     # ---- Annotate the relevance-survivors with platform data (network-free) ----
@@ -1831,7 +1880,16 @@ def run_agent_search(
                 continue
             if issn not in impact_cache:
                 try:
-                    impact_cache[issn] = impact_lookup(issn)
+                    impact_cache[issn] = impact_lookup(issn, raise_unavailable=True)
+                except OpenAlexUnavailable as exc:
+                    # Budget ran out during enrichment: stop asking, and let the
+                    # --min-impact filter below know the figures are missing.
+                    openalex_down = True
+                    warnings.append(
+                        f"openalex unavailable during open-impact lookups ({exc.describe()}); "
+                        "remaining impact figures skipped"
+                    )
+                    break
                 except Exception:
                     impact_cache[issn] = None
             imp = impact_cache[issn]
@@ -1856,6 +1914,15 @@ def run_agent_search(
 
     # ---- Opt-in --quartile / --min-impact filters (now sourced from journal_rank) -
     want_quartiles = {q.upper() for q in (quartiles or []) if q}
+    if min_impact is not None and openalex_down:
+        # The open-impact figure comes only from OpenAlex. With OpenAlex down it is
+        # missing for reasons unrelated to the journal, so filtering on it would
+        # drop every paper; skip that one criterion and say so.
+        warnings.append(
+            "--min-impact not applied: OpenAlex was unavailable, so open-impact "
+            "figures are missing"
+        )
+        min_impact = None
     apply_journal_filter = bool(want_quartiles) or (min_impact is not None)
 
     def _passes_journal_filter(p) -> bool:

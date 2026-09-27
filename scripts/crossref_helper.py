@@ -425,9 +425,12 @@ def search_works(
     year_min: Optional[int] = None,
     year_max: Optional[int] = None,
     limit: int = 50,
+    types: Optional[tuple] = None,
 ) -> List[UnifiedPaperEntity]:
-    """Relevance-ranked CrossRef search. Never raises; [] when unreachable."""
-    filters = [f"type:{t}" for t in _SEARCH_TYPES]
+    """Relevance-ranked CrossRef search. Never raises; [] when unreachable.
+    ``types`` narrows the CrossRef work types (default: articles, proceedings,
+    preprints, book chapters)."""
+    filters = [f"type:{t}" for t in (types or _SEARCH_TYPES)]
     if year_min is not None:
         filters.append(f"from-pub-date:{year_min}")
     if year_max is not None:

@@ -628,7 +628,11 @@ retrieval*, not which sea you fish or which supplemental sources are added.
   CrossRef. `meta.ratelimit.switched_source` becomes true, and
   `meta.ratelimit.fallback` gives `{reason, reset_seconds, served_by}`.
   `source_used` names the fallback source, and the OpenAlex-only steps
-  (deepening, open-impact lookups, ISSN backfill) are skipped.
+  (deepening, open-impact lookups, ISSN backfill) are skipped for the rest of
+  the run. `--min-impact` is then not applied (its figure comes only from
+  OpenAlex), and a warning says so. `--verify-refs` checks title-only refs in
+  CrossRef instead, and marks any it could not check `unchecked`, which is not
+  a not-found ruling. `quota_fallback: false` turns the switch off.
 
 `meta.source_used` always tells you which source actually served the run.
 

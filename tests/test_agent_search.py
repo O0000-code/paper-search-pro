@@ -438,7 +438,7 @@ def _ss_primary_targets(ss_papers, *, get_work=None):
         (agent_search.ss_helper, "_api_key_from_config", lambda: "KEY"),
         (agent_search.ss_helper, "search", lambda q, **kw: list(ss_papers)),
         (agent_search.openalex_helper, "init_pyalex", lambda cfg: None),
-        (agent_search.openalex_helper, "get_source_impact", lambda issn: None),
+        (agent_search.openalex_helper, "get_source_impact", lambda issn, **kw: None),
         (agent_search.journal_rank, "load", lambda **kw: None),
     ]
     if get_work is not None:

@@ -27,6 +27,24 @@ LIST_COMMANDS = {"search", "deep", "double-sort", "seminal", "reviews", "journal
 
 _MISSING_FIELDS = "institutions, funders, topics, FWCI, open impact"
 
+# `search --type` (OpenAlex work types) in each fallback source's vocabulary. A
+# type missing from a map means that source cannot honour the filter, and it is
+# skipped rather than asked without it (which would return other types).
+_SS_TYPES = {
+    "review": "Review",
+    "article": "JournalArticle",
+    "book": "Book",
+    "book-chapter": "BookSection",
+    "dataset": "Dataset",
+    "editorial": "Editorial",
+    "letter": "LettersAndComments",
+}
+_CROSSREF_TYPES = {
+    "article": ("journal-article", "proceedings-article"),
+    "preprint": ("posted-content",),
+    "book-chapter": ("book-chapter",),
+}
+
 
 @dataclass
 class FallbackResult:
@@ -62,7 +80,10 @@ def _dedup_extend(base: List[UnifiedPaperEntity], extra: List[UnifiedPaperEntity
 def _ss_list(cmd: str, a: Dict[str, Any]) -> List[UnifiedPaperEntity]:
     q = a.get("query") or a.get("topic") or ""
     if cmd == "search":
-        filters = {"publicationTypes": "Review"} if a.get("work_type") == "review" else None
+        work_type = a.get("work_type")
+        if work_type and work_type not in _SS_TYPES:
+            return []
+        filters = {"publicationTypes": _SS_TYPES[work_type]} if work_type else None
         return ss_helper.search(q, year_min=a.get("year_min"), year_max=a.get("year_max"),
                                 total_per_strategy=a["limit"], filters=filters)
     if cmd == "deep":
@@ -94,8 +115,12 @@ def _crossref_list(cmd: str, a: Dict[str, Any]) -> List[UnifiedPaperEntity]:
     whitelist reliably, so those two commands get no CrossRef tier."""
     q = a.get("query") or a.get("topic") or ""
     if cmd == "search":
+        work_type = a.get("work_type")
+        if work_type and work_type not in _CROSSREF_TYPES:
+            return []
         return crossref_helper.search_works(q, year_min=a.get("year_min"),
-                                            year_max=a.get("year_max"), limit=a["limit"])
+                                            year_max=a.get("year_max"), limit=a["limit"],
+                                            types=_CROSSREF_TYPES.get(work_type))
     if cmd in ("deep", "double-sort"):
         return crossref_helper.search_works(q, year_min=a.get("year_min"),
                                             year_max=a.get("year_max"), limit=a["n"])
@@ -128,7 +153,9 @@ def serve_list(cmd: str, a: Dict[str, Any], exc: OpenAlexUnavailable) -> Fallbac
         papers = papers[:cap]
     if not served_by:
         why = "Semantic Scholar returned nothing"
-        if cmd in ("reviews", "journal-list"):
+        if cmd == "search" and a.get("work_type"):
+            why += f" and --type {a['work_type']} limits which fallback sources can be used"
+        elif cmd in ("reviews", "journal-list"):
             why += " and CrossRef cannot filter this command's scope"
         else:
             why += " and CrossRef returned nothing"
@@ -182,8 +209,14 @@ def serve_citation_network(
     payload = {"references": refs[:refs_limit], "cited_by": cited[:cited_by_limit]}
     if got:
         return FallbackResult(served=True, served_by=["semantic_scholar"], payload=payload)
-    return FallbackResult(served=False, payload=payload,
-                          why_not="Semantic Scholar returned no citation links for this DOI")
+    kept = len(payload["references"]) + len(payload["cited_by"])
+    why = "Semantic Scholar returned no citation links for this DOI"
+    if kept:
+        # OpenAlex links fetched before the cutoff are real results: report them
+        # as such instead of calling the output empty.
+        return FallbackResult(served=True, served_by=["openalex (partial)"], payload=payload,
+                              kept_partial=kept, why_not=why)
+    return FallbackResult(served=False, payload=payload, why_not=why)
 
 
 def notice(cmd: str, exc: OpenAlexUnavailable, result: FallbackResult, size: str) -> str:
