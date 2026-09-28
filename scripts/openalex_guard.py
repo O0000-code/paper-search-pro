@@ -30,6 +30,7 @@ switch is free.
 from __future__ import annotations
 
 import time
+from datetime import datetime, timedelta
 from typing import Any, Callable, List, Optional
 
 import requests
@@ -87,7 +88,8 @@ class OpenAlexUnavailable(Exception):
         if self.reason == BUDGET_EXHAUSTED:
             text = "daily credit budget exhausted"
             if self.reset_seconds:
-                text += f", resets in {format_duration(self.reset_seconds)}"
+                at = (datetime.now() + timedelta(seconds=self.reset_seconds)).strftime("%H:%M")
+                text += f", resets in {format_duration(self.reset_seconds)} (about {at} local time)"
             return text
         return {
             RATE_LIMITED: "still rate-limited after retries",

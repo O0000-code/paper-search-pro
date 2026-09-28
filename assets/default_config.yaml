@@ -77,8 +77,9 @@ search_language: auto            # auto | en | zh | both
 primary_source: "openalex"
 
 # When OpenAlex cannot serve a call (daily budget spent, persistent throttling,
-# outage), serve it from Semantic Scholar, then CrossRef, so the run continues.
-# false = stop with an error instead. Also allows the "auto" pre-flight switch.
+# outage), serve it from Semantic Scholar so the run continues; if SS cannot
+# either, the call fails as OpenAlex errors always did. false = no switch.
+# Also allows the "auto" pre-flight switch.
 quota_fallback: true
 
 # USD remaining (OpenAlex X-RateLimit-Remaining-USD) at/below which "auto" mode

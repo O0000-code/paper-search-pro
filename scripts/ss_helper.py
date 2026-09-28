@@ -442,6 +442,21 @@ _HTTP_MAX_WAIT_S = 20.0
 # go keyless directly instead of paying for the refusal again.
 _key_rejected = False
 
+# Why the last search() got nothing from SS ("" = no failure seen), so a caller
+# can tell "SS is unreachable" from "SS has no match".
+_last_failure = ""
+
+
+def describe_failure() -> str:
+    """Why the last search() failed, e.g. 'configured key rejected; keyless
+    requests throttled (HTTP 429)'; "" when no request failed."""
+    parts = []
+    if _key_rejected:
+        parts.append("configured key rejected")
+    if _last_failure:
+        parts.append(("keyless requests " if _key_rejected else "") + _last_failure)
+    return "; ".join(parts)
+
 # Indirection so tests can exercise the retry paths without real sleeping.
 _sleep = time.sleep
 
@@ -631,6 +646,7 @@ def _bulk_search_one_strategy(
     collected so far (never raises) — a flaky strategy must not kill the run.
     ``filters`` passes extra bulk parameters through (``publicationTypes``,
     ``venue``)."""
+    global _last_failure
     params: Dict[str, object] = {
         "query": query,
         "fields": _SEARCH_FIELDS,
@@ -653,8 +669,11 @@ def _bulk_search_one_strategy(
             params["token"] = token
         res = _ss_get(_SS_BULK_URL, params, api_key=api_key, session=session)
         if res is None:
+            _last_failure = "unreachable"
             break
         if res.status_code != 200:
+            _last_failure = ("throttled (HTTP 429)" if res.status_code == 429
+                             else f"HTTP {res.status_code}")
             # 429 (no key / over rate) or transient — stop this strategy.
             break
         try:
@@ -696,6 +715,8 @@ def search(
     """
     api_key = _api_key_from_config()
 
+    global _last_failure
+    _last_failure = ""
     sorts = strategies or _SEARCH_STRATEGIES
     seen: Dict[str, "tuple[UnifiedPaperEntity, int]"] = {}
     for i, sort in enumerate(sorts):

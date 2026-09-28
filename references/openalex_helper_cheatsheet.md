@@ -93,7 +93,7 @@ Names are RESOLVED to OpenAlex source IDs at runtime (display_name filter is unr
 
 ## When OpenAlex cannot serve a call
 
-A spent daily budget, persistent throttling or an outage no longer ends the call with a traceback. The helper serves the same subcommand from Semantic Scholar, then CrossRef. The JSON shape is unchanged, and it prints one stderr line starting `[paper-search-pro] OpenAlex unavailable`. With `--json-envelope`, `meta.source` names the source that served the call and `meta.fallback` records the reason and the reset countdown. Exit `3` means no source could serve the call: stdout is an empty `[]` / `{}`, so skip that call and continue. `get` and `citation-network` need a DOI to fall back; `author` and `trends` have no fallback. Details: `source_routing.md` § *Automatic fallback*.
+A spent daily budget, persistent throttling or an outage no longer ends the call with a traceback. The helper serves the same subcommand from Semantic Scholar. The JSON shape is unchanged, and it prints one stderr line starting `[paper-search-pro] OpenAlex unavailable`. With `--json-envelope`, `meta.source` names the source that served the call and `meta.fallback` records the reason and the reset countdown. If Semantic Scholar cannot serve it either, the call fails as an OpenAlex error always did: exit `3`, valid JSON on stdout, the reason and reset time on stderr (`journal-list` keeps its old empty-list, exit 0 behaviour). `get` and `citation-network` need a DOI to fall back; `author` and `trends` have no fallback. Details: `source_routing.md` § *Automatic fallback*.
 
 ## Empirical warnings (SA-Y2 / SA-Z2 verified)
 

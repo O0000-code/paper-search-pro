@@ -473,7 +473,7 @@ def _retrieve(
     of per-strategy entity lists (so the caller can compute marginal yield).
     ``fallback`` is None normally; when OpenAlex could not serve the run (budget
     spent, throttled, down) it describes the switch, and the remaining strategies
-    were served by Semantic Scholar / CrossRef instead. We reuse the *existing*
+    were served by Semantic Scholar instead. We reuse the *existing*
     multi-strategy backends rather than reinventing:
 
       - OpenAlex: the three double_sort strategies (cited / recent / relevance),
@@ -1575,7 +1575,7 @@ def run_agent_search(
         if not ss_helper._api_key_from_config():
             # auto chose SS because OpenAlex's budget is low, but keyed SS is not
             # available. Start on OpenAlex anyway: if it runs out, _retrieve
-            # switches to keyless SS / CrossRef instead of the run failing here.
+            # switches to keyless SS instead of the run failing here.
             source_used, switched = "openalex", False
             warnings.append(
                 "auto: OpenAlex budget is low but no Semantic Scholar key is configured; "
@@ -1620,7 +1620,9 @@ def run_agent_search(
     warnings.extend(retr_warnings)
     # OpenAlex went unavailable mid-run: report it and keep every later step
     # (deepening, open-impact lookups, ISSN backfill) off OpenAlex. Sticky: once
-    # down, it stays down for the rest of this run.
+    # down, it stays down for the rest of this run. When Semantic Scholar could
+    # not serve either, the run continues with the strategies that did succeed,
+    # exactly as before the fallback existed (warnings say what was lost).
     openalex_down = False
 
     def _mark_openalex_down(fb: Dict[str, Any]) -> None:
@@ -1755,11 +1757,22 @@ def run_agent_search(
             deepen_rounds += 1
             more_results, more_warn, more_fallback = _retrieve(
                 search_query, source_used, year_min=year_min, year_max=year_max,
-                per_strategy=cur_per_strategy, allow_fallback=allow_fallback,
+                per_strategy=cur_per_strategy, allow_fallback=False,
             )
-            warnings.extend(more_warn)
             if more_fallback is not None:
-                _mark_openalex_down(more_fallback)
+                # A cut-off deeper crawl is incomplete: keep the previous, complete
+                # round and stop deepening, instead of replacing it with a partial
+                # pool or mixing in another source mid-deepening.
+                openalex_down = True
+                deepen_rounds -= 1
+                ratelimit["deepening_stopped"] = more_fallback["reason"]
+                warnings.append(
+                    f"deepening stopped: OpenAlex became unavailable "
+                    f"({more_fallback['reason']}); kept the previous round's "
+                    f"{len(unique)} papers"
+                )
+                break
+            warnings.extend(more_warn)
             # Re-dedup the deeper superset (deterministic sorts => stable superset).
             # Chinese sources have no depth knob, so re-append their constant lists
             # so they survive the deeper re-dedup (no-op when --with-* was not used).

@@ -951,7 +951,8 @@ def _serve_fallback(args, exc: OpenAlexUnavailable, config: Config):
         "served_by": res.served_by,
         "kept_openalex_partial": res.kept_partial,
     }
-    return payload, count, fallback_meta, res.served, source_fallback.notice(
+    exit_ok = res.served or res.continues_as_before
+    return payload, count, fallback_meta, exit_ok, source_fallback.notice(
         args.cmd, exc, res, size
     )
 

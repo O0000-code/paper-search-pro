@@ -4,11 +4,12 @@ Architecture (paper-search-pro v2.0):
 - No new dependencies: uses ``requests`` (already vendored via openalex stack).
 - No API key required; uses CrossRef's *polite pool* by embedding a mailto in
   the User-Agent header (5 req/s/1conc -> 10 req/s/3conc, ~6x throughput).
-- L3 role: enrichment. The one exception is :func:`search_works`, the last
-  retrieval tier used only when OpenAlex AND Semantic Scholar cannot serve a
-  call (see ``openalex_helper``'s fallback). CrossRef needs no key and its
-  polite pool is stable, so it keeps a run moving; its records carry no
-  influential citations and abstracts only where publishers deposit them.
+- L3 role: enrichment and existence checks, never a retrieval source. It
+  matches metadata rather than content, often lacks abstracts and mixes in
+  non-article types, so a corpus built from it would look normal while being
+  weaker. :func:`search_works` exists for ``agent_search --verify-refs``: a
+  title-only reference can still be checked for existence while OpenAlex is
+  down. :func:`get_entity` backs the DOI lookup fallback.
 
 Empirical findings driving this implementation (see 22_crossref_research.md,
 24_v1_l3_enrichment_test.md, 25_round2_synthesis.md):
@@ -359,13 +360,12 @@ def enrich_all(papers: List[UnifiedPaperEntity]) -> List[UnifiedPaperEntity]:
 
 
 # =============================================================================
-# Last-tier retrieval (OpenAlex + Semantic Scholar both unavailable)
+# Title search for existence checks (verify-refs) while OpenAlex is down
 # =============================================================================
 
 # Relevance order only: sorting by is-referenced-by-count ranks the most-cited
 # works that match ANY query word (seen live 2026-09-28: "working memory
-# training older adults" -> LSTM, cholesterol guidelines, HISAT), so callers
-# that want citation order re-sort a relevance-ranked set locally instead.
+# training older adults" -> LSTM, cholesterol guidelines, HISAT).
 _SEARCH_SELECT = (
     "DOI,title,author,container-title,ISSN,issued,abstract,"
     "is-referenced-by-count,type"
@@ -435,12 +435,9 @@ def search_works(
     year_min: Optional[int] = None,
     year_max: Optional[int] = None,
     limit: int = 50,
-    types: Optional[tuple] = None,
 ) -> List[UnifiedPaperEntity]:
-    """Relevance-ranked CrossRef search. Never raises; [] when unreachable.
-    ``types`` narrows the CrossRef work types (default: articles, proceedings,
-    preprints, book chapters)."""
-    filters = [f"type:{t}" for t in (types or _SEARCH_TYPES)]
+    """Relevance-ranked CrossRef search. Never raises; [] when unreachable."""
+    filters = [f"type:{t}" for t in _SEARCH_TYPES]
     if year_min is not None:
         filters.append(f"from-pub-date:{year_min}")
     if year_max is not None:

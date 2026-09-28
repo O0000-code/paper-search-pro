@@ -2,16 +2,24 @@
 
 ``openalex_helper`` raises :class:`OpenAlexUnavailable` when OpenAlex cannot
 serve a call (daily budget spent, persistent throttling, outage, rejected key).
-This module turns that into a result in the SAME shape the OpenAlex command
-would have produced, so the run continues without the main agent or the user
-having to intervene.
+This module serves the same call from Semantic Scholar (the configured key;
+keyless if the key is refused), in the SAME shape the OpenAlex command would
+have produced, so the run continues without anyone intervening.
 
-Tier order for retrieval: Semantic Scholar (configured key; keyless if the key
-is refused) -> CrossRef (keyless polite pool). SS keeps abstracts and citation
-signals; CrossRef is the tier that still works when SS's shared pool throttles.
-Records OpenAlex already returned before the cutoff (``exc.partial``) are kept
-and listed first.
+Semantic Scholar is the only retrieval fallback. CrossRef is not one: it matches
+metadata rather than content, often lacks abstracts and mixes in non-article
+types, so a corpus built from it would look like a normal result while being a
+weaker one. CrossRef keeps its auxiliary role: DOI metadata lookups (``get``).
+
+When Semantic Scholar cannot serve the call either, the command behaves as it
+did before the fallback existed, so nothing that used to work stops working: a
+call that used to fail still fails (non-zero exit; the agent reports it), and
+the calls that used to carry on with an empty or partial result (``journal-list``
+and a ``citation-network`` that already fetched some links) still do. The only
+difference is a stderr line saying what happened. Records OpenAlex returned
+before the cutoff (``exc.partial``) are kept and listed first.
 """
+
 
 from __future__ import annotations
 
@@ -25,11 +33,15 @@ from .types import UnifiedPaperEntity
 # Subcommands that return a paper list and therefore have a retrieval fallback.
 LIST_COMMANDS = {"search", "deep", "double-sort", "seminal", "reviews", "journal-list"}
 
+# Commands that, before the fallback existed, swallowed an OpenAlex failure and
+# returned an empty list with exit 0. They keep doing so when SS cannot serve.
+_CONTINUED_BEFORE = {"journal-list"}
+
 _MISSING_FIELDS = "institutions, funders, topics, FWCI, open impact"
 
-# `search --type` (OpenAlex work types) in each fallback source's vocabulary. A
-# type missing from a map means that source cannot honour the filter, and it is
-# skipped rather than asked without it (which would return other types).
+# `search --type` (OpenAlex work types) in Semantic Scholar's vocabulary. A type
+# missing from the map cannot be honoured, so SS is not asked without it (which
+# would return other types) and the call is reported as not served.
 _SS_TYPES = {
     "review": "Review",
     "article": "JournalArticle,Conference",
@@ -38,17 +50,6 @@ _SS_TYPES = {
     "dataset": "Dataset",
     "editorial": "Editorial",
     "letter": "LettersAndComments",
-}
-_CROSSREF_TYPES = {  # https://api.crossref.org/types
-    "article": ("journal-article", "proceedings-article"),
-    "preprint": ("posted-content",),
-    "book": ("book", "monograph", "edited-book"),
-    "book-chapter": ("book-chapter",),
-    "dataset": ("dataset",),
-    "dissertation": ("dissertation",),
-    "report": ("report",),
-    "standard": ("standard",),
-    "peer-review": ("peer-review",),
 }
 
 
@@ -63,6 +64,8 @@ class FallbackResult:
 
     served: bool
     served_by: List[str] = field(default_factory=list)
+    # Not served, but this command used to carry on (exit 0) in this situation.
+    continues_as_before: bool = False
     papers: Optional[List[UnifiedPaperEntity]] = None
     payload: Any = None
     kept_partial: int = 0
@@ -116,58 +119,30 @@ def _ss_list(cmd: str, a: Dict[str, Any]) -> List[UnifiedPaperEntity]:
     return []
 
 
-def _crossref_list(cmd: str, a: Dict[str, Any]) -> List[UnifiedPaperEntity]:
-    """CrossRef can only rank by relevance and cannot filter reviews or a venue
-    whitelist reliably, so those two commands get no CrossRef tier."""
-    q = a.get("query") or a.get("topic") or ""
-    if cmd == "search":
-        work_type = a.get("work_type")
-        if work_type and work_type not in _CROSSREF_TYPES:
-            return []
-        return crossref_helper.search_works(q, year_min=a.get("year_min"),
-                                            year_max=a.get("year_max"), limit=a["limit"],
-                                            types=_CROSSREF_TYPES.get(work_type))
-    if cmd in ("deep", "double-sort"):
-        return crossref_helper.search_works(q, year_min=a.get("year_min"),
-                                            year_max=a.get("year_max"), limit=a["n"])
-    if cmd == "seminal":
-        # Relevance-ranked pool, then citation order locally (CrossRef's own
-        # citation sort ranks off-topic blockbusters first).
-        pool = crossref_helper.search_works(q, year_max=a.get("year_max"),
-                                            limit=max(a["limit"] * 5, 50))
-        return sorted(pool, key=lambda p: -(p.citation_count or 0))[: a["limit"]]
-    return []
-
-
 def serve_list(cmd: str, a: Dict[str, Any], exc: OpenAlexUnavailable) -> FallbackResult:
-    """Fallback for a list-returning command. ``a`` carries the command's
-    arguments (query/topic, limit or n, year_min, year_max, sort, journals)."""
+    """Fallback for a list-returning (retrieval) command. ``a`` carries the
+    command's arguments (query/topic, limit or n, year_min, year_max, sort,
+    journals). Served only when Semantic Scholar returned records."""
     papers: List[UnifiedPaperEntity] = list(exc.partial or [])
     kept = len(papers)
-    served_by: List[str] = []
     ss = _ss_list(cmd, a)
     if ss:
-        served_by.append("semantic_scholar")
         _dedup_extend(papers, ss)
-    else:
-        cr = _crossref_list(cmd, a)
-        if cr:
-            served_by.append("crossref")
-            _dedup_extend(papers, cr)
     cap = a.get("limit") or (a.get("n") if cmd == "deep" else None)
     if cap:
         papers = papers[:cap]
-    if not served_by:
-        why = "Semantic Scholar returned nothing"
-        if cmd == "search" and a.get("work_type"):
-            why += f" and --type {a['work_type']} limits which fallback sources can be used"
-        elif cmd in ("reviews", "journal-list"):
-            why += " and CrossRef cannot filter this command's scope"
-        else:
-            why += " and CrossRef returned nothing"
-        return FallbackResult(served=bool(kept), papers=papers, kept_partial=kept,
-                              served_by=["openalex (partial)"] if kept else [], why_not=why)
-    return FallbackResult(served=True, served_by=served_by, papers=papers, kept_partial=kept)
+    if ss:
+        return FallbackResult(served=True, served_by=["semantic_scholar"], papers=papers,
+                              kept_partial=kept)
+    work_type = a.get("work_type")
+    if cmd == "search" and work_type and work_type not in _SS_TYPES:
+        why = f"--type {work_type} has no Semantic Scholar equivalent"
+    else:
+        failure = ss_helper.describe_failure()
+        why = (f"Semantic Scholar could not serve it either ({failure})" if failure
+               else "Semantic Scholar returned no records for this query")
+    return FallbackResult(served=False, papers=papers, kept_partial=kept, why_not=why,
+                          continues_as_before=cmd in _CONTINUED_BEFORE)
 
 
 def _as_doi(identifier: str) -> Optional[str]:
@@ -235,9 +210,14 @@ def notice(cmd: str, exc: OpenAlexUnavailable, result: FallbackResult, size: str
                 if result.kept_partial else "")
         return (f"{head} Served `{cmd}` from {tiers} instead ({size}{kept}). Fallback records "
                 f"lack OpenAlex-only fields ({_MISSING_FIELDS}). No action needed; continue the run.")
-    if result.served:
+    if result.served:  # citation-network with OpenAlex links kept
         return (f"{head} `{cmd}` kept the {result.kept_partial} OpenAlex records fetched before "
-                f"the cutoff; {result.why_not}. Continue the run with what was returned.")
+                f"the cutoff; {result.why_not}. Tell the user this step is incomplete and continue.")
     reason = f": {result.why_not}" if result.why_not else ""
-    return (f"{head} `{cmd}` could not be served by a fallback source{reason}. "
-            f"Printed an empty result; skip this step and continue the run.")
+    if result.continues_as_before:
+        return (f"{head} `{cmd}` could not be served{reason}, so it returned nothing, as it "
+                f"did before in this situation. Tell the user this step came back empty and continue.")
+    kept = (f" Printed only the {result.kept_partial} records OpenAlex returned before the "
+            f"cutoff." if result.kept_partial else " Printed an empty result.")
+    return (f"{head} `{cmd}` could not be served{reason}.{kept} Treat this like any OpenAlex "
+            f"error: tell the user what happened and when OpenAlex resets.")

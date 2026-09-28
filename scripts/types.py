@@ -344,7 +344,7 @@ class Config:
     # back to SS for the rest of a run when OpenAlex USD budget runs low.
     primary_source: str = "openalex"          # openalex | semantic_scholar | auto
     # Serve calls OpenAlex cannot serve (budget spent / throttled / down) from
-    # Semantic Scholar, then CrossRef; also gates the "auto" pre-flight switch.
+    # Semantic Scholar; also gates the "auto" pre-flight switch.
     quota_fallback: bool = True
     # USD budget remaining (per OpenAlex X-RateLimit-Remaining-USD) at or below
     # which "auto" mode switches to SS for the remainder of the run.

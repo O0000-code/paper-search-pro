@@ -624,12 +624,15 @@ retrieval*, not which sea you fish or which supplemental sources are added.
   SS when the OpenAlex USD budget runs low (`quota_fallback`,
   `quota_fallback_threshold_usd`). `meta.ratelimit.switched_source` reports it.
 - Whatever the setting, if OpenAlex stops serving mid-run (budget spent,
-  throttled, down), the remaining retrieval is served by Semantic Scholar, then
-  CrossRef. `meta.ratelimit.switched_source` becomes true, and
+  throttled, down), the remaining retrieval is served by Semantic Scholar.
+  `meta.ratelimit.switched_source` becomes true, and
   `meta.ratelimit.fallback` gives `{reason, reset_seconds, served_by}`.
   `source_used` names the fallback source, and the OpenAlex-only steps
   (deepening, open-impact lookups, ISSN backfill) are skipped for the rest of
-  the run. `--min-impact` is then not applied (its figure comes only from
+  the run. If Semantic Scholar cannot serve it either (`served_by: []`), the
+  run continues with the strategies that did succeed, as it always has, and
+  `warnings` says what was lost. An outage during an adaptive-deepening round
+  keeps the previous, complete round (`meta.ratelimit.deepening_stopped`). `--min-impact` is then not applied (its figure comes only from
   OpenAlex), and a warning says so. `--verify-refs` checks title-only refs in
   CrossRef instead, and marks any it could not check `unchecked`, which is not
   a not-found ruling. `quota_fallback: false` turns the switch off.

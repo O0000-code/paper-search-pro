@@ -245,32 +245,28 @@ def test_cli_double_sort_switches_to_semantic_scholar(monkeypatch):
     assert [p["doi"] for p in json.loads(out)] == ["10.2/ss"]
     assert seen["q"] == "trust in robots" and seen["total_per_strategy"] == 30
     assert seen["year_min"] == 2018
-    assert "OpenAlex unavailable (daily credit budget exhausted, resets in 1h00m)" in err
+    assert "OpenAlex unavailable (daily credit budget exhausted, resets in 1h00m (about" in err
     assert "Semantic Scholar" in err and "No action needed" in err
 
 
-def test_cli_falls_through_to_crossref(monkeypatch):
+def test_cli_has_no_crossref_retrieval_tier(monkeypatch):
     monkeypatch.setattr(oah, "search_works", _exhausted)
     monkeypatch.setattr(ss_helper, "search", lambda *a, **k: [])
     monkeypatch.setattr(crossref_helper, "search_works",
-                        lambda q, **k: [_paper("10.3/cr", "crossref")])
+                        lambda *a, **k: pytest.fail("CrossRef must not serve retrieval"))
     out, err, code = _run_cli(monkeypatch, ["--json-envelope", "search", "q", "--limit", "10"])
     env = json.loads(out)
-    assert code == 0 and env["ok"] is True
-    assert env["meta"]["source"] == "crossref"
-    assert env["meta"]["fallback"]["reason"] == "budget_exhausted"
-    assert [p["doi"] for p in env["data"]] == ["10.3/cr"]
-    assert "Crossref" in err
+    assert code == oah.EXIT_SOURCE_UNAVAILABLE and env["ok"] is False and env["data"] == []
+    assert env["meta"]["fallback"]["served_by"] == []
 
 
 def test_cli_nothing_serves_prints_empty_and_exit_3(monkeypatch):
     monkeypatch.setattr(oah, "search_works", _exhausted)
     monkeypatch.setattr(ss_helper, "search", lambda *a, **k: [])
-    monkeypatch.setattr(crossref_helper, "search_works", lambda q, **k: [])
     out, err, code = _run_cli(monkeypatch, ["search", "q"])
-    assert code == oah.EXIT_SOURCE_UNAVAILABLE
+    assert code == oah.EXIT_SOURCE_UNAVAILABLE  # as before: an OpenAlex error
     assert json.loads(out) == []
-    assert "skip this step and continue the run" in err
+    assert "tell the user what happened and when OpenAlex resets" in err
 
 
 def test_cli_partial_openalex_results_are_kept_first(monkeypatch):
@@ -362,16 +358,6 @@ def test_reviews_and_journal_list_send_ss_filters(monkeypatch):
                                {"query": "q", "limit": 5, "journals": ["A", "B"]}, exc)
     assert calls[0]["filters"] == {"publicationTypes": "Review"}
     assert calls[1]["filters"] == {"venue": "A,B"}
-
-
-def test_crossref_seminal_resorts_by_citations(monkeypatch):
-    monkeypatch.setattr(ss_helper, "search", lambda *a, **k: [])
-    monkeypatch.setattr(crossref_helper, "search_works", lambda q, **k: [
-        _paper("10.1/low", "crossref", 5), _paper("10.1/high", "crossref", 900)])
-    res = source_fallback.serve_list(
-        "seminal", {"topic": "t", "limit": 2, "year_max": 2000},
-        OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED))
-    assert [p.doi for p in res.papers] == ["10.1/high", "10.1/low"]
 
 
 class _SSResp:
@@ -471,19 +457,17 @@ def test_agent_retrieve_switches_mid_run(monkeypatch):
 
 
 def test_search_type_filter_is_never_dropped(monkeypatch):
-    calls = {"ss": [], "cr": []}
-    monkeypatch.setattr(ss_helper, "search", lambda q, **k: calls["ss"].append(k) or [])
-    monkeypatch.setattr(crossref_helper, "search_works",
-                        lambda q, **k: calls["cr"].append(k) or [_paper("10.3/a", "crossref")])
+    calls = []
+    monkeypatch.setattr(ss_helper, "search", lambda q, **k: calls.append(k) or [])
     exc = OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
-    res = source_fallback.serve_list("search", {"query": "q", "limit": 5, "work_type": "review"}, exc)
-    assert calls["ss"][0]["filters"] == {"publicationTypes": "Review"}
-    assert calls["cr"] == [] and not res.served  # CrossRef cannot filter reviews
-    res = source_fallback.serve_list("search", {"query": "q", "limit": 5, "work_type": "article"}, exc)
-    assert calls["cr"][0]["types"] == ("journal-article", "proceedings-article") and res.served
-    calls["ss"].clear()
-    source_fallback.serve_list("search", {"query": "q", "limit": 5, "work_type": "paratext"}, exc)
-    assert calls["ss"] == []  # unknown type: not asked without the filter
+    source_fallback.serve_list("search", {"query": "q", "limit": 5, "work_type": "review"}, exc)
+    source_fallback.serve_list("search", {"query": "q", "limit": 5, "work_type": "article"}, exc)
+    assert calls[0]["filters"] == {"publicationTypes": "Review"}
+    assert calls[1]["filters"] == {"publicationTypes": "JournalArticle,Conference"}
+    calls.clear()
+    res = source_fallback.serve_list(
+        "search", {"query": "q", "limit": 5, "work_type": "paratext"}, exc)
+    assert calls == [] and not res.served and "no Semantic Scholar equivalent" in res.why_not
 
 
 def test_citation_partial_is_reported_as_kept(monkeypatch):
@@ -597,17 +581,6 @@ def test_verify_title_falls_back_to_crossref_or_says_unchecked(monkeypatch):
     assert "NOT checked" in r["note"]
 
 
-def test_type_maps_cover_crossref_types(monkeypatch):
-    calls = []
-    monkeypatch.setattr(ss_helper, "search", lambda q, **k: [])
-    monkeypatch.setattr(crossref_helper, "search_works",
-                        lambda q, **k: calls.append(k["types"]) or [_paper("10.3/b", "crossref")])
-    exc = OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
-    for t in ("book", "dataset", "dissertation"):
-        assert source_fallback.serve_list("search", {"query": "q", "limit": 3, "work_type": t}, exc).served
-    assert calls[0] == ("book", "monograph", "edited-book") and calls[1] == ("dataset",)
-
-
 def test_malformed_crossref_record_is_skipped_not_fatal(monkeypatch):
     class _Resp:
         status_code = 200
@@ -655,3 +628,85 @@ def test_fallback_off_envelope_reports_kept_partial(monkeypatch):
     assert code == oah.EXIT_SOURCE_UNAVAILABLE and env["meta"]["count"] == 1
     assert env["meta"]["source"] == "openalex (partial)"
     assert env["meta"]["fallback"]["kept_openalex_partial"] == 1
+
+
+# --------------------------------------------------------------------------
+# Both OpenAlex and Semantic Scholar unavailable: behave as before the fallback
+# --------------------------------------------------------------------------
+
+
+def test_journal_list_still_continues_with_an_empty_list(monkeypatch):
+    """Before the fallback, journal-list swallowed an OpenAlex failure and
+    returned [] with exit 0; it must not start blocking runs."""
+    monkeypatch.setattr(oah, "search_in_journal_list", _exhausted)
+    monkeypatch.setattr(ss_helper, "search", lambda *a, **k: [])
+    out, err, code = _run_cli(monkeypatch, ["journal-list", "q", "--preset", "UTD24"])
+    assert code == 0 and json.loads(out) == []
+    assert "as it did before" in err
+
+
+def test_cut_off_crawl_is_not_passed_off_as_complete(monkeypatch):
+    def partial_then_down(*_a, **_k):
+        exc = OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
+        exc.partial = [_paper("10.1/oa", "openalex")]
+        raise exc
+
+    monkeypatch.setattr(oah, "search_top_n_pages", partial_then_down)
+    monkeypatch.setattr(ss_helper, "search", lambda *a, **k: [])
+    out, err, code = _run_cli(monkeypatch, ["deep", "q", "--n", "5"])
+    assert code == oah.EXIT_SOURCE_UNAVAILABLE
+    assert [p["doi"] for p in json.loads(out)] == ["10.1/oa"]
+    assert "Printed only the 1 records OpenAlex returned before the cutoff" in err
+
+
+def test_ss_failure_is_described(monkeypatch):
+    monkeypatch.setattr(ss_helper, "_api_key", "dead-key")
+    sess = _SSSession([_SSResp(403)] + [_SSResp(429)] * 8)
+    ss_helper.search("q", total_per_strategy=5, session=sess)
+    assert ss_helper.describe_failure() == (
+        "configured key rejected; keyless requests throttled (HTTP 429)")
+
+
+def test_reset_time_is_given_in_local_clock_time():
+    text = OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED, reset_seconds=3600).describe()
+    assert "resets in 1h00m (about " in text and "local time)" in text
+
+
+def test_deepening_outage_keeps_the_previous_complete_round():
+    from tests.test_agent_rank import (
+        CASRank, JournalRank, _FakeLookup, _FakeQuota, _cfg, _patched,
+    )
+    from tests.test_agent_rank import _paper as rank_paper
+
+    table = {}
+    for i in range(1, 9):
+        issn = f"{i:04d}-000X"
+        tier = 1 if i <= 2 else 3
+        table[issn] = JournalRank(title=f"J{i}", issns=[issn],
+                                  cas=CASRank(tier=tier, top=False, source_year=2025),
+                                  matched_platforms=["cas"])
+    lookup = _FakeLookup(table, loaded=("cas",))
+    papers = [rank_paper(f"10.x/{i}", f"memory {i}", f"{i:04d}-000X", 100 - i) for i in range(1, 9)]
+
+    def fake_search(query, total_papers=50, sort="cited_by_count:desc", year_min=None, year_max=None):
+        if total_papers > 4:  # the deeper round hits the spent budget mid-crawl
+            exc = OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
+            exc.partial = papers[:1]
+            raise exc
+        return papers[:total_papers] if sort == "cited_by_count:desc" else []
+
+    targets = [
+        (agent_search.openalex_helper, "search_top_n_pages", fake_search),
+        (agent_search.openalex_helper, "init_pyalex", lambda cfg: None),
+        (agent_search.openalex_helper, "get_source_impact", lambda issn, **kw: None),
+        (agent_search.quota_guard, "evaluate", lambda config, mode="probe", **kw: _FakeQuota()),
+        (agent_search.journal_rank, "load", lambda **kw: lookup),
+        (ss_helper, "search", lambda *a, **k: pytest.fail("no SS mixing mid-deepening")),
+    ]
+    with _patched(*targets):
+        env = agent_search.run_agent_search("memory", _cfg(), per_strategy=4, rank_platform="cas",
+                                            keep_tiers=["1"], deepen_target=5, now_year=2026)
+    assert env["ok"] is True
+    assert sorted(d["doi"] for d in env["data"]) == ["10.x/1", "10.x/2"]  # round 1 intact
+    assert env["meta"]["ratelimit"]["deepening_stopped"] == "budget_exhausted"
+    assert any("deepening stopped" in w for w in env["meta"]["warnings"])

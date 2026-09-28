@@ -231,7 +231,7 @@ Even Quick tier needs a lightweight version of this step — never skip silently
 
 Always run OpenAlex first. (OpenAlex is the default primary source; `primary_source` in `config.yaml` can change that — see *Primary source selection & quota fallback* in `references/source_routing.md`.)
 
-**When OpenAlex cannot serve a call** (daily budget spent, persistent throttling, outage), `openalex_helper` serves that same call from Semantic Scholar, then CrossRef, and still prints the same JSON shape — no flag, no config. It says so in one stderr line starting `[paper-search-pro] OpenAlex unavailable`: tell the user in one sentence (Rule C) and carry on; do not stop to ask. Exit status `3` means no fallback source could serve that call; its output is a valid empty result, so skip that call and continue.
+**When OpenAlex cannot serve a call** (daily budget spent, persistent throttling, outage), `openalex_helper` serves that same call from Semantic Scholar and still prints the same JSON shape — no flag, no config. It says so in one stderr line starting `[paper-search-pro] OpenAlex unavailable`: tell the user in one sentence (Rule C) and carry on; do not stop to ask. If Semantic Scholar cannot serve it either, the call behaves as an OpenAlex error always did: exit status `3` (stdout is still valid JSON), and the stderr line says what happened and when OpenAlex resets — report it to the user as you would any OpenAlex error. `journal-list` is the exception: as before, it comes back empty with exit 0.
 
 For Standard+ tiers, use multi-strategy deep crawl:
 
@@ -683,7 +683,7 @@ $(pwd)/paper-search-results/<search_id>/
 |-------|-----------|
 | Config missing keys | Direct user to `references/setup.md`, halt |
 | Rate limit (SS 429 / NCBI 429) | Helper auto-retries; if persistent, drop that enricher |
-| OpenAlex unavailable (budget spent / throttled / down) | `openalex_helper` switches the call to Semantic Scholar → CrossRef itself; relay its stderr line and continue. Exit `3` = no fallback could serve it: skip that call |
+| OpenAlex unavailable (budget spent / throttled / down) | `openalex_helper` switches the call to Semantic Scholar itself; relay its stderr line and continue. Exit `3` = Semantic Scholar could not serve it either: handle it like any OpenAlex error (tell the user what happened and when OpenAlex resets) |
 | OpenAlex 404 on DOI | Use title search fallback (helper handles) |
 | L2 booster returns 0 papers | Skip silently, note in PRISMA-S log via STEP 13 |
 | SubAgent classifier returns invalid JSON | `rcs_parser.py` has 5-layer fallback (regex parse) |
