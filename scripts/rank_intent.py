@@ -15,9 +15,11 @@ Design boundaries
 - **Pure + deterministic + network-free.** Just regex over the query string.
 - **Both Chinese and English** trigger phrasing is recognised (一区 / 1区 / Q1 /
   top-tier / quartile ...).
-- **A rank intent with no resolvable platform is AMBIGUOUS** — this covers BOTH a
-  bare "Q1"/"Q2" (no platform word) AND a bare "顶刊"/"top journal" (no platform
-  word). We record the intent (tiers/quartiles/top) but mark ``ambiguous=True``,
+- **A rank intent with no resolvable platform is AMBIGUOUS** — this covers a
+  bare "Q1"/"Q2" (no platform word), a bare "顶刊"/"top journal" (no platform
+  word) AND 区 tiers under an index name that is not a rank platform ("SSCI 一区或
+  二区", "SCI一区" — CAS tier or JCR quartile?). We record the intent
+  (tiers/quartiles/top) but mark ``ambiguous=True``,
   do NOT guess a platform, and expose ``candidate_platforms`` (the platforms the
   caller could ask the user about). The headless CLI surfaces this in
   ``meta.rank.ambiguous`` so the *calling agent* asks the user (interactive Q&A is
@@ -42,7 +44,10 @@ Output contract (``RankIntent``)
 --------------------------------
 ``parse_rank_intent(query) -> RankIntent`` always returns a value (never None):
     platform      : "cas" | "jcr" | "sjr" | None   (None = none stated)
-    tiers         : [int, ...] | None               (CAS 区 numbers, e.g. [1] or [1,2])
+    tiers         : [int, ...] | None               (CAS 区 numbers, e.g. [1] or [1,2];
+                                                     lists / ranges / 及以上 expand:
+                                                     "1、2区" "1-2区" "二区及以上"
+                                                     -> [1,2])
     quartiles     : ["Q1", ...] | None              (JCR/SJR quartiles)
     top           : bool                            ("顶刊" / "top journal" only)
     ambiguous     : bool                            (a tier/quartile OR a bare "顶刊"/
@@ -54,6 +59,7 @@ Output contract (``RankIntent``)
     candidate_platforms : [str, ...]                (when ambiguous: the platforms the
                                                      caller could ask the user about —
                                                      [jcr,sjr] for a bare quartile,
+                                                     [cas,jcr] for index-name 区 tiers,
                                                      [cas,jcr,sjr] for a bare top-only)
 
 Platforms map onto their native taxonomy:
@@ -130,6 +136,42 @@ _CJK = r"一-鿿"
 # Journal-context words that confirm a glued "N区期刊" really IS partition intent
 # (so "三区期刊" fires) while a compound like "三区制"/"三区块" does not.
 _JOURNAL_CTX = r"期刊|杂志|刊物|刊"
+# Paper nouns that also confirm it ("一区的论文"), but only when they stand alone —
+# "文献综述" / "论文写作" are topics and keep their head noun.
+_PAPER_CTX = r"论文|文献|文章"
+
+
+# ---------------------------------------------------------------------------
+# Tier lists: enumerations, ranges and "及以上" (shared by every 区 phrase).
+# ---------------------------------------------------------------------------
+# Users often name a SET of tiers: "中科院 1、2 区的" / "一区和二区" / "1-2区" /
+# "一、二区" / "二区及以上". Reading only the numeral glued to the platform word
+# turned "中科院 1、2 区的" into tiers=[1] and sent "、2 区的" to the search engine.
+# One tier-spec pattern now serves every 区 phrase (CAS word, JCR/SJR word, index
+# word, bare):
+#   item = 1-2 numeral chars (连写 "一二" / "12" as before), optionally + 区
+#   spec = (item sep)* item 区      sep: 、，,/ 和 或 及 与 (list) | - – ~ 至 到 (range)
+#                                   | nothing / a space after an item's 区 (链式 "一区二区")
+#   then an optional "及以上" / "以上" tail = at-or-better ("二区及以上" -> [1, 2])
+# A numeral glued to an Arabic digit is never a tier ("中科院 2023", "51区").
+_NUM_RUN = "[" + _CN_NUM_CLASS + "]{1,2}(?![0-9])"
+_RANGE_CHARS = "-–—~～－"  # leading "-" keeps it literal inside a [...] class
+_ENUM_SEP = r"\s*(?:或者|以及|、|，|,|/|／|和|或|及|与)\s*"
+_RANGE_SEP = r"\s*(?:[" + _RANGE_CHARS + r"]|至|到)\s*"
+_TIER_SEP = "(?:" + _RANGE_SEP + "|" + _ENUM_SEP + ")"
+_TIER_SPEC = (
+    r"(?P<tiers>(?:" + _NUM_RUN + r"(?:\s*区(?:" + _TIER_SEP + r"|\s*)|" + _TIER_SEP + r"))*"
+    + _NUM_RUN + r"\s*区)"
+    r"(?P<above>\s*(?:及其|及|或|和)?\s*以上)?"
+)
+# After a platform-anchored tier spec, the "的" / head noun that glues it to the
+# sentence belongs to the rank phrase ("中科院 1、2 区的", "…区的论文", "…区期刊")
+# and is stripped with it, so no "的论文" is left in the search query.
+_TIER_TAIL = (
+    r"(?:\s*(?:的\s*)?(?:期刊|杂志|刊物)"
+    r"|\s*(?:的\s*)?(?:" + _PAPER_CTX + r")(?![" + _CJK + r"])"
+    r"|的)?"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -150,28 +192,51 @@ _SJR_WORDS = ("sjr", "scimago", "scimagojr")
 # (platform + tier together) first, then standalone quartiles, then top.
 # ---------------------------------------------------------------------------
 
-# CAS "中科院" optionally glued to a tier: 中科院一区 / 中科院 1 区 / 中科院一二区 /
-# 科院二区 / cas一区. The tier chunk is 1-2 consecutive numeral chars then 区.
-# The "cas" alternative is boundary-fenced so "broadcast一区" can never match it.
-_CAS_PHRASE_RE = re.compile(
-    r"(?:中科院|科院|" + _LATIN_BDRY_L + r"cas" + r")\s*(?:分区)?\s*"
-    r"([" + _CN_NUM_CLASS + r"]{1,2})?\s*区?",
+# CAS "中科院" glued to a tier spec: 中科院一区 / 中科院 1 区 / 中科院一二区 /
+# 科院二区 / cas一区 / 中科院 1、2 区的 / 中科院一区和二区 / 中科院1-3区 /
+# 中科院二区及以上 / 中科院大类一区 (大类 is the default partition, so it only
+# needs stripping). A lone numeral without 区 still counts ("中科院1 X") unless
+# a CJK char follows it ("中科院二十年" is not 区 2). The "cas" alternative is
+# boundary-fenced so "broadcast一区" can never match it. A bare "中科院" with no
+# tier is left for step 4 (platform hint).
+_CAS_TIER_RE = re.compile(
+    r"(?:中科院|科院|" + _LATIN_BDRY_L + r"cas" + r")\s*(?:分区)?\s*(?:大类)?\s*"
+    r"(?:" + _TIER_SPEC + _TIER_TAIL
+    + r"|(?P<run>" + _NUM_RUN + r")(?![〇" + _CJK + r"]))",
     re.IGNORECASE,
 )
-# Bare "一区"/"二区"/"一二区"/"1 区" (CAS 区 terminology, no other platform uses 区) —
-# but ONLY as a standalone partition token, never when the "N区" is glued into an
-# ordinary compound. We require: not preceded by a CJK char (excludes "第一区域",
-# "第三区块"), and immediately followed by end / non-CJK / another tier token
-# ("一区二区") / a journal-context word ("三区期刊"). This blocks "三区制",
-# "二区供暖", "第三区块链", "一区一带" while keeping "一区"/"1区"/"一二区" working.
-# A trailing journal-context word ("期刊"/"杂志"…) is consumed as part of the match
-# (group 2) so the whole "三区期刊" is stripped cleanly, leaving no dangling word.
+# 区 tiers glued to "SSCI", which is not a rank platform: "SSCI 一区或二区". Chinese
+# usage reads that as either the CAS tier or the JCR quartile of the journal, so
+# step 2b keeps the tiers, names no platform and leaves the intent ambiguous (the
+# caller asks) — it used to be dropped. "SCI一区" keeps its long-standing CAS
+# reading (bare-tier rule below). A bare "SSCI" with no tier is a topic / language
+# marker and is not touched.
+_INDEX_TIER_RE = re.compile(
+    r"(?:" + _latin_token_re("ssci") + r")\s*(?:分区)?\s*"
+    + _TIER_SPEC + _TIER_TAIL,
+    re.IGNORECASE,
+)
+# Bare "一区"/"二区"/"一二区"/"1 区"/"一、二区"/"1-2区"/"二区及以上" (CAS 区
+# terminology, no other platform uses 区) — but ONLY as a standalone partition
+# token, never when the "N区" is glued into an ordinary compound. We require: not
+# preceded by a CJK char or a digit (excludes "第一区域", "第三区块", "51区"), not
+# the tail of a list whose head was excluded ("第一、二区"), and immediately
+# followed by end / non-CJK / another tier token ("一区二区") / a journal-context
+# word ("三区期刊", "一区的论文"). This blocks "三区制", "二区供暖", "第三区块链",
+# "一区一带" while keeping "一区"/"1区"/"一二区" working. A list whose last item is
+# glued into a compound ("一区、二区供暖") is rejected whole, not cut to its head.
+# A trailing journal-context word is consumed as part of the match so the whole
+# "三区期刊" is stripped cleanly, leaving no dangling word.
 _CAS_BARE_TIER_RE = re.compile(
     # Preceded by 区 (the tail of a prior tier token, so "一区二区" chains) OR not by
-    # any CJK char at all (so "第一区"/"第三区" stay glued and are skipped).
-    r"(?:(?<=区)|(?<![" + _CJK + r"]))"
-    r"([" + _CN_NUM_CLASS + r"]{1,2})\s*区"
-    r"(?:(" + _JOURNAL_CTX + r")|(?=$|[^" + _CJK + r"]|[" + _CN_NUM_CLASS + r"]\s*区))"
+    # any CJK char / digit at all (so "第一区"/"第三区"/"51区" are skipped).
+    r"(?:(?<=区)|(?<![" + _CJK + r"0-9]))"
+    r"(?<![" + _CN_NUM_CLASS + r"区][" + _RANGE_CHARS + r"、，,/／])"
+    + _TIER_SPEC
+    + r"(?!" + _TIER_SEP + r"[" + _CN_NUM_CLASS + r"])"
+    r"(?:的?(?:" + _JOURNAL_CTX + r")"
+    r"|的?(?:" + _PAPER_CTX + r")(?![" + _CJK + r"])"
+    r"|(?=$|[^" + _CJK + r"]|[" + _CN_NUM_CLASS + r"]\s*区))"
 )
 # "中科院" / "cas" mentioned with NO tier and NO 区 — platform hint only. CJK forms
 # are substrings; the Latin "cas" / "cas 分区" forms are boundary-fenced.
@@ -181,13 +246,14 @@ _CAS_LATIN_WORD_RE = re.compile(
 )
 
 # A quartile token, possibly bound to a platform word in front of it:
-#   "JCR Q1" / "SJR Q1" / "JCR一区"(rare) / "JCR 1区".  We capture platform + quartile.
+#   "JCR Q1" / "SJR Q1" / "JCR一区"(rare) / "JCR 1区" / "JCR 1、2区".  We capture
+# platform + quartile (``q``) or platform + 区 tier spec (``tiers``/``above``).
 # The Latin platform alternation is boundary-fenced so a word like "forecasting Q1"
 # cannot have "cas"... (cas is not in this set, but wos/jcr/sjr still need fencing).
 _PLATFORM_QUARTILE_RE = re.compile(
-    r"(" + _latin_token_re("jcr", "sjr", "scimagojr", "scimago", "wos", "clarivate")
+    r"(?P<plat>" + _latin_token_re("jcr", "sjr", "scimagojr", "scimago", "wos", "clarivate")
     + r"|web of science)\s*"
-    r"(?:分区)?\s*(q\s*[1-4]|[" + _CN_NUM_CLASS + r"]\s*区)",
+    r"(?:分区)?\s*(?:(?P<q>q\s*[1-4])|" + _TIER_SPEC + _TIER_TAIL + r")",
     re.IGNORECASE,
 )
 # A bare quartile "Q1" / "q 2" with no platform in front (ambiguous).
@@ -233,6 +299,47 @@ def _tiers_from_numeral_run(run: Optional[str]) -> List[int]:
         if n is not None and n not in out:
             out.append(n)
     return out
+
+
+_TIER_TOKEN_RE = re.compile(
+    r"([" + _CN_NUM_CLASS + r"]{1,2})|([" + _RANGE_CHARS + r"]|至|到)"
+)
+
+
+def _tiers_from_spec(spec: Optional[str], above: Optional[str] = None) -> List[int]:
+    """Tiers named by a matched tier spec, in the order written.
+
+    '一、二区' / '1区和2区' -> [1,2]; '1-3区' / '一至三区' -> [1,2,3] (a range
+    expands); '12区' -> [1,2] (连写, as before). With a '及以上'/'以上' tail the
+    set is at-or-better: '二区及以上' -> [1,2], '一区以上' -> [1]."""
+    out: List[int] = []
+    prev: Optional[int] = None
+    in_range = False
+    for tok in _TIER_TOKEN_RE.finditer(spec or ""):
+        if tok.group(2):
+            in_range = prev is not None
+            continue
+        these = _tiers_from_numeral_run(tok.group(1))
+        if in_range and these:
+            step = 1 if these[0] >= prev else -1
+            these = list(range(prev + step, these[0], step)) + these
+        for t in these:
+            if t not in out:
+                out.append(t)
+        if these:
+            prev = these[-1]
+        in_range = False
+    if above and out:
+        out = list(range(1, max(out) + 1))
+    return out
+
+
+def _tiers_from_match(m: "re.Match[str]") -> List[int]:
+    """Tiers of a match carrying a tier spec (or, for the CAS word, a lone numeral)."""
+    groups = m.groupdict()
+    if groups.get("tiers"):
+        return _tiers_from_spec(groups["tiers"], groups.get("above"))
+    return _tiers_from_numeral_run(groups.get("run"))
 
 
 def _quartiles_from_tiers(tiers: List[int]) -> List[str]:
@@ -282,40 +389,43 @@ def parse_rank_intent(query: Optional[str]) -> RankIntent:
 
     # --- 1. platform + quartile bound together: "JCR Q1", "SJR 一区" -------------
     for m in list(_PLATFORM_QUARTILE_RE.finditer(work)):
-        plat = _platform_for_word(m.group(1))
-        q = _norm_quartile(m.group(2))
+        plat = _platform_for_word(m.group("plat"))
+        if m.group("q"):
+            qs = [_norm_quartile(m.group("q"))]
+        else:  # 区 numerals under a JCR/SJR word read as quartiles ("JCR 1、2区")
+            qs = _quartiles_from_tiers(_tiers_from_match(m))
         if plat:
             platform = platform or plat
-        if q and q not in quartiles:
-            quartiles.append(q)
+        for q in qs:
+            if q and q not in quartiles:
+                quartiles.append(q)
         matched.append(m.group(0))
     work = _PLATFORM_QUARTILE_RE.sub(" ", work)
 
-    # --- 2. CAS phrase with an explicit tier: "中科院一区", "cas 1 区" -----------
-    for m in list(_CAS_PHRASE_RE.finditer(work)):
-        run = m.group(1)
-        these = _tiers_from_numeral_run(run)
-        if these:  # only treat as a CAS *filter* when a tier numeral is present
-            platform = platform or "cas"
-            for t in these:
-                if t not in tiers:
-                    tiers.append(t)
-            matched.append(m.group(0))
-    # Remove only the CAS phrases that carried a tier (keep a bare "中科院" word for
-    # step 4 so the platform hint is not lost if it stood alone). The "cas" form is
-    # boundary-fenced so a tier glued to an English word never gets stripped.
-    work = re.sub(
-        r"(?:中科院|科院|" + _LATIN_BDRY_L + r"cas)\s*(?:分区)?\s*"
-        r"[" + _CN_NUM_CLASS + r"]{1,2}\s*区?",
-        " ",
-        work,
-        flags=re.IGNORECASE,
-    )
+    # --- 2. CAS phrase with an explicit tier: "中科院一区", "中科院 1、2 区的" ----
+    # The regex requires a tier, so a bare "中科院" word stays for step 4 (the
+    # platform hint is not lost if it stood alone).
+    for m in list(_CAS_TIER_RE.finditer(work)):
+        platform = platform or "cas"
+        for t in _tiers_from_match(m):
+            if t not in tiers:
+                tiers.append(t)
+        matched.append(m.group(0))
+    work = _CAS_TIER_RE.sub(" ", work)
 
-    # --- 3. bare 区 tier with no platform word: "一区", "1区", "一二区" ----------
+    # --- 2b. 区 tiers under an index name that is not a platform: "SSCI 一区" ---
+    # Tiers recorded, platform left unresolved -> ambiguous below (never guessed).
+    for m in list(_INDEX_TIER_RE.finditer(work)):
+        for t in _tiers_from_match(m):
+            if t not in tiers:
+                tiers.append(t)
+        matched.append(m.group(0))
+    work = _INDEX_TIER_RE.sub(" ", work)
+
+    # --- 3. bare 区 tier with no platform word: "一区", "1区", "一、二区" --------
     # In Chinese, 区 partitioning is CAS terminology; treat as CAS.
     for m in list(_CAS_BARE_TIER_RE.finditer(work)):
-        these = _tiers_from_numeral_run(m.group(1))
+        these = _tiers_from_match(m)
         if these:
             platform = platform or "cas"
             for t in these:
@@ -406,10 +516,16 @@ def parse_rank_intent(query: Optional[str]) -> RankIntent:
     intent.ambiguous = (stated_filter or intent.top) and platform is None
     if intent.ambiguous:
         # top applies to all three platforms (cas.top / jcr,sjr Q1); a bare quartile
-        # is a JCR/SJR concept (CAS uses 区 numerals, never Q).
-        intent.candidate_platforms = (
-            ["cas", "jcr", "sjr"] if intent.top else ["jcr", "sjr"]
-        )
+        # is a JCR/SJR concept (CAS uses 区 numerals, never Q); 区 tiers under an
+        # index name ("SSCI 一区") read as a CAS tier or a JCR quartile.
+        cands = set()
+        if intent.top:
+            cands.update(("cas", "jcr", "sjr"))
+        if tiers:
+            cands.update(("cas", "jcr"))
+        if quartiles:
+            cands.update(("jcr", "sjr"))
+        intent.candidate_platforms = [p for p in ("cas", "jcr", "sjr") if p in cands]
 
     intent.platform = platform
     intent.tiers = tiers or None

@@ -360,6 +360,200 @@ def test_platform_word_resolves_only_in_partition_context():
     print("OK  platform_word_resolves_only_in_partition_context")
 
 
+# ---------------------------------------------------------------------------
+# D6: tier enumerations, ranges and "及以上".
+#
+# Users name a SET of tiers ("中科院 1、2 区的", "一区和二区", "1-2区"). The grammar
+# used to read only the numeral glued to 中科院, so the real query "…中科院 1、2 区
+# 的…" came back as tiers=[1] with "、2 区的" sent to the search engine, and
+# "SSCI 一区或二区" vanished with no intent and no ambiguity flag.
+# ---------------------------------------------------------------------------
+
+def test_cas_tier_enumerations_and_ranges():
+    cases = [
+        # (query, tiers) — every one carries the topic "情绪调节" after the phrase.
+        ("中科院 1、2 区的 情绪调节", [1, 2]),
+        ("中科院一区和二区 情绪调节", [1, 2]),
+        ("中科院1-2区的论文 情绪调节", [1, 2]),
+        ("中科院一、二区的 情绪调节", [1, 2]),
+        ("中科院 1 区和 2 区 情绪调节", [1, 2]),
+        ("中科院一区或二区 情绪调节", [1, 2]),
+        ("中科院一区或者二区 情绪调节", [1, 2]),
+        ("中科院一区及二区 情绪调节", [1, 2]),
+        ("中科院一区与二区 情绪调节", [1, 2]),
+        ("中科院一区以及二区 情绪调节", [1, 2]),
+        ("中科院1/2区 情绪调节", [1, 2]),
+        ("中科院1，2区 情绪调节", [1, 2]),
+        ("中科院1,2区 情绪调节", [1, 2]),
+        ("中科院1~2区 情绪调节", [1, 2]),
+        ("中科院 1–2 区 情绪调节", [1, 2]),
+        ("中科院 一区 和 二区 情绪调节", [1, 2]),
+        ("中科院分区一、二区的文章 情绪调节", [1, 2]),
+        ("中科院一区二区 情绪调节", [1, 2]),  # 链式, one phrase
+        ("中科院12区 情绪调节", [1, 2]),  # 连写, unchanged
+        # ranges expand
+        ("中科院1-3区 情绪调节", [1, 2, 3]),
+        ("中科院一至三区 情绪调节", [1, 2, 3]),
+        ("中科院1到3区期刊 情绪调节", [1, 2, 3]),
+        ("cas 1-2区 情绪调节", [1, 2]),
+    ]
+    for q, tiers in cases:
+        r = parse_rank_intent(q)
+        assert r.platform == "cas", f"{q!r}: platform {r.platform!r}"
+        assert r.tiers == tiers, f"{q!r}: tiers {r.tiers!r} != {tiers!r}"
+        assert r.ambiguous is False, f"{q!r}: wrongly ambiguous"
+        assert r.cleaned_query == "情绪调节", f"{q!r}: cleaned {r.cleaned_query!r}"
+    print("OK  cas_tier_enumerations_and_ranges")
+
+
+def test_tier_at_or_above():
+    cases = [
+        ("中科院二区及以上 情绪调节", [1, 2]),
+        ("中科院2区以上 情绪调节", [1, 2]),
+        ("中科院二区或以上 情绪调节", [1, 2]),
+        ("中科院一区以上 情绪调节", [1]),
+        ("中科院三区及以上的期刊 情绪调节", [1, 2, 3]),
+        ("二区及以上期刊 情绪调节", [1, 2]),  # bare, confirmed by 期刊
+        ("一区以上 情绪调节", [1]),
+    ]
+    for q, tiers in cases:
+        r = parse_rank_intent(q)
+        assert r.platform == "cas" and r.tiers == tiers, f"{q!r}: {r.platform!r} {r.tiers!r}"
+        assert r.cleaned_query == "情绪调节", f"{q!r}: cleaned {r.cleaned_query!r}"
+    print("OK  tier_at_or_above")
+
+
+def test_bare_tier_lists():
+    cases = [
+        ("一、二区期刊 情绪调节", [1, 2]),
+        ("1-2区 情绪调节", [1, 2]),
+        ("1、2区的论文 情绪调节", [1, 2]),
+        ("1、2、3区期刊 情绪调节", [1, 2, 3]),
+        ("1区 2区 情绪调节", [1, 2]),
+    ]
+    for q, tiers in cases:
+        r = parse_rank_intent(q)
+        assert r.platform == "cas" and r.tiers == tiers, f"{q!r}: {r.platform!r} {r.tiers!r}"
+        assert r.cleaned_query == "情绪调节", f"{q!r}: cleaned {r.cleaned_query!r}"
+    print("OK  bare_tier_lists")
+
+
+def test_platform_word_tier_lists_map_to_quartiles():
+    for q, plat in (
+        ("JCR 1、2区 情绪调节", "jcr"),
+        ("SJR 1区和2区 情绪调节", "sjr"),
+        ("wos 1-2区 情绪调节", "jcr"),
+        ("Web of Science 1、2区 情绪调节", "jcr"),
+    ):
+        r = parse_rank_intent(q)
+        assert r.platform == plat, f"{q!r}: platform {r.platform!r}"
+        assert r.quartiles == ["Q1", "Q2"] and r.tiers is None, f"{q!r}: {r.quartiles!r}"
+        assert r.cleaned_query == "情绪调节", f"{q!r}: cleaned {r.cleaned_query!r}"
+    print("OK  platform_word_tier_lists_map_to_quartiles")
+
+
+def test_tier_phrase_tail_is_stripped():
+    """The 的 / head noun gluing a tier phrase to the sentence goes with it, but a
+    paper noun that heads a topic ("文献综述", "论文写作") stays."""
+    for q, cleaned in (
+        ("中科院一区的情绪调节研究", "情绪调节研究"),
+        ("中科院一区期刊 情绪调节", "情绪调节"),
+        ("中科院一区的论文 情绪调节", "情绪调节"),
+        ("中科院一区的文献综述", "文献综述"),
+        ("中科院1区论文写作", "论文写作"),
+    ):
+        r = parse_rank_intent(q)
+        assert r.platform == "cas" and r.tiers == [1], f"{q!r}: {r.platform!r} {r.tiers!r}"
+        assert r.cleaned_query == cleaned, f"{q!r}: cleaned {r.cleaned_query!r} != {cleaned!r}"
+    print("OK  tier_phrase_tail_is_stripped")
+
+
+def test_unknown_index_tier_is_ambiguous_not_dropped():
+    """区 tiers under SSCI: CAS tier or JCR quartile? Never guessed, never
+    dropped — recorded, stripped, flagged ambiguous with [cas, jcr] to ask about."""
+    cases = [
+        ("SSCI 一区或二区 情绪调节", [1, 2]),
+        ("SSCI 一区 情绪调节", [1]),
+        ("SSCI一区的期刊 情绪调节", [1]),
+    ]
+    for q, tiers in cases:
+        r = parse_rank_intent(q)
+        assert r.platform is None, f"{q!r}: guessed platform {r.platform!r}"
+        assert r.tiers == tiers, f"{q!r}: tiers {r.tiers!r} != {tiers!r}"
+        assert r.ambiguous is True and r.has_filter is True, f"{q!r}: intent dropped"
+        assert r.candidate_platforms == ["cas", "jcr"], f"{q!r}: {r.candidate_platforms!r}"
+        assert r.cleaned_query == "情绪调节", f"{q!r}: cleaned {r.cleaned_query!r}"
+    # A CAS word elsewhere in the query resolves the platform.
+    r = parse_rank_intent("中科院 SSCI 一区 情绪调节")
+    assert r.platform == "cas" and r.tiers == [1] and r.ambiguous is False
+    assert r.cleaned_query == "情绪调节"
+    # Candidates are the union: an index tier plus top also offers SJR.
+    r = parse_rank_intent("SSCI 一区 顶刊 情绪调节")
+    assert r.ambiguous is True and r.candidate_platforms == ["cas", "jcr", "sjr"]
+    # "SCI一区" keeps its long-standing CAS reading.
+    r = parse_rank_intent("SCI一区 情绪调节")
+    assert r.platform == "cas" and r.tiers == [1] and r.ambiguous is False
+    print("OK  unknown_index_tier_is_ambiguous_not_dropped")
+
+
+def test_scenario_a_sentence():
+    """The real user text that exposed D6 (scenario A, 9/13)."""
+    q = (
+        "请帮我找一下，有没有发展心理学内 AI 的相关研究……一定要是中科院 1、2 区的，"
+        "然后英文文献，只能是最近 2026 年初版的。"
+    )
+    r = parse_rank_intent(q)
+    assert r.platform == "cas" and r.tiers == [1, 2] and r.ambiguous is False
+    assert r.matched == ["中科院 1、2 区的"]
+    c = r.cleaned_query
+    for s in ("区", "中科院", "1、", "、2"):
+        assert s not in c, f"residue {s!r} left in {c!r}"
+    for s in ("发展心理学", "AI", "英文文献", "2026"):
+        assert s in c, f"{s!r} lost from {c!r}"
+    print("OK  scenario_a_sentence")
+
+
+# Queries the tier-list grammar must NOT read as a rank filter: districts written as
+# lists, numbers glued to a tier numeral, index names without a tier.
+_LIST_NO_INTENT_QUERIES = [
+    "51区 外星人",  # Area 51 — "1区" glued to a digit
+    "第一、二区 人口",  # list whose head is 第一 (districts)
+    "第一区、二区 人口",
+    "一区、二区供暖",  # list whose tail is a compound — rejected whole
+    "三区和四区的人口",
+    "三区三州 贫困",
+    "三区的人口研究",
+    "SSCI 情绪调节",  # index word, no tier
+    "SSCI期刊 情绪调节",
+    "SCI-Hub 使用研究",
+    "SCI 1 情绪调节",
+]
+
+
+def test_tier_lists_add_no_false_positive():
+    for q in _LIST_NO_INTENT_QUERIES:
+        r = parse_rank_intent(q)
+        assert r.platform is None, f"{q!r}: wrongly guessed platform {r.platform!r}"
+        assert r.has_filter is False and r.ambiguous is False, f"{q!r}: wrongly set intent"
+        assert r.cleaned_query == q, f"{q!r}: cleaned_query corrupted to {r.cleaned_query!r}"
+    print("OK  tier_lists_add_no_false_positive")
+
+
+def test_number_after_cas_word_is_not_a_tier():
+    """"中科院 2023" / "中科院二十年" used to read as 区 2 and cut the number; the
+    CAS word is now only a platform hint there. "中科院1 X" (no 区) still counts."""
+    r = parse_rank_intent("中科院 2023 年以来的研究")
+    assert r.platform == "cas" and r.tiers is None and r.has_filter is False
+    assert r.cleaned_query == "2023 年以来的研究"
+    r = parse_rank_intent("中科院二十年发展")
+    assert r.tiers is None and r.cleaned_query == "二十年发展"
+    r = parse_rank_intent("中科院1 depression")
+    assert r.platform == "cas" and r.tiers == [1] and r.cleaned_query == "depression"
+    r = parse_rank_intent("中科院大类一区 情绪调节")  # 大类 = the default partition
+    assert r.platform == "cas" and r.tiers == [1] and r.cleaned_query == "情绪调节"
+    print("OK  number_after_cas_word_is_not_a_tier")
+
+
 def main() -> int:
     tests = [
         test_cas_tier1_chinese_strips_phrase,
@@ -380,6 +574,15 @@ def main() -> int:
         test_top_only_filler_words_stripped_cleanly,
         test_latin_platform_word_as_topic_is_not_stripped,
         test_platform_word_resolves_only_in_partition_context,
+        test_cas_tier_enumerations_and_ranges,
+        test_tier_at_or_above,
+        test_bare_tier_lists,
+        test_platform_word_tier_lists_map_to_quartiles,
+        test_tier_phrase_tail_is_stripped,
+        test_unknown_index_tier_is_ambiguous_not_dropped,
+        test_scenario_a_sentence,
+        test_tier_lists_add_no_false_positive,
+        test_number_after_cas_word_is_not_a_tier,
     ]
     failed = []
     for t in tests:

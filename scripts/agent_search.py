@@ -867,6 +867,7 @@ def _resolve_rank_plan(
     # Intent expressed a tier/quartile/top but no platform -> ambiguous.
     if intent.has_filter and intent.ambiguous:
         plan.ambiguous = True
+        plan.tiers = intent.tiers  # reported in meta.rank; never filtered while ambiguous
         plan.quartiles = intent.quartiles
         plan.top = intent.top
         plan.source = "intent"
