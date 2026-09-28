@@ -57,6 +57,10 @@ def build_prisma_s_log(
     sources_used = _databases_used(kg, query_plan)
     query_texts = [q.get("text", "") for q in query_plan if isinstance(q, dict)]
     query_filters = [q.get("filters", []) for q in query_plan if isinstance(q, dict)]
+    # One flat, de-duplicated list: a plan-level filter applies to every strategy.
+    filters_flat = list(dict.fromkeys(
+        str(f) for fs in query_filters for f in (fs if isinstance(fs, list) else [fs]) if f
+    ))
     classified_count = sum(1 for p in kg.values() if p.rcs is not None)
     highly_relevant = sum(
         1 for p in kg.values() if p.rcs is not None and p.rcs >= 7
@@ -114,12 +118,13 @@ def build_prisma_s_log(
             "note": "Strategy reproducible; same boolean expressions executed against each database.",
         },
         "9_limits_and_restrictions": {
-            "filters_applied": query_filters,
+            "filters_applied": filters_flat if filters_flat else query_filters,
             "language": None,
             "publication_type": None,
+            # The report shows the note when there is one, else the filters.
             "note": (
-                "Filters as recorded in the query plan, per strategy."
-                if any(query_filters)
+                None
+                if filters_flat
                 else "No restrictive filters by default; tier budget bounds the number of records returned."
             ),
         },
@@ -321,7 +326,7 @@ def normalize_query_plan(plan: Any) -> List[Dict]:
         bands = rank.get("tiers") or rank.get("quartiles") or []
         top = " top" if rank.get("top") else ""
         plan_filters.append(
-            f"journal rank {rank['platform']}{top} " + ",".join(str(b) for b in bands)
+            f"journal rank: {str(rank['platform']).upper()}{top} " + ",".join(str(b) for b in bands)
         )
     work_type = plan.get("work_type_filter")
     if isinstance(work_type, str) and work_type.strip():

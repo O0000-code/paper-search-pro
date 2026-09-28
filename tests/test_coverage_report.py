@@ -88,8 +88,8 @@ def test_query_plan_object_filters_reach_the_audit_log(tmp_path):
     (tmp_path / "query_plan.json").write_text(json.dumps(plan))
     data = _materialize(tmp_path, _kg(1, 3))
     item9 = data["prisma_log"]["9_limits_and_restrictions"]
-    assert item9["filters_applied"] == [["publication_year 2026-2026", "journal rank cas 1,2"]]
-    assert "No restrictive filters" not in item9["note"]
+    assert item9["filters_applied"] == ["publication_year 2026-2026", "journal rank: CAS 1,2"]
+    assert item9["note"] is None  # the report then shows the filters
     assert data["prisma_log"]["8_full_search_strategies"]["queries"] == ["children artificial intelligence"]
 
 
