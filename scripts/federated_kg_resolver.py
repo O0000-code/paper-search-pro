@@ -308,6 +308,8 @@ def merge_paper_fields(
     # neutral (same journal = same ISSN across OpenAlex/SS/NSSD), so first-non-empty
     # is correct — no Chinese preference needed.
     existing.issn = _pick_non_empty(existing.issn, new.issn)
+    if new.issns:
+        existing.issns = list(dict.fromkeys([*existing.issns, *new.issns]))
 
     # ---- citation_count: OA wins; else max ----
     if "openalex" in new.sources and new.citation_count > 0:
@@ -471,6 +473,7 @@ def _papers_from_payload(payload) -> List[UnifiedPaperEntity]:
             year=d.get("year"),
             venue=d.get("venue"),
             issn=d.get("issn"),  # #3 (None when absent)
+            issns=list(d.get("issns") or []),
             type=d.get("type"),
             citation_count=int(d.get("citation_count") or 0),
             fwci=d.get("fwci"),
@@ -560,6 +563,9 @@ def _paper_to_dict(p: UnifiedPaperEntity) -> Dict:
     # downstream journal_rank ISSN join (rank_filter.annotate_papers) can fire.
     if p.issn:
         d["issn"] = p.issn
+    # Same rule for the full ISSN list: only journals that list ISSNs gain the key.
+    if p.issns:
+        d["issns"] = p.issns
     return d
 
 

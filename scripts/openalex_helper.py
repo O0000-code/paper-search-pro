@@ -280,10 +280,13 @@ def _to_entity(w: dict) -> UnifiedPaperEntity:
     # OpenAlex source carries issn_l (linking ISSN, most stable) + issn[] (all).
     # Prefer issn_l; fall back to the first of issn[]. None for sources w/o ISSN.
     issn = source.get("issn_l")
-    if not issn:
-        issn_list = source.get("issn") or []
-        if isinstance(issn_list, list) and issn_list:
-            issn = issn_list[0]
+    issn_list = source.get("issn") or []
+    if not isinstance(issn_list, list):
+        issn_list = []
+    if not issn and issn_list:
+        issn = issn_list[0]
+    # Keep the full list too: the rank join tries these when issn_l misses.
+    issns = [s for s in dict.fromkeys([issn, *issn_list]) if s]
 
     # Citations percentile (nested dict, take max)
     cbpy = w.get("cited_by_percentile_year") or {}
@@ -339,6 +342,7 @@ def _to_entity(w: dict) -> UnifiedPaperEntity:
         year=w.get("publication_year"),
         venue=venue,
         issn=issn,
+        issns=issns,
         type=w.get("type"),
         citation_count=w.get("cited_by_count", 0) or 0,
         referenced_works_count=w.get("referenced_works_count"),

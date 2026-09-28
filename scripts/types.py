@@ -204,6 +204,13 @@ class UnifiedPaperEntity:
     year: Optional[int] = None
     venue: Optional[str] = None
     issn: Optional[str] = None             # journal ISSN (e.g. SS publicationVenue.issn / OA source.issn) — used downstream for SJR join
+    # Every ISSN the source lists for the journal (OpenAlex ``source.issn[]``, SS
+    # ``publicationVenue.issn`` + ``alternate_issns``). ``issn`` above stays the
+    # single preferred key; the rank join falls back to these when it misses,
+    # because a journal's linking ISSN is often not the one the rank tables
+    # list (The Lancet, renamed journals). Additive: empty for sources that
+    # list no ISSN, and the report does not display it.
+    issns: List[str] = field(default_factory=list)
     type: Optional[str] = None             # article / preprint / review / book / dataset
 
     # Citations
