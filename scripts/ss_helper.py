@@ -570,6 +570,8 @@ _SS_BATCH_MAX = 500
 # not happen is that wait repeated once per paper.
 _BATCH_429_RETRIES = 8
 _BATCH_MAX_WAIT_S = 60.0
+# Per-paper fallback gives up after this many network / 5xx failures in a row.
+_SS_DOWN_AFTER = 3
 
 
 def _ss_json(res) -> object:
@@ -634,7 +636,10 @@ def _ss_fetch(
             continue
         if _account_failure(res) or not per_paper:
             return records, _failure_text(res)
-        for sid in chunk:
+        down = 0  # consecutive network / 5xx failures: SS is down, not this batch
+        for i, sid in enumerate(chunk):
+            if i:
+                time.sleep(_RATE_LIMIT_SLEEP)
             one = _ss_get(f"{_SS_GRAPH_URL}/paper/{sid}", params, api_key=api_key,
                           session=session)
             if _account_failure(one):
@@ -644,8 +649,10 @@ def _ss_fetch(
                 rec = None
                 if one is None or one.status_code != 404:  # 404 = SS has no such paper
                     problem = _failure_text(one)
+            down = down + 1 if (one is None or one.status_code >= 500) else 0
+            if down >= _SS_DOWN_AFTER:
+                return records, problem
             records.append(rec)
-            time.sleep(_RATE_LIMIT_SLEEP)
     return records, problem
 
 

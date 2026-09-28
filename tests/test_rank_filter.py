@@ -397,3 +397,14 @@ def test_annotate_kg_file_keeps_every_field_and_filters_when_asked():
     assert list(kept) == ["doi|10.1/a"]
     assert set(aside) == {"doi|10.2/b", "doi|10.3/c"}
     assert counts["filtered_out"] == 1 and counts["no_platform_data"] == 1
+
+
+def test_each_paper_keeps_the_issn_it_matched_on():
+    """lookup() returns the journal's shared record; a later paper matching on
+    another ISSN must not rewrite the earlier paper's matched_issn."""
+    rec = _lookup()._t["0022-3514"]
+    table = {"0022-3514": rec, "1111-1111": rec}
+    a, b = _paper("10.1/a", "0022-3514"), _paper("10.1/b", "1111-1111")
+    rank_filter.annotate_papers([a, b], _ListLookup(table))
+    assert a.journal_rank.matched_issn == "0022-3514"
+    assert b.journal_rank.matched_issn == "1111-1111"

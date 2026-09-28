@@ -625,10 +625,20 @@ def test_batch_specific_failure_keeps_per_paper_fallback(ss_env, capsys):
     ss_helper.enrich_with_metadata(papers, session=sess)
 
     assert [c[0] for c in sess.calls] == ["POST", "GET", "GET", "GET"]
-    assert ss_env["pauses"] == [ss_helper._RATE_LIMIT_SLEEP] * 3
+    assert ss_env["pauses"] == [ss_helper._RATE_LIMIT_SLEEP] * 2  # between requests only
     assert [p.influential_citation_count for p in papers] == [4, None, 9]
     assert _summary_lines(capsys.readouterr().err) == [
         "[paper-search-pro] Semantic Scholar enrichment: 2/3 papers enriched (1 not found)."]
+
+
+def test_per_paper_loop_gives_up_when_semantic_scholar_is_down(ss_env, capsys):
+    """Network errors / 5xx on every request: a few tries, not one per paper."""
+    sess = _FakeGraph(fail=lambda m, h: (503, None))
+    papers = _papers(*[f"10.1/p{i}" for i in range(20)])
+    ss_helper.enrich_with_metadata(papers, session=sess)
+    assert [c[0] for c in sess.calls] == ["POST"] + ["GET"] * ss_helper._SS_DOWN_AFTER
+    assert _summary_lines(capsys.readouterr().err) == [
+        "[paper-search-pro] Semantic Scholar enrichment: 0/20 papers enriched (HTTP 503)."]
 
 
 def test_per_paper_loop_stops_at_an_account_failure(ss_env, capsys):

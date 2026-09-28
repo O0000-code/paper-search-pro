@@ -34,6 +34,7 @@ Design invariants
 
 from __future__ import annotations
 
+import copy
 from dataclasses import asdict
 from typing import Dict, List, Optional, Tuple
 
@@ -111,7 +112,9 @@ def annotate_papers(papers, lookup) -> int:
             continue
         rec = lookup.lookup(candidates[0] if len(candidates) == 1 else candidates)
         if rec is not None:
-            p.journal_rank = rec
+            # lookup() returns the journal's shared record with matched_issn set
+            # for this call; copy it so a later paper cannot overwrite that.
+            p.journal_rank = copy.copy(rec)
             annotated += 1
     return annotated
 

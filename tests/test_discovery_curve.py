@@ -144,3 +144,23 @@ def test_cli_finds_raw_dir_next_to_kg_and_accepts_a_curve_json(tmp_path):
         "--output", str(tmp_path / "curve2.json"),
     )
     assert again.returncode == 0, again.stderr
+
+
+def test_ambiguous_title_alias_is_not_used_to_match(tmp_path):
+    """Two KG papers share title + year; a raw record with only that title
+    cannot be assigned to either."""
+    a = _p("10.1/a", 8, title="Editorial", year=2024)
+    b = _p("10.1/b", 8, title="Editorial", year=2024)
+    kg = _kg([a, b])
+    (tmp_path / "s1.json").write_text(json.dumps([{"title": "Editorial", "year": 2024}]))
+    occ = dc.retrieval_occasions(tmp_path, kg)
+    assert occ and not ({"doi|10.1/a", "doi|10.1/b"} & occ[0])
+
+
+def test_interval_is_reproducible_and_brackets_the_estimate():
+    occ = [{"a", "b", "c"}, {"a", "b", "d"}, {"a", "e"}, {"b", "c", "f"}]
+    rel = {"a", "b", "c", "d", "e", "f"}
+    one, two = dc.sample_coverage(occ, rel), dc.sample_coverage(occ, rel)
+    assert one == two
+    assert 0 <= one["lower"] <= one["coverage"] <= one["upper"] <= 1
+    assert one["upper"] - one["lower"] > 0.05  # few detections -> a real spread

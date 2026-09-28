@@ -118,10 +118,13 @@ def retrieval_occasions(
     """
     from .federated_kg_resolver import _papers_from_payload
 
-    index: Dict[str, str] = {}
+    owners: Dict[str, Set[str]] = {}
     for key, paper in kg.items():
         for k in _id_keys(paper):
-            index.setdefault(k, key)
+            owners.setdefault(k, set()).add(key)
+    # An identifier shared by two KG papers (two "Editorial" titles in one year)
+    # cannot say which one a raw record is; only unambiguous ones are used.
+    index = {k: next(iter(v)) for k, v in owners.items() if len(v) == 1}
 
     occasions: List[Set[str]] = []
     seen: Set[str] = set()
@@ -149,12 +152,53 @@ def retrieval_occasions(
     return occasions
 
 
-def _wilson(p: float, n: int, z: float = 1.96) -> Tuple[float, float]:
-    """Wilson score interval for a proportion observed over n detections."""
-    denom = 1.0 + z * z / n
-    centre = (p + z * z / (2 * n)) / denom
-    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
-    return (max(0.0, centre - half), min(1.0, centre + half))
+def _coverage_from_counts(freqs: List[int], m: int) -> Optional[float]:
+    """Chao & Jost (2012) incidence sample coverage from per-paper detection
+    counts (how many of the m occasions found each paper)."""
+    detections = sum(freqs)
+    if m < 2 or detections == 0:
+        return None
+    q1 = freqs.count(1)
+    q2 = freqs.count(2)
+    if q2 > 0:
+        share = (m - 1) * q1 / ((m - 1) * q1 + 2 * q2)
+    elif q1 > 1:
+        share = (m - 1) * (q1 - 1) / ((m - 1) * (q1 - 1) + 2)
+    else:
+        share = 0.0
+    return min(1.0, max(0.0, 1.0 - (q1 / detections) * share))
+
+
+def _bootstrap_interval(
+    freqs: List[int], m: int, coverage: float, reps: int = 200
+) -> Tuple[float, float]:
+    """95% interval by the Chao & Jost (2012) bootstrap, simplified: rebuild an
+    assemblage from the observed detection counts (each paper found in a given
+    occasion with probability count/m) plus the Chao2-estimated undetected
+    papers sharing the missing coverage, draw m occasions from it ``reps`` times
+    (fixed seed, so the report is reproducible) and take coverage +/- 1.96 SD."""
+    import random
+    import statistics
+
+    q1 = freqs.count(1)
+    q2 = freqs.count(2)
+    k = (m - 1) / m
+    unseen = k * q1 * q1 / (2 * q2) if q2 > 0 else k * q1 * (q1 - 1) / 2
+    probs = [f / m for f in freqs]
+    n0 = int(math.ceil(unseen))
+    if n0 > 0:
+        missing_per_occasion = (sum(freqs) / m) * (1.0 - coverage)
+        probs += [min(1.0, missing_per_occasion / n0)] * n0
+
+    rng = random.Random(0)
+    values: List[float] = []
+    for _ in range(reps):
+        drawn = [sum(1 for _ in range(m) if rng.random() < p) for p in probs]
+        value = _coverage_from_counts([d for d in drawn if d], m)
+        if value is not None:
+            values.append(value)
+    spread = 1.96 * statistics.pstdev(values) if len(values) > 1 else 0.0
+    return (max(0.0, coverage - spread), min(1.0, coverage + spread))
 
 
 def sample_coverage(
@@ -170,25 +214,17 @@ def sample_coverage(
     for occ in occasions:
         for key in occ & relevant:
             counts[key] = counts.get(key, 0) + 1
-    detections = sum(counts.values())
-    if m < 2 or detections == 0:
+    freqs = list(counts.values())
+    coverage = _coverage_from_counts(freqs, m)
+    if coverage is None:
         return None
-    q1 = sum(1 for c in counts.values() if c == 1)
-    q2 = sum(1 for c in counts.values() if c == 2)
-    if q2 > 0:
-        share = (m - 1) * q1 / ((m - 1) * q1 + 2 * q2)
-    elif q1 > 1:
-        share = (m - 1) * (q1 - 1) / ((m - 1) * (q1 - 1) + 2)
-    else:
-        share = 0.0
-    coverage = min(1.0, max(0.0, 1.0 - (q1 / detections) * share))
-    lower, upper = _wilson(coverage, detections)
+    lower, upper = _bootstrap_interval(freqs, m, coverage)
     return {
         "coverage": coverage,
-        "lower": min(lower, coverage),
-        "upper": max(upper, coverage),
+        "lower": lower,
+        "upper": upper,
         "occasions": m,
-        "detections": detections,
+        "detections": sum(freqs),
     }
 
 
