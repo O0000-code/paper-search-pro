@@ -149,7 +149,8 @@ export function MethodsTab({ data, onSelectPaper }: MethodsTabProps) {
                     the dict is unavailable. Mirrors ground truth
                     v2-methods.jsx line 56. */}
                 {t("discoveryCurveSummary", {
-                  found: Math.round(dc.estimated_total_relevant),
+                  // papers found, not the estimated total (the asymptote)
+                  found: highlyRelevant,
                   pct: Math.round(dc.coverage_estimate * 100),
                   lo: Math.round(dc.ci_low * 100),
                   hi: Math.round(dc.ci_high * 100),
