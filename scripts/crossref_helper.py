@@ -503,6 +503,34 @@ def _paper_to_dict(p: UnifiedPaperEntity) -> Dict[str, Any]:
     return dict(p)  # type: ignore[arg-type]
 
 
+def _selected(d: Dict[str, Any], min_rcs: Optional[int]) -> bool:
+    """--min-rcs: whether a paper record is an enrichment candidate. Without
+    the flag every paper is; with it, only those whose rcs is an int >= N."""
+    if min_rcs is None:
+        return True
+    rcs = d.get("rcs")
+    return isinstance(rcs, int) and not isinstance(rcs, bool) and rcs >= min_rcs
+
+
+# The only fields the enrichers set (plus ``sources``).
+_KG_FIELDS = ("funders", "license", "referenced_works_count", "clinical_trial_number")
+
+
+def _write_back(d: Dict[str, Any], p: UnifiedPaperEntity) -> None:
+    """Copy what the enrichers set on ``p`` into its KG record ``d``.
+
+    Every other key and value (authors, rcs, journal_rank, unknown keys) stays
+    as it was, and existing keys keep their order. A paper CrossRef added
+    nothing to is untouched.
+    """
+    for key in _KG_FIELDS:
+        value = getattr(p, key)
+        if value not in (None, []) and d.get(key) != value:
+            d[key] = value
+    if "crossref" in p.sources and "crossref" not in (d.get("sources") or []):
+        d["sources"] = list(d.get("sources") or []) + ["crossref"]
+
+
 def _cli_main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="crossref_helper",
@@ -510,12 +538,18 @@ def _cli_main(argv: Optional[List[str]] = None) -> int:
     )
     parser.add_argument(
         "--input-file", required=True,
-        help="Path to JSON file containing a list of paper dicts (UnifiedPaperEntity-shaped)",
+        help="Path to JSON file containing a list of paper dicts (UnifiedPaperEntity-shaped), "
+             "or a KG dict {key: paper} such as kg_classified.json — then only the "
+             "CrossRef fields are patched into the KG and the whole KG is written back",
     )
     parser.add_argument(
         "--mode", choices=["funder", "license", "refs", "clinical", "all"],
         default="all",
         help="Which enrichment to run (default: all in a single fetch per paper)",
+    )
+    parser.add_argument(
+        "--min-rcs", type=int, metavar="N",
+        help="Only enrich papers whose rcs is an integer >= N (default: all papers)",
     )
     parser.add_argument(
         "--output-file",
@@ -532,24 +566,37 @@ def _cli_main(argv: Optional[List[str]] = None) -> int:
 
     input_path = Path(args.input_file)
     raw = json.loads(input_path.read_text(encoding="utf-8"))
-    if not isinstance(raw, list):
-        print("ERROR: --input-file must contain a JSON list of papers", file=sys.stderr)
+    if isinstance(raw, dict):
+        # KG dict: enrich the selected records, then patch them in place.
+        keys = [k for k, d in raw.items() if isinstance(d, dict) and _selected(d, args.min_rcs)]
+        papers = [_paper_from_dict(raw[k]) for k in keys]
+        chosen = papers
+    elif isinstance(raw, list):
+        # List: the original shape and output, byte for byte.
+        papers = [_paper_from_dict(d) for d in raw]
+        chosen = [p for d, p in zip(raw, papers) if _selected(d, args.min_rcs)]
+    else:
+        print("ERROR: --input-file must contain a JSON list of papers or a KG dict",
+              file=sys.stderr)
         return 2
 
-    papers = [_paper_from_dict(d) for d in raw]
-
     if args.mode == "funder":
-        enrich_funder(papers)
+        enrich_funder(chosen)
     elif args.mode == "license":
-        enrich_license(papers)
+        enrich_license(chosen)
     elif args.mode == "refs":
-        enrich_references(papers)
+        enrich_references(chosen)
     elif args.mode == "clinical":
-        enrich_clinical_trial(papers)
+        enrich_clinical_trial(chosen)
     else:
-        enrich_all(papers)
+        enrich_all(chosen)
 
-    out = json.dumps([_paper_to_dict(p) for p in papers], ensure_ascii=False, indent=2)
+    if isinstance(raw, dict):
+        for k, p in zip(keys, papers):
+            _write_back(raw[k], p)
+        out = json.dumps(raw, ensure_ascii=False, indent=2)
+    else:
+        out = json.dumps([_paper_to_dict(p) for p in papers], ensure_ascii=False, indent=2)
     if args.output_file:
         Path(args.output_file).write_text(out, encoding="utf-8")
     else:

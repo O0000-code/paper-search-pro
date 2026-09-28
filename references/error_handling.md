@@ -20,13 +20,13 @@ Referenced by `SKILL.md` STEP 3, 4, 5, 6, 10, 12 — wherever an external call o
 | **Trigger** | Burst >10 req/s without polite-pool credentials; or polite pool 429 (rare) |
 | **Action** | Helper retries 3× via SDK. If persistent, halt the current strategy. `double-sort` makes 3 strategies × 5 pages = 15 calls — break between strategies if 429. Tell user: `OpenAlex is rate limiting. Waiting 60 s before retry — please ensure openalex_email or openalex_api_key is set in config.` |
 
-### E3 — Semantic Scholar 429 / rate limit
+### E3 — Semantic Scholar enrichment refused / rate limited
 
 | | |
 |---|---|
-| **Symptom** | `semanticscholar.SemanticScholarException` containing "429" OR slow timeouts |
-| **Trigger** | >1 RPS sustained. NO PAID TIER exists; API key gives auth-shape only, not throughput. |
-| **Action** | Helper's per-paper fallback uses `time.sleep(1.1)`. If batch `get_papers` fails, switch to per-paper loop automatically — no user action. If 429s persist across both, drop SS enrichment for this run and proceed without `influential_citation_count`. Tell user: `SS is rate limiting persistently. Skipping influential-citation enrichment; the report will use citation_count only. You can re-run enrichment later via: python3 -m scripts.ss_helper --input-file kg_classified.json --mode enrich.` |
+| **Symptom** | STEP 10's stderr line carries a reason: `[paper-search-pro] Semantic Scholar enrichment: 0/58 papers enriched (HTTP 429, rate limited).` or `(HTTP 403, key rejected)`, possibly after `Semantic Scholar rejected the configured API key (HTTP 403); continuing without a key…` |
+| **Trigger** | 429: >1 RPS sustained or the shared keyless pool throttled (NO PAID TIER exists; an API key gives auth-shape only, not throughput). 403: the configured key was revoked or mistyped, and keyless requests were refused too. |
+| **Action** | The helper has already done the retrying: a 429 waited out for up to ~4 min on the batch request (honouring `Retry-After`), a rejected key once without it; it stopped instead of repeating the refusal per paper. Unenriched papers are unchanged in `kg_classified.json` and the exit code is 0 — proceed without `influential_citation_count` / `tldr` for those papers; do not re-run it in this session. Tell user: `Semantic Scholar enrichment failed (<reason from the line>): <k>/<n> papers enriched; the report uses citation_count for the rest.` For a rejected key add: `Renew semantic_scholar_api_key in ~/.paper-search-pro/config.yaml; to enrich later, re-run: PYTHONPATH=$PSP_HOME python3 -m scripts.ss_helper --input-file "$SEARCH_DIR/kg_classified.json" --output-file "$SEARCH_DIR/kg_classified.json" --min-rcs 6`, then redo STEP 11–12. |
 
 ### E4 — NCBI 429 / PubMed rate limit
 
@@ -124,5 +124,5 @@ When a helper command produces unexpected output:
 Format: `[error_code] short_description: what_I_did. <one suggested user action if applicable>`. Examples:
 
 - `[E2] OpenAlex rate-limited. Waiting 60 s, then retrying. (None for you — automatic.)`
-- `[E3] Semantic Scholar persistent 429. Skipping influential-citation enrichment; report will use citation_count only.`
+- `[E3] Semantic Scholar enrichment failed (HTTP 429, rate limited): 0/58 papers enriched; the report uses citation_count only.`
 - `[E9] No papers matched. I suggest broadening the year range or removing the "elderly" filter. Want me to retry with: <query rewrite>?`

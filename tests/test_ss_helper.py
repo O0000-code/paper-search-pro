@@ -256,9 +256,10 @@ def test_sources_list_dedup():
 
 
 class _FakeResp:
-    def __init__(self, payload, status_code=200):
+    def __init__(self, payload, status_code=200, headers=None):
         self._payload = payload
         self.status_code = status_code
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -462,6 +463,259 @@ def test_search_live_smoke():
         f"OK  search_live_smoke — {len(results)} papers, top='{top.title[:40]}' "
         f"cites={top.citation_count}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Enrichment failure handling (D2) — offline. SS is a fake session that answers
+# /paper/batch POSTs and /paper/{id} GETs; every request and every wait is
+# recorded, nothing sleeps. The SDK client must never be touched: its own
+# retry waits 251 s per call on a persistent 429.
+# ---------------------------------------------------------------------------
+
+
+_KNOWN = {
+    "10.1/a": {"paperId": "PA", "externalIds": {"DOI": "10.1/a"}, "abstract": "abs a",
+               "tldr": {"text": "tldr a"}, "citationCount": 10, "influentialCitationCount": 4,
+               "venue": "Flat A",
+               "publicationVenue": {"name": "Journal A", "issn": "1111-1111",
+                                    "alternate_issns": ["2222-2222"]}},
+    "10.1/b": {"paperId": "PB", "externalIds": {"DOI": "10.1/b"}, "abstract": None,
+               "tldr": None, "citationCount": 1, "influentialCitationCount": 0,
+               "venue": "Flat B", "publicationVenue": None},
+    "10.1/c": {"paperId": "PC", "externalIds": {"DOI": "10.1/c"}, "citationCount": 50,
+               "influentialCitationCount": 9},
+}
+
+
+class _FakeGraph:
+    """Fake requests session for the enrichment path.
+
+    ``fail(method, headers)`` may return (status, headers) to answer a request
+    with that error instead of data; otherwise records come from _KNOWN."""
+
+    def __init__(self, fail=None):
+        self.fail = fail
+        self.calls = []
+
+    def _answer(self, method, headers, found):
+        scripted = self.fail(method, headers) if self.fail else None
+        if scripted:
+            status, resp_headers = scripted
+            return _FakeResp({"error": "scripted"}, status, resp_headers)
+        return found()
+
+    def post(self, url, params=None, json=None, headers=None, timeout=None, **kw):
+        headers = dict(headers or {})
+        self.calls.append(("POST", url, headers, list((json or {}).get("ids", []))))
+        return self._answer("POST", headers, lambda: _FakeResp(
+            [_KNOWN.get(i[4:]) for i in json["ids"]]))
+
+    def get(self, url, params=None, headers=None, timeout=None, **kw):
+        headers = dict(headers or {})
+        self.calls.append(("GET", url, headers, None))
+        rec = _KNOWN.get(url.split("/paper/DOI:", 1)[1])
+        return self._answer("GET", headers, lambda: (
+            _FakeResp(rec) if rec else _FakeResp({"error": "not found"}, 404)))
+
+
+@pytest.fixture
+def ss_env(monkeypatch):
+    """Record waits instead of sleeping; no SDK client; key controlled per test."""
+    waits, pauses = [], []
+    monkeypatch.setattr(ss_helper, "_sleep", waits.append)
+    monkeypatch.setattr(ss_helper.time, "sleep", pauses.append)
+    monkeypatch.setattr(
+        ss_helper, "_get_client",
+        lambda: pytest.fail("enrichment used the semanticscholar SDK client "
+                            "(its own retry waits 251 s per call on a 429)"))
+    monkeypatch.delenv("SEMANTIC_SCHOLAR_API_KEY", raising=False)
+    monkeypatch.setattr(ss_helper, "_api_key", None)
+    return {"waits": waits, "pauses": pauses}
+
+
+def _papers(*dois):
+    return [UnifiedPaperEntity(doi=d, title=d, citation_count=5, sources=["openalex"])
+            for d in dois]
+
+
+def _summary_lines(err):
+    return [ln for ln in err.splitlines() if "Semantic Scholar enrichment:" in ln]
+
+
+def test_enrich_refused_key_is_retried_keyless(ss_env, monkeypatch, capsys):
+    """401/403 with a key -> one keyless retry, the process-wide _key_rejected
+    flag and its single renew-the-key line — the same as retrieval."""
+    monkeypatch.setattr(ss_helper, "_api_key", "DEAD")
+    sess = _FakeGraph(fail=lambda m, h: (403, None) if h.get("x-api-key") else None)
+    [p] = ss_helper.enrich_with_metadata(_papers("10.1/a"), session=sess)
+
+    assert [c[2].get("x-api-key") for c in sess.calls] == ["DEAD", None]
+    assert ss_helper._key_rejected is True
+    assert p.influential_citation_count == 4 and p.tldr == "tldr a"
+    err = capsys.readouterr().err
+    assert err.count("rejected the configured API key") == 1
+    assert _summary_lines(err) == [
+        "[paper-search-pro] Semantic Scholar enrichment: 1/1 papers enriched."]
+
+
+def test_enrich_account_refusal_stops_instead_of_per_paper_loop(ss_env, monkeypatch, capsys):
+    """Key refused AND keyless refused: account-level. The per-paper fallback
+    must not repeat the same 403 once per paper; the outcome stays the old one
+    (papers returned unenriched, no exception) but the user is told."""
+    monkeypatch.setattr(ss_helper, "_api_key", "DEAD")
+    sess = _FakeGraph(fail=lambda m, h: (403, None))
+    papers = _papers("10.1/a", "10.1/b", "10.1/c")
+    out = ss_helper.enrich_with_metadata(papers, session=sess)
+
+    assert out is papers
+    assert [c[0] for c in sess.calls] == ["POST", "POST"]  # key, then keyless; no GETs
+    assert ss_env["pauses"] == []
+    assert all(p.influential_citation_count is None and p.sources == ["openalex"]
+               for p in papers)
+    assert _summary_lines(capsys.readouterr().err) == [
+        "[paper-search-pro] Semantic Scholar enrichment: 0/3 papers enriched "
+        "(HTTP 403, key rejected)."]
+
+
+def test_enrich_persistent_429_is_bounded(ss_env, capsys):
+    """The one batch request waits out a throttle about as long as the SDK did
+    (~4 min in total), then enrichment stops — no per-paper loop, so the wait is
+    never repeated once per paper."""
+    sess = _FakeGraph(fail=lambda m, h: (429, None))
+    ss_helper.enrich_with_metadata(_papers("10.1/a", "10.1/b"), session=sess)
+
+    assert [c[0] for c in sess.calls] == ["POST"] * 9
+    assert ss_env["waits"] == [2.0, 4.0, 8.0, 16.0, 32.0, 60.0, 60.0, 60.0]
+    assert sum(ss_env["waits"]) <= 251  # the SDK's own schedule per call
+    assert ss_env["pauses"] == []
+    assert _summary_lines(capsys.readouterr().err) == [
+        "[paper-search-pro] Semantic Scholar enrichment: 0/2 papers enriched "
+        "(HTTP 429, rate limited)."]
+
+
+def test_enrich_429_honours_retry_after_with_cap(ss_env):
+    sess = _FakeGraph(fail=lambda m, h: (429, {"Retry-After": "90"}))
+    ss_helper.enrich_with_metadata(_papers("10.1/a"), session=sess)
+    assert ss_env["waits"] == [60.0] * 8
+
+
+def test_batch_throttle_that_clears_is_waited_out(ss_env, capsys):
+    """A throttle lasting a couple of minutes used to be waited out by the SDK;
+    it still is, so enrichment is never lost to a short throttle."""
+    posts = []
+
+    def fail(method, headers):
+        if method == "POST":
+            posts.append(1)
+            return (429, None) if len(posts) <= 6 else None
+        return None
+
+    sess = _FakeGraph(fail=fail)
+    papers = _papers("10.1/a")
+    ss_helper.enrich_with_metadata(papers, session=sess)
+    assert papers[0].influential_citation_count is not None
+    assert sum(ss_env["waits"]) > 60  # waited beyond the retrieval path's budget
+
+
+def test_batch_specific_failure_keeps_per_paper_fallback(ss_env, capsys):
+    """A batch-only failure (here HTTP 500 on /paper/batch) is what the
+    per-paper loop exists for: single requests still enrich."""
+    sess = _FakeGraph(fail=lambda m, h: (500, None) if m == "POST" else None)
+    papers = _papers("10.1/a", "10.1/zzz", "10.1/c")
+    ss_helper.enrich_with_metadata(papers, session=sess)
+
+    assert [c[0] for c in sess.calls] == ["POST", "GET", "GET", "GET"]
+    assert ss_env["pauses"] == [ss_helper._RATE_LIMIT_SLEEP] * 3
+    assert [p.influential_citation_count for p in papers] == [4, None, 9]
+    assert _summary_lines(capsys.readouterr().err) == [
+        "[paper-search-pro] Semantic Scholar enrichment: 2/3 papers enriched (1 not found)."]
+
+
+def test_per_paper_loop_stops_at_an_account_failure(ss_env, capsys):
+    """Batch fails on its own; the first single works; the second is throttled
+    past the retries -> stop there, keep what was enriched."""
+    gets = []
+
+    def fail(method, headers):
+        if method == "POST":
+            return (500, None)
+        gets.append(1)
+        return (429, None) if len(gets) > 1 else None
+
+    sess = _FakeGraph(fail=fail)
+    papers = _papers("10.1/a", "10.1/b", "10.1/c")
+    ss_helper.enrich_with_metadata(papers, session=sess)
+
+    assert [c[0] for c in sess.calls] == ["POST", "GET"] + ["GET"] * 4  # 1 + 3 retries
+    assert "10.1/c" not in " ".join(c[1] for c in sess.calls)
+    assert papers[0].influential_citation_count == 4
+    assert papers[2].influential_citation_count is None
+    assert _summary_lines(capsys.readouterr().err) == [
+        "[paper-search-pro] Semantic Scholar enrichment: 1/3 papers enriched "
+        "(HTTP 429, rate limited)."]
+
+
+def test_enrich_summary_counts_papers_without_usable_doi(ss_env, capsys):
+    papers = _papers("10.1/a", "10.48550/arXiv.1706.03762") + [UnifiedPaperEntity(title="x")]
+    ss_helper.enrich_with_metadata(papers, session=_FakeGraph())
+    assert _summary_lines(capsys.readouterr().err) == [
+        "[paper-search-pro] Semantic Scholar enrichment: 1/3 papers enriched "
+        "(2 without a usable DOI)."]
+
+
+def test_enrich_batches_500_ids_per_request(ss_env):
+    papers = _papers(*[f"10.1/n{i}" for i in range(501)])
+    sess = _FakeGraph()
+    ss_helper.enrich_with_metadata(papers, session=sess)
+    assert [len(c[3]) for c in sess.calls] == [500, 1]
+
+
+def test_enrich_fills_journal_fields_only_where_empty(ss_env):
+    """venue / issn / issns come from publicationVenue (alternates included) and
+    never replace what the entity already has."""
+    bare, has_issn, full = _papers("10.1/a", "10.1/a", "10.1/a")
+    has_issn.issn = "9999-9999"
+    full.venue, full.issn, full.issns = "Kept", "8888-8888", ["8888-8888"]
+    ss_helper.enrich_with_metadata([bare, has_issn, full], session=_FakeGraph())
+
+    assert (bare.venue, bare.issn, bare.issns) == (
+        "Journal A", "1111-1111", ["1111-1111", "2222-2222"])
+    assert (has_issn.issn, has_issn.issns) == (
+        "9999-9999", ["9999-9999", "1111-1111", "2222-2222"])
+    assert (full.venue, full.issn, full.issns) == ("Kept", "8888-8888", ["8888-8888"])
+
+
+def test_abstract_fallback_429_is_bounded(ss_env):
+    sess = _FakeGraph(fail=lambda m, h: (429, None))
+    p = UnifiedPaperEntity(doi="10.1/a", title="a")
+    assert ss_helper.abstract_fallback(p, session=sess) is None
+    assert len(sess.calls) == 4 and ss_env["waits"] == [2.0, 4.0, 8.0]
+    assert ss_helper.abstract_fallback(p, session=_FakeGraph()) == "abs a"
+
+
+def test_cross_validate_failure_is_reported(ss_env, capsys):
+    """An empty conflict list must not be the only trace of a refused request."""
+    sess = _FakeGraph(fail=lambda m, h: (403, None))
+    assert ss_helper.cross_validate_citation(_papers("10.1/a"), session=sess) == []
+    assert len(sess.calls) == 1
+    assert ("[paper-search-pro] Semantic Scholar citation check failed (HTTP 403); "
+            "the conflict list is incomplete.") in capsys.readouterr().err
+
+
+def test_cross_validate_flags_conflict_offline(ss_env, capsys):
+    p = UnifiedPaperEntity(doi="10.1/c", title="c", citation_count=100)
+    [c] = ss_helper.cross_validate_citation([p], session=_FakeGraph())
+    assert (c["oa_count"], c["ss_count"], c["delta_pct"]) == (100, 50, 50.0)
+    assert capsys.readouterr().err == ""
+
+
+def test_search_record_carries_every_issn():
+    rec = _ss_record(doi="10.1/i", issn="1111-1111", venue_name="J")
+    rec["publicationVenue"]["alternate_issns"] = ["2222-2222", "1111-1111"]
+    e = ss_helper._ss_record_to_entity(rec)
+    assert e.issn == "1111-1111"
+    assert e.issns == ["1111-1111", "2222-2222"]
+    assert ss_helper._ss_record_to_entity(_ss_record(doi="10.1/j")).issns == []
 
 
 # ---------------------------------------------------------------------------

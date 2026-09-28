@@ -4,7 +4,7 @@ Referenced by `SKILL.md` STEP 10 (L3 enrichment) — funder, license, references
 
 **Role**: enrichment-only L3 — never an independent search source. CrossRef holds the authoritative funder DOIs (OpenAlex `grants` field commonly empty), license content-version + delay-in-days (OpenAlex lacks both), more complete `reference[]` for NEJM/older papers, and clinical-trial-number (mostly empty even on RCTs — see PubMed for primary).
 
-**Entry point**: `python3 -m scripts.crossref_helper --input-file <papers.json> --mode <funder|license|refs|clinical|all> [--output-file <path>]`.
+**Entry point**: `python3 -m scripts.crossref_helper --input-file <kg_classified.json> --mode <funder|license|refs|clinical|all> [--min-rcs N] [--output-file <path>]`.
 **No key required** — only a `crossref_email` for the polite pool User-Agent (10 req/s × 3 conc vs 5/s × 1 conc anonymous).
 
 ## Five modes
@@ -17,22 +17,27 @@ Referenced by `SKILL.md` STEP 10 (L3 enrichment) — funder, license, references
 | `refs` | `referenced_works_count` (only when CR > OA) | Threshold skip at OA count ≥ 10 |
 | `clinical` | `clinical_trial_number` | Mostly empty — prefer PubMed |
 
+`--min-rcs N` limits enrichment to papers whose `rcs` is an integer ≥ N; without it every paper is fetched.
+
 ## Syntax + examples
 
 ```bash
-# Recommended: one-shot enrichment (1 fetch per paper, ~0.6s each)
-python3 -m scripts.crossref_helper \
-    --input-file ./paper-search-results/<id>/kg_classified.json \
-    --mode all \
-    --output-file ./paper-search-results/<id>/kg_classified.json
-# Enriches funders + license + refs_count + clinical_trial_number in 1 HTTP per paper.
+# STEP 10: one-shot enrichment of the rcs >= 6 papers, in place (1 fetch per paper, ~0.6s each)
+PYTHONPATH=$PSP_HOME python3 -m scripts.crossref_helper \
+    --input-file "$SEARCH_DIR/kg_classified.json" \
+    --mode all --min-rcs 6 \
+    --output-file "$SEARCH_DIR/kg_classified.json"
 
-# Single-field enrichment (use sparingly — each mode makes its own fetch)
-python3 -m scripts.crossref_helper --input-file in.json --mode funder
-python3 -m scripts.crossref_helper --input-file in.json --mode license
-python3 -m scripts.crossref_helper --input-file in.json --mode refs
-python3 -m scripts.crossref_helper --input-file in.json --mode clinical
+# Single field (each mode makes its own fetch — use sparingly); same for license / refs / clinical
+PYTHONPATH=$PSP_HOME python3 -m scripts.crossref_helper \
+    --input-file "$SEARCH_DIR/kg_classified.json" \
+    --mode funder --min-rcs 6 \
+    --output-file "$SEARCH_DIR/kg_classified.json"
 ```
+
+**What changes in each KG record**: only `funders`, `license`, `referenced_works_count`, `clinical_trial_number` (each only when CrossRef has a value), and `"crossref"` appended to `sources`. `authors`, `rcs`, `rcs_reasoning`, `journal_rank`, unknown keys and key order stay as they were; a paper CrossRef adds nothing to is untouched.
+
+A JSON **list** of paper dicts is still accepted and returns full entity dicts, but with `authors` emptied — never write list output back over the KG.
 
 ## Output field formats
 
@@ -65,42 +70,35 @@ python3 -m scripts.crossref_helper --input-file in.json --mode clinical
 
 ## Worked example: NEJM COVID 2020 BNT162b2
 
-Input:
+KG record before (other fields omitted):
 ```json
-[{"doi": "10.1056/nejmoa2034577", "title": "Safety and Efficacy of the BNT162b2 mRNA Covid-19 Vaccine", "referenced_works_count": 8}]
+{"doi:10.1056/nejmoa2034577": {"doi": "10.1056/nejmoa2034577", "title": "Safety and Efficacy of the BNT162b2 mRNA Covid-19 Vaccine", "authors": [{"name": "F. P. Polack"}], "rcs": 9, "referenced_works_count": 8, "sources": ["openalex"]}}
 ```
 
-Run: `python3 -m scripts.crossref_helper --input-file in.json --mode all`
-
-Output:
-```json
-[{
+Run the STEP 10 command above (`--mode all --min-rcs 6`). After:
+```jsonc
+{"doi:10.1056/nejmoa2034577": {
   "doi": "10.1056/nejmoa2034577",
+  "title": "Safety and Efficacy of the BNT162b2 mRNA Covid-19 Vaccine",
+  "authors": [{"name": "F. P. Polack"}],   // untouched
+  "rcs": 9,                                 // untouched
+  "referenced_works_count": 13,             // bumped from 8 — CR strictly more
+  "sources": ["openalex", "crossref"],
   "funders": [
     {"name": "BioNTech and Pfizer", "doi": "10.13039/100004319", "award": []}
   ],
   "license": [
     {"URL": "https://www.nejm.org/about-nejm/permissions", "content_version": "vor", "delay_in_days": 0}
-  ],
-  "referenced_works_count": 13,             // bumped from 8 — CR strictly more
-  "clinical_trial_number": null,            // empty even on this RCT; use PubMed
-  "sources": ["openalex", "crossref"]
-}]
+  ]
+  // no clinical_trial_number: empty even on this RCT; use PubMed
+}}
 ```
 
 This is the canonical case where CrossRef pays for itself — funder DOI (10.13039/100004319) is unrecoverable from OpenAlex `grants[]` (empty for this paper) and is required for funding-source bias analysis in Audit-tier reporting.
 
 ## 中文 query 处理 (Cross-language)
 
-crossref_helper is **enrichment-only** (DOI-based lookup) — there is no query string to translate. It operates on whatever DOI set the upstream pipeline collected, regardless of original query language.
-
-```bash
-# Same invocation regardless of user query language.
-python3 -m scripts.crossref_helper \
-    --input-file ./paper-search-results/<id>/kg_classified.json \
-    --mode all \
-    --output-file ./paper-search-results/<id>/kg_classified.json
-```
+crossref_helper is **enrichment-only** (DOI-based lookup) — there is no query string to translate. It operates on whatever DOI set the upstream pipeline collected, regardless of original query language; the command is the STEP 10 command above.
 
 Caveats for Chinese-affiliated work:
 - Funder DOI coverage is North-American + European biased — Chinese funders (NSFC, MOST) are present but sparser, and `funders[]` will often be empty even on well-funded Chinese papers.

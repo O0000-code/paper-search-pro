@@ -12,10 +12,13 @@ see 20_ss_sdk_test.md §4), DOI-only lookup for arXiv DOIs (SS 100% 404 —
 see 24_v1_l3_enrichment_test.md §1).
 
 Rate limit: 1 RPS strict (SS has no paid tier; key only buys auth-tier shape
-not higher throughput). batch get_papers IS a single HTTP request (verified
+not higher throughput). /paper/batch IS a single HTTP request (verified
 2026-05-21: 2 DOIs in 528ms), so we use it whenever possible and only fall
-back to per-paper get_paper() — which DOES need 1.1s sleep between calls —
-when batch fails.
+back to one request per paper — which DOES need 1.1s sleep between calls —
+when a batch fails for its own reasons. Enrichment requests go through
+_ss_get like retrieval (bounded 429 retry, keyless retry of a refused key);
+a failure that every request would repeat (refused, throttled) stops
+enrichment and is reported on stderr instead of being retried per paper.
 """
 
 from __future__ import annotations
@@ -42,6 +45,10 @@ _ENRICHMENT_FIELDS = [
     "citationCount",
     "influentialCitationCount",
     "openAccessPdf",
+    # Journal fields, filled only where the entity has none (the rank join
+    # keys on issn / issns).
+    "venue",
+    "publicationVenue",
 ]
 
 _CITATION_FIELDS = ["paperId", "externalIds", "citationCount"]
@@ -135,10 +142,10 @@ def _normalize_doi_for_lookup(doi: Optional[str]) -> Optional[str]:
 
 
 def _ss_paper_doi(sp: object) -> Optional[str]:
-    """Extract DOI from an SS Paper object's externalIds, normalised for matching."""
+    """Extract DOI from an SS paper record's externalIds, normalised for matching."""
     if sp is None:
         return None
-    ext = getattr(sp, "externalIds", None)
+    ext = sp.get("externalIds") if isinstance(sp, dict) else getattr(sp, "externalIds", None)
     if not ext:
         return None
     if isinstance(ext, dict):
@@ -151,6 +158,7 @@ def _ss_paper_doi(sp: object) -> Optional[str]:
 
 def enrich_with_metadata(
     papers: List[UnifiedPaperEntity],
+    session=None,
 ) -> List[UnifiedPaperEntity]:
     """Batch-enrich a list of UnifiedPaperEntity with SS-only fields.
 
@@ -162,56 +170,48 @@ def enrich_with_metadata(
     - p.ss_paper_id                  (SS hex paperId)
     - p.abstract                     (only if OpenAlex left it None)
     - p.tldr                         (display-only auxiliary metadata)
+    - p.venue / p.issn / p.issns     (only where the entity has none)
     - p.sources                      (appends "semantic_scholar")
 
-    Entities whose DOI is empty, missing, or arXiv-form are silently skipped
-    — they remain unchanged in the returned list.
+    Entities whose DOI is empty, missing, or arXiv-form are skipped — they
+    remain unchanged in the returned list. Every call ends with one stderr
+    line counting what was enriched and naming any failure (_report_enrichment).
 
     CRITICAL — DOI-based matching (not positional zip):
-    The SS SDK's batch get_papers() can silently drop DOIs that are not found
-    (verified 2026-05-21: 3-DOI input with K&T 1979 elided returns 2-element
-    list). Positional zip would then mis-attach BNT162b2 abstract to K&T 1979.
+    SS batch can silently drop DOIs that are not found (verified 2026-05-21:
+    3-DOI input with K&T 1979 elided returns 2-element list). Positional zip
+    would then mis-attach BNT162b2 abstract to K&T 1979.
     We index returned papers by DOI from their externalIds and match
     explicitly — papers not found stay unchanged.
     """
     eligible = [p for p in papers if _doi_for_ss(p.doi)]
     if not eligible:
+        _report_enrichment(0, len(papers), len(papers), "")
         return papers
 
-    sch = _get_client()
     ids = [_doi_for_ss(p.doi) for p in eligible]
-    ss_papers: List[Optional[object]] = []
 
-    # SS batch get_papers IS a single HTTP request (one rate-limit slot, no
-    # internal sleep needed). Fall back to per-paper get_paper() only if
-    # the whole batch fails — and there we DO need 1.1s sleep per call.
-    try:
-        # The SDK returns a list[Optional[Paper]]; not guaranteed aligned with
-        # input ids — SS silently drops not-found DOIs (publisher takedown,
-        # not indexed). See test_ss_helper for K&T 1979 evidence.
-        ss_papers = list(sch.get_papers(ids, fields=_ENRICHMENT_FIELDS))
-    except Exception:
-        for sid in ids:
-            try:
-                ss_papers.append(sch.get_paper(sid, fields=_ENRICHMENT_FIELDS))
-            except Exception:
-                ss_papers.append(None)
-            time.sleep(_RATE_LIMIT_SLEEP)
+    # One /paper/batch request per 500 ids (one rate-limit slot each); one
+    # request per paper only if a batch fails for its own reasons; nothing
+    # more once SS refuses or throttles us. Records are not aligned with ids —
+    # SS drops not-found DOIs (publisher takedown, not indexed).
+    ss_papers, problem = _ss_fetch(ids, _ENRICHMENT_FIELDS, per_paper=True, session=session)
 
     # Sanity assertion: batch must never return MORE than requested (would
-    # indicate SDK contract break). Returning FEWER is the documented case.
+    # indicate an API contract break). Returning FEWER is the documented case.
     if len(ss_papers) > len(ids):
         import logging
         logging.getLogger(__name__).warning(
-            "SS get_papers returned %d papers for %d ids (unexpected — SDK should"
-            " return <= input). Falling back to no enrichment to avoid misattribution.",
+            "SS batch returned %d papers for %d ids (unexpected — should be"
+            " <= input). Falling back to no enrichment to avoid misattribution.",
             len(ss_papers), len(ids),
         )
+        _report_enrichment(0, len(papers), len(papers) - len(eligible), "unexpected response")
         return papers
     if len(ss_papers) < len(ids):
         import logging
         logging.getLogger(__name__).info(
-            "SS get_papers returned %d papers for %d ids (%d DOIs not indexed). "
+            "SS batch returned %d papers for %d ids (%d DOIs not indexed). "
             "Using DOI-based matching to attribute correctly.",
             len(ss_papers), len(ids), len(ids) - len(ss_papers),
         )
@@ -226,6 +226,7 @@ def enrich_with_metadata(
         if sp_doi:
             ss_by_doi[sp_doi] = sp
 
+    enriched = 0
     for p in eligible:
         # Lookup by p.doi (normalized) — only inject if SS actually returned
         # this paper's DOI. If not found, K&T 1979 stays UNCHANGED rather
@@ -246,71 +247,89 @@ def enrich_with_metadata(
         try:
             # influentialCitationCount — the SS-unique signal (OpenAlex has
             # nothing comparable; cf. 22_ss_research.md §3, §4.3).
-            ic = getattr(sp, "influentialCitationCount", None)
+            ic = sp.get("influentialCitationCount")
             if ic is not None:
                 p.influential_citation_count = int(ic)
 
             # SS paperId — keep for cross-reference debugging.
-            sp_id = getattr(sp, "paperId", None)
+            sp_id = sp.get("paperId")
             if sp_id:
                 p.ss_paper_id = sp_id
 
             # Abstract fallback — only fill if OA left it None. Empty strings
             # (which SS sometimes returns on takedown) are treated as falsy.
-            ss_abstract = getattr(sp, "abstract", None)
+            ss_abstract = sp.get("abstract")
             if not p.abstract and ss_abstract:
                 p.abstract = ss_abstract
 
             # TLDR — display-only auxiliary metadata. p.tldr stores the text
-            # only (Tldr SDK object's .text). Per user directive (22 §4.3,
+            # only (the tldr object's "text"). Per user directive (22 §4.3,
             # 25 §4): TLDR is for HTML display, NOT for the RCS classifier.
-            tldr_obj = getattr(sp, "tldr", None)
-            if tldr_obj is not None:
-                tldr_text = getattr(tldr_obj, "text", None)
+            tldr_obj = sp.get("tldr")
+            if isinstance(tldr_obj, dict):
+                tldr_text = tldr_obj.get("text")
                 if tldr_text:
                     p.tldr = tldr_text
+
+            # Journal fields — only where the entity has none, mapped exactly
+            # as the SS search path maps them.
+            if not (p.venue and p.issn and p.issns):
+                journal = _ss_record_to_entity(sp)
+                if not p.venue and journal.venue:
+                    p.venue = journal.venue
+                if not p.issn and journal.issn:
+                    p.issn = journal.issn
+                if not p.issns and journal.issns:
+                    p.issns = [s for s in dict.fromkeys([p.issn, *journal.issns]) if s]
 
             # Mark provenance.
             if "semantic_scholar" not in p.sources:
                 p.sources.append("semantic_scholar")
-        except (AttributeError, TypeError):
-            # Any SDK-quirk attribute miss → leave the entity alone and move
+        except (AttributeError, TypeError, ValueError):
+            # Any malformed-record miss → leave the entity alone and move
             # on; never let one bad paper kill the batch.
             continue
+        enriched += 1
 
+    _report_enrichment(enriched, len(papers), len(papers) - len(eligible), problem)
     return papers
 
 
-def abstract_fallback(paper: UnifiedPaperEntity) -> Optional[str]:
+def abstract_fallback(paper: UnifiedPaperEntity, session=None) -> Optional[str]:
     """Single-paper abstract fallback. Useful for ad-hoc re-tries.
 
     Returns:
     - existing paper.abstract if already set
     - SS abstract if found
     - SS tldr.text if SS abstract is None but a TLDR exists
-    - None otherwise (publisher takedown / not indexed / arXiv DOI)
+    - None otherwise (publisher takedown / not indexed / arXiv DOI / SS
+      refused or throttled after _ss_get's bounded retry)
     """
     if paper.abstract:
         return paper.abstract
     sid = _doi_for_ss(paper.doi)
     if not sid:
         return None
-    sch = _get_client()
-    try:
-        sp = sch.get_paper(sid, fields=["abstract", "tldr"])
-    except Exception:
+    sp = _ss_json(_ss_get(
+        f"{_SS_GRAPH_URL}/paper/{sid}",
+        {"fields": "abstract,tldr"},
+        api_key=_api_key_from_config(),
+        session=session,
+    ))
+    if not isinstance(sp, dict):
         return None
-    ss_abstract = getattr(sp, "abstract", None)
+    ss_abstract = sp.get("abstract")
     if ss_abstract:
         return ss_abstract
-    tldr_obj = getattr(sp, "tldr", None)
-    if tldr_obj is not None:
-        return getattr(tldr_obj, "text", None) or None
+    tldr_obj = sp.get("tldr")
+    if isinstance(tldr_obj, dict):
+        return tldr_obj.get("text") or None
     return None
 
 
 def cross_validate_citation(
     papers: List[UnifiedPaperEntity],
+    session=None,
 ) -> List[Dict]:
     """Cross-source citation_count validation.
 
@@ -322,6 +341,9 @@ def cross_validate_citation(
 
     Each conflict dict has the keys:
         paper_id, title (truncated to 80 chars), oa_count, ss_count, delta_pct.
+
+    When SS fails, one stderr line says so — an empty list alone would read as
+    "no conflicts".
     """
     eligible = [
         p
@@ -331,12 +353,15 @@ def cross_validate_citation(
     if not eligible:
         return []
 
-    sch = _get_client()
     ids = [_doi_for_ss(p.doi) for p in eligible]
-    try:
-        ss_papers = list(sch.get_papers(ids, fields=_CITATION_FIELDS))
-    except Exception:
-        return []
+    ss_papers, problem = _ss_fetch(ids, _CITATION_FIELDS, per_paper=False, session=session)
+    if problem:
+        import sys
+        print(
+            f"[paper-search-pro] Semantic Scholar citation check failed ({problem}); "
+            f"the conflict list is incomplete.",
+            file=sys.stderr,
+        )
 
     # Same DOI-key matching as enrich_with_metadata — guard against SS silently
     # dropping not-found DOIs and zip mis-attribution.
@@ -354,7 +379,7 @@ def cross_validate_citation(
         sp = ss_by_doi.get(lookup_doi) if lookup_doi else None
         if sp is None:
             continue
-        ss_count = getattr(sp, "citationCount", None)
+        ss_count = sp.get("citationCount")
         if ss_count is None:
             continue
         oa_count = p.citation_count or 0
@@ -378,8 +403,10 @@ def cross_validate_citation(
 # Independent search (v2.2) — SS as a PRIMARY source.
 #
 # This is the ONLY independent-search path in ss_helper. It is fully additive:
-# enrich_with_metadata / abstract_fallback / cross_validate_citation above are
-# byte-for-byte unchanged and remain the default L3-enrichment behavior.
+# enrich_with_metadata / abstract_fallback / cross_validate_citation above
+# remain the default L3-enrichment behavior; they send their requests through
+# _ss_get / _ss_fetch below, so retrieval and enrichment share the bounded 429
+# retry and the refused-key fallback.
 #
 # Endpoint discipline (R-07): we use ONLY /paper/search/bulk + citation sorting.
 # The relevance endpoint (paper/search) is BANNED as a primary path — it is
@@ -478,13 +505,17 @@ def _api_key_from_config() -> Optional[str]:
     return (key or "").strip() or None
 
 
-def _ss_get(url: str, params: Dict[str, object], *, api_key: Optional[str], session=None):
-    """GET ``url`` from the SS graph API; returns the Response or None.
+def _ss_get(url: str, params: Dict[str, object], *, api_key: Optional[str], session=None,
+            json_body: Optional[Dict] = None, retries_429: Optional[int] = None,
+            max_wait_s: Optional[float] = None):
+    """GET ``url`` from the SS graph API (POST ``json_body`` instead when given,
+    for /paper/batch); returns the Response or None.
 
     * A refused key (401/403) is retried once without it and the process stays
       keyless from then on, with one stderr line asking the user to renew the key
       — a dead key must not silently turn every SS call into an empty result.
-    * 429 waits (Retry-After when sent, else 2/4/8 s, capped) and retries.
+    * 429 waits (Retry-After when sent, else 2/4/8 s, capped) and retries;
+      ``retries_429`` / ``max_wait_s`` override the defaults for one call.
     * Network errors return None; callers treat that like an empty page.
     """
     import sys
@@ -498,7 +529,10 @@ def _ss_get(url: str, params: Dict[str, object], *, api_key: Optional[str], sess
     while True:
         headers = {"x-api-key": key} if key else {}
         try:
-            res = sess.get(url, params=params, headers=headers, timeout=60)
+            if json_body is None:
+                res = sess.get(url, params=params, headers=headers, timeout=60)
+            else:
+                res = sess.post(url, params=params, json=json_body, headers=headers, timeout=60)
         except Exception:
             return None
         if res.status_code in (401, 403) and key:
@@ -512,16 +546,126 @@ def _ss_get(url: str, params: Dict[str, object], *, api_key: Optional[str], sess
                 file=sys.stderr,
             )
             continue
-        if res.status_code == 429 and throttled < _HTTP_429_RETRIES:
+        if res.status_code == 429 and throttled < (
+            _HTTP_429_RETRIES if retries_429 is None else retries_429
+        ):
             throttled += 1
             retry_after = None
             try:
                 retry_after = float((getattr(res, "headers", None) or {}).get("Retry-After"))
             except (TypeError, ValueError):
                 pass
-            _sleep(min(retry_after if retry_after else 2.0 ** throttled, _HTTP_MAX_WAIT_S))
+            _sleep(min(
+                retry_after if retry_after else 2.0 ** throttled,
+                _HTTP_MAX_WAIT_S if max_wait_s is None else max_wait_s,
+            ))
             continue
         return res
+
+
+# /paper/batch accepts at most 500 ids per request.
+_SS_BATCH_MAX = 500
+# The batch request is made once per run, so it may wait out a short throttle
+# as patiently as the SDK used to (~4 min: 2+4+8+16+32+60+60+60 s); what must
+# not happen is that wait repeated once per paper.
+_BATCH_429_RETRIES = 8
+_BATCH_MAX_WAIT_S = 60.0
+
+
+def _ss_json(res) -> object:
+    """Parsed body of a 200 response from _ss_get, else None."""
+    if res is None or res.status_code != 200:
+        return None
+    try:
+        return res.json()
+    except Exception:
+        return None
+
+
+def _account_failure(res) -> bool:
+    """True when SS refuses or throttles this client as a whole: 401/403 even
+    without the key, or 429 after _ss_get's retries. Any further request
+    would fail the same way."""
+    return res is not None and res.status_code in (401, 403, 429)
+
+
+def _failure_text(res) -> str:
+    """Why an _ss_get result failed, worded for the stderr summary."""
+    if res is None:
+        return "Semantic Scholar unreachable"
+    if res.status_code in (401, 403):
+        return f"HTTP {res.status_code}, key rejected" if _key_rejected else f"HTTP {res.status_code}"
+    if res.status_code == 429:
+        return "HTTP 429, rate limited"
+    if res.status_code == 200:
+        return "unexpected response"
+    return f"HTTP {res.status_code}"
+
+
+def _ss_fetch(
+    ids: List[str], fields: List[str], *, per_paper: bool, session=None
+) -> "tuple[List[Optional[Dict]], str]":
+    """Fetch SS records for ``ids`` ("DOI:..." form) for the L3 enrichers.
+
+    Returns ``(records, problem)``: the record dicts SS returned — not aligned
+    with ``ids``; unknown ids are absent (None in the per-paper loop) — and ""
+    or why a request failed, for the caller's stderr line.
+
+    A batch that fails for its own reasons (network error, 400, 5xx) is
+    retried one paper at a time when ``per_paper`` is set — the case the
+    fallback was designed for. An account-level failure (_account_failure)
+    stops everything instead: repeating it once per paper is the stuck-retry
+    loop error_handling.md E3 calls worse than a degraded report.
+    """
+    api_key = _api_key_from_config()
+    params = {"fields": ",".join(fields)}
+    records: List[Optional[Dict]] = []
+    problem = ""
+    for start in range(0, len(ids), _SS_BATCH_MAX):
+        if start:
+            time.sleep(_RATE_LIMIT_SLEEP)
+        chunk = ids[start:start + _SS_BATCH_MAX]
+        res = _ss_get(_SS_GRAPH_URL + "/paper/batch", params, api_key=api_key,
+                      session=session, json_body={"ids": chunk},
+                      retries_429=_BATCH_429_RETRIES, max_wait_s=_BATCH_MAX_WAIT_S)
+        rows = _ss_json(res)
+        if isinstance(rows, list):
+            records.extend(r for r in rows if isinstance(r, dict))
+            continue
+        if _account_failure(res) or not per_paper:
+            return records, _failure_text(res)
+        for sid in chunk:
+            one = _ss_get(f"{_SS_GRAPH_URL}/paper/{sid}", params, api_key=api_key,
+                          session=session)
+            if _account_failure(one):
+                return records, _failure_text(one)
+            rec = _ss_json(one)
+            if not isinstance(rec, dict):
+                rec = None
+                if one is None or one.status_code != 404:  # 404 = SS has no such paper
+                    problem = _failure_text(one)
+            records.append(rec)
+            time.sleep(_RATE_LIMIT_SLEEP)
+    return records, problem
+
+
+def _report_enrichment(enriched: int, total: int, no_doi: int, problem: str) -> None:
+    """Print the one stderr line each enrich_with_metadata call ends with, so a
+    caller can tell "SS has nothing for these papers" from "SS refused us"."""
+    import sys
+
+    notes = [problem] if problem else []
+    missing = total - no_doi - enriched
+    if missing and not problem:
+        notes.append(f"{missing} not found")
+    if no_doi:
+        notes.append(f"{no_doi} without a usable DOI")
+    tail = f" ({'; '.join(notes)})" if notes else ""
+    print(
+        f"[paper-search-pro] Semantic Scholar enrichment: "
+        f"{enriched}/{total} papers enriched{tail}.",
+        file=sys.stderr,
+    )
 
 
 def _ss_doi_from_external_ids(ext: object) -> Optional[str]:
@@ -557,14 +701,29 @@ def _ss_issn(record: Dict) -> Optional[str]:
     """Pull the journal ISSN from a bulk record's publicationVenue (R-08).
 
     SS exposes ISSN ONLY under publicationVenue.issn (present ~2/3 of the time);
-    externalIds never carries it. Returns the primary issn, ignoring
-    alternate_issns (kept simple — the downstream SJR join keys on one ISSN)."""
+    externalIds never carries it. Returns the primary issn; the alternates go
+    to ``issns`` (_ss_issns)."""
     pv = record.get("publicationVenue")
     if isinstance(pv, dict):
         issn = pv.get("issn")
         if issn:
             return str(issn).strip() or None
     return None
+
+
+def _ss_issns(record: Dict) -> List[str]:
+    """Every ISSN a record's publicationVenue lists: issn, then alternate_issns.
+
+    The rank join tries each, because the one a rank table lists is often not
+    the primary one."""
+    pv = record.get("publicationVenue")
+    if not isinstance(pv, dict):
+        return []
+    alternates = pv.get("alternate_issns")
+    if not isinstance(alternates, list):
+        alternates = []
+    listed = [str(s).strip() for s in [_ss_issn(record), *alternates] if s]
+    return [s for s in dict.fromkeys(listed) if s]
 
 
 def _ss_record_to_entity(record: Dict) -> UnifiedPaperEntity:
@@ -617,6 +776,7 @@ def _ss_record_to_entity(record: Dict) -> UnifiedPaperEntity:
         year=record.get("year"),
         venue=venue,
         issn=_ss_issn(record),
+        issns=_ss_issns(record),
         citation_count=int(record.get("citationCount") or 0),
         influential_citation_count=int(ic) if ic is not None else None,
         tldr=tldr_text,
@@ -825,6 +985,9 @@ def _entity_from_dict(d: Dict) -> UnifiedPaperEntity:
         title=d.get("title", "") or "",
         abstract=d.get("abstract"),
         year=d.get("year"),
+        venue=d.get("venue"),
+        issn=d.get("issn"),
+        issns=list(d.get("issns") or []),
         citation_count=int(d.get("citation_count") or 0),
         influential_citation_count=d.get("influential_citation_count"),
         tldr=d.get("tldr"),
@@ -847,6 +1010,40 @@ def _entity_to_dict(p: UnifiedPaperEntity) -> Dict:
         "tldr": p.tldr,
         "sources": p.sources,
     }
+
+
+def _selected(d: Dict, min_rcs: Optional[int]) -> bool:
+    """--min-rcs: whether a paper record is an enrichment candidate. Without
+    the flag every paper is; with it, only those whose rcs is an int >= N."""
+    if min_rcs is None:
+        return True
+    rcs = d.get("rcs")
+    return isinstance(rcs, int) and not isinstance(rcs, bool) and rcs >= min_rcs
+
+
+# KG write-back (_write_back): SS is the source of these two, so a new value
+# replaces the old; the rest are filled only where the record has none.
+_KG_REPLACE = ("influential_citation_count", "tldr")
+_KG_FILL = ("abstract", "ss_paper_id", "venue", "issn", "issns")
+
+
+def _write_back(d: Dict, p: UnifiedPaperEntity) -> None:
+    """Copy what enrich_with_metadata added to ``p`` into its KG record ``d``.
+
+    Only the enrichment keys above and ``sources`` can change; every other key
+    and value (rcs, authors, journal_rank, unknown keys) stays as it was, and
+    existing keys keep their order. A paper SS did not return is untouched.
+    """
+    for key in _KG_REPLACE:
+        value = getattr(p, key)
+        if value is not None and d.get(key) != value:
+            d[key] = value
+    for key in _KG_FILL:
+        value = getattr(p, key)
+        if value and not d.get(key):
+            d[key] = value
+    if "semantic_scholar" in p.sources and "semantic_scholar" not in (d.get("sources") or []):
+        d["sources"] = list(d.get("sources") or []) + ["semantic_scholar"]
 
 
 def _search_entity_to_dict(p: UnifiedPaperEntity) -> Dict:
@@ -888,7 +1085,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "--input-file",
         help="JSON file with a list of UnifiedPaperEntity-like dicts (must "
-        "include at least doi, title, citation_count). Required for enrich/validate.",
+        "include at least doi, title, citation_count), or a KG dict "
+        "{key: paper} such as kg_classified.json — enrich then patches the "
+        "enriched fields into the KG and writes the whole KG back. "
+        "Required for enrich/validate.",
+    )
+    parser.add_argument(
+        "--min-rcs",
+        type=int,
+        metavar="N",
+        help="enrich/validate: only papers whose rcs is an integer >= N "
+        "(default: all papers).",
     )
     parser.add_argument(
         "--mode",
@@ -928,21 +1135,34 @@ if __name__ == "__main__":
         )
         output = [_search_entity_to_dict(p) for p in results]
     else:
-        # Existing enrich/validate path — unchanged.
+        # enrich/validate on --input-file.
         if not args.input_file:
             parser.error("--input-file is required for enrich/validate (or use --search).")
         with open(args.input_file, "r", encoding="utf-8") as f:
             raw = json.load(f)
-        if not isinstance(raw, list):
-            sys.exit("input-file must contain a JSON list of paper dicts")
 
-        entities = [_entity_from_dict(d) for d in raw]
-
-        if args.mode == "enrich":
-            enrich_with_metadata(entities)
-            output = [_entity_to_dict(p) for p in entities]
-        else:  # validate
-            output = cross_validate_citation(entities)
+        if isinstance(raw, dict):
+            # KG dict: enrich the selected records and patch them in place.
+            keys = [k for k, d in raw.items() if isinstance(d, dict) and _selected(d, args.min_rcs)]
+            chosen = [_entity_from_dict(raw[k]) for k in keys]
+            if args.mode == "enrich":
+                enrich_with_metadata(chosen)
+                for k, p in zip(keys, chosen):
+                    _write_back(raw[k], p)
+                output = raw
+            else:  # validate
+                output = cross_validate_citation(chosen)
+        elif isinstance(raw, list):
+            # List: the original shape and output, byte for byte.
+            entities = [_entity_from_dict(d) for d in raw]
+            chosen = [p for d, p in zip(raw, entities) if _selected(d, args.min_rcs)]
+            if args.mode == "enrich":
+                enrich_with_metadata(chosen)
+                output = [_entity_to_dict(p) for p in entities]
+            else:  # validate
+                output = cross_validate_citation(chosen)
+        else:
+            sys.exit("input-file must contain a JSON list of paper dicts or a KG dict {key: paper}")
 
     payload = json.dumps(output, indent=2, ensure_ascii=False)
     if args.output_file:
