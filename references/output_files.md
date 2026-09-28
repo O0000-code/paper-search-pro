@@ -45,11 +45,11 @@ Main agent generates this once at start, never changes mid-search.
 ├── concept_model.json           # STEP 11.5 only — platform-independent concept model (layer-1 LLM output)
 ├── search_strategies.md         # STEP 11.5 only — paste-ready per-platform search strategies (WOS / Embase / CNKI / …)
 ├── search_strategies.json       # STEP 11.5 only — structured strategies (folds into report_data + PRISMA-S item 8)
-├── raw/                         # Per-source raw dumps (for re-runs / forensics)
+├── raw/                         # Retrieval output only, one file per search (STEP 7 reads it)
 │   ├── openalex.json
 │   ├── pubmed.json              # only if PubMed enabled
 │   ├── arxiv.json               # only if arXiv enabled
-│   └── citations.json           # appended by citation-network calls (STEP 9)
+│   └── citations_01.json …      # one per citation-network seed (STEP 9)
 ├── batches/                     # Classifier input shards (10 papers each)
 │   ├── batch_001.jsonl
 │   ├── batch_002.jsonl
@@ -75,11 +75,11 @@ Main agent generates this once at start, never changes mid-search.
 | `kg.json` | `federated_kg_resolver.py` (STEP 5) | Deduped multi-source merge | `{<canonical_key>: UnifiedPaperEntity}` dict |
 | `summary.md` | Main agent (STEP 11) | Executive summary in main agent's voice | ~300 words plain markdown |
 | `execution_log.json` | `prisma_s_logger.py` (STEP 13) | PRISMA-S compliance / audit trail | `{prisma_s: {1-16 items}, discovery_curve_snapshots, agent_invocations, errors, stop_reason, search_id, user_query, tier, generated_at}` |
-| `curve.json` | `discovery_curve.py` (STEP 7) | Saturation tracking | `{points, tau, saturation_estimate, ci_low, ci_high, estimated_total_relevant}` |
+| `curve.json` | `discovery_curve.py` (STEP 7) | Coverage estimate | `{papers_evaluated, highly_relevant_count, coverage_estimate, ci_lower, ci_upper, method, occasions, n_total_estimate, …}` |
 | `raw/openalex.json` | `openalex_helper double-sort` or `deep` (STEP 3) | OpenAlex retrieval raw | `UnifiedPaperEntity[]` |
 | `raw/pubmed.json` | `pubmed_helper search-mesh` or `enrich` (STEP 4) | PubMed raw / enriched | parsed dict[] or UnifiedPaperEntity[] |
 | `raw/arxiv.json` | `arxiv_helper freshness` (STEP 4) | arXiv freshness raw | `UnifiedPaperEntity[]` |
-| `raw/citations.json` | `openalex_helper citation-network` (STEP 9) | Citation expansion seeds | `{references, cited_by}` per seed, appended |
+| `raw/citations_NN.json` | `openalex_helper citation-network` (STEP 9) | Citation expansion, one file per seed | `{references, cited_by}` |
 | `batches/batch_NNN.jsonl` | Main agent (STEP 6) | Classifier input shard | One paper per line: `{paper_id, title, abstract, year, venue}` |
 | `classifications/batch_NNN_result.json` | Inline SubAgent (STEP 6) | RCS classification output | `[{paper_id, rcs, reasoning, flag}]` |
 | `metadata.json` | `data_materialization.py` (STEP 12) | Separates audit identity from visual identity | `{query (legacy), original_user_query, search_topic, display_title, language, ...run metadata}` |

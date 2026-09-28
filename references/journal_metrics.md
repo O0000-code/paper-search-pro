@@ -5,7 +5,7 @@ Single source of truth for everything paper-search-pro reports about a paper's
 open-impact slot — all in one unified `journal_rank` record (v2.2 single-layer
 collapse) — the ISSN join, attribution, and the naming rules. Read this before
 showing or filtering on any journal-level number, in either the human path
-(STEP 1 + STEP 10/11) or agent mode.
+(STEP 1, right after STEP 5, STEP 10-12) or agent mode.
 
 > **What changed in v2.2 (A-line).** The previous version of this file said JCR
 > and 中科院分区 were "external-link only" and that SJR needed a Cloudflare-busting
@@ -86,6 +86,18 @@ byte-for-byte unchanged (R-19), exactly as if the feature were off.
 
 ### Annotate + filter (the logic layer)
 
+On the human path use the command, which works on the KG file and keeps every
+other field:
+
+```bash
+PYTHONPATH=$PSP_HOME python3 -m scripts.rank_filter --kg "$SEARCH_DIR/kg.json" \
+  --output "$SEARCH_DIR/kg_ranked.json" --platform cas --tiers 1,2   # label + filter
+PYTHONPATH=$PSP_HOME python3 -m scripts.rank_filter --kg "$SEARCH_DIR/kg_classified.json" \
+  --output "$SEARCH_DIR/kg_classified.json"                            # label only
+```
+
+The Python API underneath (agent mode calls it directly):
+
 ```python
 from scripts import journal_rank, rank_filter
 lk = journal_rank.load()                    # RankLookup | None (None → graceful degrade)
@@ -113,8 +125,9 @@ This is the human-path interaction contract (agent mode surfaces the same facts 
   `cas`/`sjr`). The default platform only **LABELS**; it never filters on its own.
 - **No partition mentioned → do not filter.** Show all three labels; let the user
   refine.
-- **A tier was requested → filter this once.** From STEP 1 intent
-  (`parse_rank_intent`) or the user this round. The per-request tier filter is
+- **A tier was requested → filter once, before classification** (right after
+  STEP 5: classifying papers the filter drops is the expensive part). From STEP 1
+  intent (`parse_rank_intent`) or the user this round. The per-request tier filter is
   **transient — never auto-persisted** to config.
 - **Ambiguous bare "Q1" (no platform, no persistent default) → ask one short
   question**: *"按 JCR 还是 SJR?顺带设默认吗?"* The recogniser never guesses a
@@ -122,8 +135,12 @@ This is the human-path interaction contract (agent mode surfaces the same facts 
 - **Always report what the run did**: *"本次按 {platform} 筛(留 N / 滤 M)"* + a light
   offer to switch standard/tier or set a persistent default. Attach the platform's
   attribution string.
-- **Switching standard/tier = RE-FILTER the annotated pool, NOT a re-search.** Only
-  when too few survivors remain do you go back to STEP 3 and deepen.
+- **Switching standard/tier = RE-FILTER the pool, NOT a re-search**: re-run
+  `rank_filter` on `kg.json`, classify only the papers it newly admits. Only when
+  too few survivors remain do you go back to STEP 3 and deepen.
+- **The report shows the run's platform**: pass `--rank-platform <platform>` to the
+  STEP 12b renderer when the run filtered on one; otherwise it shows the config
+  default (JCR out of the box).
 - **Persist the default only on an explicit "以后都用 X"** → set
   `rank.default_platform` in `~/.paper-search-pro/config.yaml`. Tier档位 is never
   persisted, only the platform default.
@@ -176,7 +193,10 @@ Partitions are joined to a paper by its journal **ISSN**:
   `XXXX-XXXX` upper-case key (8 digits, `X` upper-cased). JCR/CAS arrive hyphenated;
   SJR arrives hyphen-free; they meet on the same canonical key. A journal's print +
   electronic ISSN both index to one record, so an eISSN also joins.
-- **OpenAlex path** — `source.issn_l` (preferred) else the first of `source.issn[]`.
+- **OpenAlex path** — `source.issn_l` (preferred) else the first of `source.issn[]`
+  is the paper's `issn`; every ISSN the source lists is kept in `issns`, and the
+  join tries them when `issn` misses (a journal's linking ISSN is often not the one
+  the tables list: The Lancet, renamed journals).
 - **Semantic Scholar path** — ISSN from `publicationVenue.issn`, present only ~2/3 of
   the time (R-08). Agent mode **best-effort** backfills the missing ones via a free
   OpenAlex single-paper DOI lookup so the join is not silently lost (measured: 16 of

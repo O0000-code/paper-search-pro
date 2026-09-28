@@ -185,18 +185,18 @@ from scripts.rank_intent import parse_rank_intent
 i = parse_rank_intent('''<original user query>''')
 import json; print(json.dumps({
   'platform': i.platform, 'tiers': i.tiers, 'quartiles': i.quartiles,
-  'top': i.top, 'ambiguous': i.ambiguous, 'cleaned_query': i.cleaned_query,
-  'stripped': i.matched}, ensure_ascii=False))
+  'top': i.top, 'ambiguous': i.ambiguous, 'candidates': i.candidate_platforms,
+  'cleaned_query': i.cleaned_query, 'stripped': i.matched}, ensure_ascii=False))
 "
 ```
 
 Then act on the parse:
 - **`cleaned_query`** is the rank-stripped retrieval input — use it (NOT the raw query) when building STEP 3 queries and the query plan. It is not automatically `SEARCH_TOPIC` or the report title: the semantic planning step below still removes conversational and operational text. When the query had no rank phrasing, `cleaned_query == query` and retrieval behavior remains unchanged (R-19).
-- **`platform` + `tiers`/`quartiles`/`top`** are the filter you will apply in STEP 10/11 — remember them; do not filter here.
-- **`ambiguous == True`** (a bare "Q1"/"Q2" with no platform word — the recogniser never guesses a platform): **ask the user one short question inline** before going further — *"按 JCR 还是 SJR 的 Q1 筛?顺便要不要设为以后的默认?"* The CLI/headless path cannot ask, so this inline question is specifically the human path's job.
+- **`platform` + `tiers`/`quartiles`/`top`** are the filter you will apply right after STEP 5 — remember them (and record them as `rank_filter` in `query_plan.json`); do not filter here.
+- **`ambiguous == True`** (a tier or quartile with no platform word, e.g. a bare "Q1" or "SSCI 一区" — the recogniser never guesses a platform): **ask the user one short question inline** before going further, offering the platforms in `candidates` — *"按 JCR 还是 SJR 的 Q1 筛?"* / *"按中科院分区还是 JCR 分区?"*, plus *"顺便要不要设为以后的默认?"* The CLI/headless path cannot ask, so this inline question is specifically the human path's job.
 - If the query mentions no partition at all, skip this entirely — STEP 1 proceeds exactly as before.
 
-Even Quick tier needs a lightweight version of this step — never skip silently. Output: 1-3 search strategies (concept blocks + year range + work type filter). Write to `"$SEARCH_DIR/query_plan.json"` so PRISMA-S logger can pick it up later (STEP 13).
+Even Quick tier needs a lightweight version of this step — never skip silently. Output: 1-3 search strategies (concept blocks + year range + work type filter). Write to `"$SEARCH_DIR/query_plan.json"` as `{"strategies": [{"query": "..."}, ...], "year_min": …, "year_max": …, "rank_filter": {"platform": "cas", "tiers": [1, 2]}, "work_type_filter": …}` (other keys are fine; omit what does not apply). The report's audit tab and the PRISMA-S log (STEP 12a, 13) read the queries and filters from it.
 
 **Define `SEARCH_TOPIC`, but do not freeze the report title yet.** Read `references/report_title.md` §"STEP 1". `SEARCH_TOPIC` is the normalized semantic retrieval scope derived from the concept blocks, not the user's prose with a few regex matches removed. Strip greetings, tool/output instructions, tier/language/date/database constraints, and other operating directions; retain population, exposure/intervention, outcome, mechanism, and setting only when they are scientific concepts. Keep the exact user message separately as `USER_QUERY` for PRISMA-S. The final visual title is authored in STEP 11 after the retained evidence is known.
 
@@ -252,6 +252,8 @@ PYTHONPATH=$PSP_HOME \
 ```
 
 If the STEP 1 query plan has an end year, add `--year-max YYYY` (inclusive) to either command.
+
+**`raw/` holds retrieval output only — one file per search, as the helpers wrote it.** STEP 7 estimates coverage from how often these separate searches found the same papers. A subset, merge or screened copy you derive goes in `"$SEARCH_DIR/_working/"`, not `raw/`: in `raw/` it would look like another search that re-found everything.
 
 The full subcommand + flag reference (`search` / `double-sort` / `seminal` / `reviews` / `journal-list` / `citation-network`, all verified against argparse) is in `references/openalex_helper_cheatsheet.md` — read it before reaching for anything beyond the two commands above. For Deep+Audit, also call topic-specific subcommands (e.g. `seminal`, `reviews`, `journal-list`), append outputs to `$SEARCH_DIR/raw/openalex_*.json`, and federate them all together in STEP 5.
 
@@ -340,6 +342,17 @@ Pass only the input files you actually produced — skip ones that were not enab
 
 `--as-list` exists but is only for consumers that want a sorted list (by citation_count); do not use it in this pipeline.
 
+**Only when STEP 1 found a journal-tier request — filter before classifying.** A tier is a cheap deterministic filter; classifying papers it will drop is the expensive part. 📖 `references/journal_metrics.md`. Keep `kg.json` as the full pool and classify `kg_ranked.json`:
+
+```bash
+PYTHONPATH=$PSP_HOME \
+  python3 -m scripts.rank_filter --kg "$SEARCH_DIR/kg.json" \
+    --output "$SEARCH_DIR/kg_ranked.json" --platform cas --tiers 1,2
+# JCR / SJR: --platform jcr --quartiles Q1,Q2 ; Top only: --top
+```
+
+It labels every paper with all three platforms, keeps the requested ones, and writes the rest to `kg_ranked_set_aside.json`. Tell the user the printed counts in one line (*"本次按中科院 1–2 区筛：留 N / 区外 M / 不在该表 K"*) with the attribution it prints. In STEP 6 batch and merge `kg_ranked.json` instead of `kg.json`. No tier requested → skip this entirely; nothing changes.
+
 ### STEP 6 — Classify in parallel batches (LLM happens here — main agent + SubAgents)
 
 📖 BEFORE THIS STEP, read: `references/classifier_subagent_prompt.md` and `references/rcs_rubric.md`.
@@ -362,7 +375,7 @@ Task tool_use #4  → subagent_type="general-purpose", prompt="<classifier promp
 Task tool_use #5  → subagent_type="general-purpose", prompt="<classifier prompt for batch_005.jsonl>"
 ```
 
-All five tool_use blocks live in the same `<assistant>` message. The harness fires them in parallel; you receive five tool_result blocks back together.
+All five tool_use blocks live in the same `<assistant>` message, so they run in parallel. Some harnesses hand the five results back together; others start the SubAgents in the background and report each one as it finishes. Either way, merge only once every `batch_NNN_result.json` of the round exists.
 
 ❌ **WRONG — five separate messages (this is what serial dispatch looks like):**
 
@@ -389,7 +402,7 @@ PYTHONPATH=$PSP_HOME \
 
 📖 BEFORE THIS STEP, read: `references/stop_decision.md`.
 
-This step is NOT optional, even for Quick. The curve.json drives both STEP 8 stop decision and STEP 12 HTML chart rendering. If you skip it, the report shows an empty curve and PRISMA-S transparency suffers.
+This step is NOT optional, even for Quick: `curve.json` is what STEP 8 decides on, and STEP 12 renders the same estimate.
 
 ```bash
 PYTHONPATH=$PSP_HOME \
@@ -398,7 +411,7 @@ PYTHONPATH=$PSP_HOME \
     --output "$SEARCH_DIR/curve.json"
 ```
 
-The curve has `saturation_estimate` (0-1) + `ci_low` + `ci_high`. Optional `--prior-snapshots` lets you chain curves across iterations; `--papers-evaluated` overrides the auto-count.
+`curve.json` gives `coverage_estimate` (0-1) with `ci_lower` / `ci_upper`, and `method`: `sample_coverage` means it was estimated from how often this run's separate searches in `raw/` re-found the same highly relevant papers; `prior` means there were fewer than two searches (or none found a relevant paper), so it is the Undermind median prior, not a measurement — say so if you quote it. `--raw-dir` overrides where the searches are read from (default: `raw/` next to `--kg`).
 
 ### STEP 8 — Decide next action (MANDATORY)
 
@@ -406,9 +419,9 @@ The curve has `saturation_estimate` (0-1) + `ci_low` + `ci_high`. Optional `--pr
 
 This step is NOT optional. Make the decision **explicitly** — based on curve.json + tier budget + intent — and state the reasoning to the user. Do not skip based on intuition.
 
-Decision tree:
-- saturation < 0.6 AND budget remaining AND tier in {standard, deep, audit} → expand citations (STEP 9)
-- saturation > 0.85 OR budget exhausted → stop, write report (STEP 10+)
+Decision tree (on `coverage_estimate`):
+- coverage < 0.6 AND budget remaining AND tier in {standard, deep, audit} → expand citations (STEP 9)
+- coverage > 0.85 OR budget exhausted → stop, write report (STEP 10+)
 - ambiguous → tell user the numbers and ask
 
 ### STEP 9 — Expand citations (if applicable)
@@ -421,43 +434,42 @@ For top-rcs papers (rcs >= 7), get the citation network. Pass the seed's DOI whe
 PYTHONPATH=$PSP_HOME \
   python3 -m scripts.openalex_helper citation-network <doi_or_openalex_id> \
     --refs-limit 25 --cited-by-limit 25 \
-    >> "$SEARCH_DIR/raw/citations.json"
+    > "$SEARCH_DIR/raw/citations_01.json"      # one file per seed: citations_02.json, ...
 ```
 
-Then loop back to STEP 5 (federate the new papers into the KG, then re-classify only the new entries in STEP 6).
+Then loop back to STEP 5: add the `raw/citations_*.json` files to `--input-files` (the resolver reads their `references` / `cited_by` lists), re-classify only the new entries in STEP 6, and re-run STEP 7.
 
 ### STEP 10 — Enrich top-N papers (L3, optional but recommended)
 
 📖 BEFORE THIS STEP, read: `references/ss_helper_cheatsheet.md` and `references/crossref_helper_cheatsheet.md`.
 
-For papers with rcs >= 6, enrich with SS (influentialCitationCount + abstract fallback + tldr) and CrossRef (funder/license/clinical-trial-number). Both helpers consume a JSON **list** — the KG is currently dict-shaped. Convert first, enrich, then federate back; or supply a paper_list.json produced by data_materialization in STEP 12.
+For papers with rcs >= 6, enrich with Semantic Scholar (influentialCitationCount + abstract fallback + tldr). Both helpers read the classified KG and write the new fields back into it, leaving every other field as it was; `--min-rcs 6` limits them to the top papers. Run this before STEP 11, so the summary can rank by `influential_citation_count`.
 
-For Quick tier, skipping STEP 10 is acceptable — but **announce the skip** per Rule C ("Skipped L3 enrichment → no influentialCitationCount or funder fields; re-run at `--tier standard` to include this").
+For Quick tier, skipping STEP 10 is acceptable — but **announce the skip** per Rule C ("Skipped L3 enrichment → no influentialCitationCount; re-run at `--tier standard` to include this").
 
 ```bash
 # Semantic Scholar — adds influentialCitationCount + abstract fallback + tldr
 PYTHONPATH=$PSP_HOME \
   python3 -m scripts.ss_helper \
-    --input-file "$SEARCH_DIR/paper_list.json" \
-    --mode enrich \
-    --output-file "$SEARCH_DIR/paper_list.json"
-
-# CrossRef — adds funder + license + refs + clinical_trial_number in one fetch
-PYTHONPATH=$PSP_HOME \
-  python3 -m scripts.crossref_helper \
-    --input-file "$SEARCH_DIR/paper_list.json" \
-    --mode all \
-    --output-file "$SEARCH_DIR/paper_list.json"
+    --input-file "$SEARCH_DIR/kg_classified.json" \
+    --mode enrich --min-rcs 6 \
+    --output-file "$SEARCH_DIR/kg_classified.json"
 ```
 
-This adds ~135-170s for 100 papers — only do it on top-N, not the full set.
+It prints one stderr line saying how many papers were enriched and, if Semantic Scholar refused (rejected key, rate limit), why. Relay that line when the count is short; the run continues either way.
+
+**CrossRef (funder / license / clinical-trial number) only when those matter** — a clinical or funding question, or the user asks: the report does not display these fields.
+
+```bash
+PYTHONPATH=$PSP_HOME \
+  python3 -m scripts.crossref_helper \
+    --input-file "$SEARCH_DIR/kg_classified.json" \
+    --mode all --min-rcs 6 \
+    --output-file "$SEARCH_DIR/kg_classified.json"
+```
 
 **Optional (additive) — journal partitions (中科院 / JCR / SJR).**
-The multi-platform partition layer labels every paper with
-**all three** platforms and, when a tier was requested, filters on **one**. Like
-everything else in this step it is **opt-in and off by default — skip it and the
-report is byte-for-byte unchanged** (R-19). 📖 Read `references/journal_metrics.md`
-first (it is the SSOT for sources, the ISSN join, attribution, and R-04 naming).
+The multi-platform partition layer labels every paper with **all three** platforms. It is **opt-in and off by default — skip it and the report is byte-for-byte unchanged** (R-19). 📖 Read `references/journal_metrics.md` first (it is the SSOT for sources, the ISSN join, attribution, and R-04 naming).
 
 - **First use needs a one-time fetch** (init-once; data is pulled at runtime into
   `~/.paper-search-pro/ranks/` and **never bundled in the repo**). If you have not
@@ -467,23 +479,13 @@ first (it is the SSOT for sources, the ISSN join, attribution, and R-04 naming).
   # or a single platform: ... journal_rank fetch --platform cas
   PYTHONPATH=$PSP_HOME python3 -m scripts.journal_rank info           # what's cached
   ```
-- **Annotate (label all three platforms — do this once per result set):**
+- **A tier was requested** → the papers were already labelled and filtered right after STEP 5; nothing to do here.
+- **No tier requested, the user wants to see partitions** → label only (no filter):
   ```bash
-  PYTHONPATH=$PSP_HOME python3 -c "
-  from scripts import journal_rank, rank_filter
-  # ... load your papers as UnifiedPaperEntity list, then:
-  lk = journal_rank.load()                         # RankLookup | None (None → graceful degrade)
-  n  = rank_filter.annotate_papers(papers, lk)     # fills paper.journal_rank (三家全标)
-  "
+  PYTHONPATH=$PSP_HOME python3 -m scripts.rank_filter \
+    --kg "$SEARCH_DIR/kg_classified.json" --output "$SEARCH_DIR/kg_classified.json"
   ```
-  `journal_rank.load()` returns **None** when nothing is cached — then this layer
-  silently degrades (no partitions; the OpenAlex open-impact figure from the block
-  above is still the influence placeholder) and you tell the user they can
-  `journal_rank fetch` to enable partitions.
-- **Filter (only when a tier was requested — see STEP 11 for the full flow):** call
-  `rank_filter.filter_by_rank(papers, platform, tiers=…, quartiles=…, top=…)`. It
-  returns `(kept, filtered_out, no_platform_data)` — the third bucket (journals not
-  on the chosen platform) is **reported, never silently dropped**.
+  With nothing cached it prints a one-line hint and changes nothing; tell the user they can `journal_rank fetch` to enable partitions.
 - **R-04 naming** is enforced for you in the serialised dict: only JCR exposes an
   `impact_factor` (the real IF); 中科院"区" and SJR quartile are **分区/quartile**.
 
@@ -502,14 +504,14 @@ Write a ~300-word executive summary in your own words based on the classified pa
 
 Save to `"$SEARCH_DIR/summary.md"`.
 
-**Partition default / ask / filter / report / switch flow (additive — only when partitions are in play).** When you annotated the multi-platform journal_rank in STEP 10, follow this flow; it is entirely opt-in and changes nothing on the default no-partition path (R-19):
+**Partition default / ask / filter / report / switch flow (additive — only when partitions are in play).** When journal partitions are in play (filtered after STEP 5, or labelled in STEP 10), follow this flow; it is entirely opt-in and changes nothing on the default no-partition path (R-19):
 
 - **Factory default standard = JCR.** The persistent default lives in config `rank.default_platform` (out of the box: `jcr`; the user can set it to `cas`/`sjr`). The default platform only **labels** every paper — it does **not** filter unless the user actually asked for a tier.
 - **No partition mentioned → do not filter.** Just show all three platforms' labels per paper (STEP 10 annotate already did this) and let the user read / refine. Never invent a tier filter the user didn't ask for.
-- **A tier was requested (from STEP 1 intent or the user this round) → filter this once.** Use the STEP 1 parse: `platform` + `tiers`/`quartiles`/`top`. A per-request tier filter is **transient — never auto-persist it** to config. The persistent default is only ever changed when the user explicitly says "以后都用 X".
+- **A tier was requested (from STEP 1 intent or the user this round) → filter once, before classification** (right after STEP 5, with `rank_filter`). Use the STEP 1 parse: `platform` + `tiers`/`quartiles`/`top`. A per-request tier filter is **transient — never auto-persist it** to config. The persistent default is only ever changed when the user explicitly says "以后都用 X".
 - **Ambiguous bare "Q1" with no platform and no persistent default → ask one short question** (you should already have asked in STEP 1; if not, ask now): *"按 JCR 还是 SJR?顺带设默认吗?"* Small confirmations are welcome, but do not over-ask.
 - **Always report what this run did.** After filtering, tell the user in one line: *"本次按 {platform} 筛(留 N / 滤 M",* plus a light offer: *"可换中科院/JCR/SJR 或换档位、可设为以后的默认。"* Include the per-platform attribution (`journal_rank.ATTRIBUTION[platform]`).
-- **Switching standard or tier = RE-FILTER the already-annotated pool, NOT a re-search.** When the user then says "换成中科院二区" or "看看 SJR Q1", do **not** re-run the search. `annotate_papers` already stamped all three platforms onto the same candidate pool, so a switch is a pure in-memory re-filter — call `rank_filter.filter_by_rank(papers, new_platform, tiers=new_tiers, …)` again and it returns instantly. **Only when the re-filter leaves too few survivors** do you go back to STEP 3 and deepen the search (retrieve more, re-annotate, re-filter). This "切换=重筛不重搜" rule is what makes partition exploration cheap.
+- **Switching standard or tier = RE-FILTER the pool, NOT a re-search.** When the user then says "换成中科院二区" or "看看 SJR Q1", do **not** re-run the search: re-run `rank_filter` on the full pool `kg.json` with the new platform / tiers (seconds). Papers it newly admits have no score yet — classify only those (STEP 6), then re-run `rcs_parser` over all `classifications/` with `--kg kg_ranked.json`. **Only when the re-filter leaves too few survivors** do you go back to STEP 3 and deepen the search. This "切换=重筛不重搜" rule is what makes partition exploration cheap.
 - **Persisting the default** (only on an explicit "以后都用 X"): set `rank.default_platform` in `~/.paper-search-pro/config.yaml`. Tier档位 is never persisted — only the platform default is.
 - **R-04 naming in the summary bullet too:** 中科院"区" and SJR quartile are **分区 / quartile**; only JCR IF(2024) is an **影响因子 / Impact Factor**. The OpenAlex 2yr-mean-citedness figure is "期刊影响力" (open), never a JIF.
 
@@ -583,11 +585,14 @@ PYTHONPATH=$PSP_HOME \
     --search-topic "$SEARCH_TOPIC" \
     --display-title "$DISPLAY_TITLE" \
     --language "$UI_LANG"
+#     add --rank-platform cas|jcr|sjr when this run filtered on a platform,
+#     so the badges and zone filter show that platform (default: JCR)
 
 # 12c. MD report (uses materialized-dir for speed)
 PYTHONPATH=$PSP_HOME \
   python3 -m scripts.md_report \
     --materialized-dir "$SEARCH_DIR" \
+    --summary "$SEARCH_DIR/summary.md" \
     --query "<original query>" \
     --search-topic "$SEARCH_TOPIC" \
     --display-title "$DISPLAY_TITLE" \
@@ -666,9 +671,9 @@ $(pwd)/paper-search-results/<search_id>/
 ├── chart_data.json          # Sibling: chart series
 ├── paper_list.json          # Sibling: per-paper list
 ├── prisma_log.json          # Sibling: PRISMA log JSON view
-├── curve.json               # Saturation snapshot
+├── curve.json               # Coverage snapshot (STEP 7)
 ├── query_plan.json          # STEP 1 output
-├── raw/                     # Raw per-source dumps (openalex.json, pubmed.json, arxiv.json, citations.json)
+├── raw/                     # Retrieval output only, one file per search (openalex.json, pubmed.json, citations_01.json, …)
 ├── batches/                 # batch_NNN.jsonl files
 └── classifications/         # batch_NNN_result.json files
 ```
@@ -683,6 +688,7 @@ $(pwd)/paper-search-results/<search_id>/
 |-------|-----------|
 | Config missing keys | Direct user to `references/setup.md`, halt |
 | Rate limit (SS 429 / NCBI 429) | Helper auto-retries; if persistent, drop that enricher |
+| SS enrichment prints "0/N papers enriched (…)" | Semantic Scholar refused (rejected key or rate limit) and the helper stopped early; relay the line, carry on without it |
 | OpenAlex unavailable (budget spent / throttled / down) | `openalex_helper` switches the call to Semantic Scholar itself; relay its stderr line and continue. Exit `3` = Semantic Scholar could not serve it either: handle it like any OpenAlex error (tell the user what happened and when OpenAlex resets) |
 | OpenAlex 404 on DOI | Use title search fallback (helper handles) |
 | L2 booster returns 0 papers | Skip silently, note in PRISMA-S log via STEP 13 |
