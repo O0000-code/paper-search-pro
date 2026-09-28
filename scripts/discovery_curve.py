@@ -1,7 +1,8 @@
 """Discovery saturation curve.
 
 Theory: As a search exhausts relevant papers, marginal discovery rate decays.
-Fit N(t) = N_total * (1 - exp(-lambda * t)) to estimate coverage.
+The coverage estimate is the sample coverage of the run's retrieval files
+(see "Coverage estimate" below); the Undermind prior is the labelled fallback.
 
 V2 §6.1 fixes (vs V1 Codex C3 bug):
 - min_papers_analyzed guard ACTUALLY enforced (V1 had the param but ignored it)
@@ -20,9 +21,11 @@ new snapshot dict the caller is expected to persist.
 
 from __future__ import annotations
 
+import json
 import math
 from datetime import datetime
-from typing import Dict, List, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 from .types import UnifiedPaperEntity
 
@@ -53,89 +56,150 @@ def compute_marginal_rates(snapshots: List[Dict]) -> List[float]:
 
 
 # --------------------------------------------------------------------------- #
-# Exponential fit
+# Coverage estimate
 # --------------------------------------------------------------------------- #
+#
+# The report needs a number every run, and it must depend on what was found.
+# Fitting N(t) = N_total * (1 - exp(-lambda * t)) needs an ordered discovery
+# trajectory, which this recipe does not produce: STEP 7 runs once and the
+# retrieval files are complementary strategies, not a best-first sequence.
+#
+# What every run does produce is several retrieval files (search strategies,
+# reviews, seminal, Chinese sources, citation expansion). Treating each file
+# as one sampling occasion gives incidence data, and the Good-Turing / Chao &
+# Jost (2012) *sample coverage* of that data is the order-free form of the
+# curve's final slope: 1 - coverage is the chance that the next relevant paper
+# a further search turns up is one we do not have yet. It needs no fit and
+# cannot fail once there are two occasions and one relevant detection. With
+# less than that there is no evidence to use, and the Undermind prior (median
+# tau = 80 across queries, whitepaper s3.1) stands in, labelled as such.
 
-def fit_exponential(
-    papers_evaluated: List[int],
-    highly_relevant: List[int],
-) -> Tuple[float, float]:
-    """Fit N(t) = N_total * (1 - exp(-lambda * t)).
+HIGHLY_RELEVANT_RCS = 7
+UNDERMIND_MEDIAN_TAU = 80.0
 
-    Returns (N_total_estimate, lambda). On failure returns (n_relevant_last * 1.5, 0.0)
-    so caller can detect via `lambda <= 0.0`.
 
-    Strategy: compare early-window rate vs recent-window rate. If recent < early,
-    the curve is decaying and we can solve for lambda; otherwise lambda is set
-    to 0.0 to signal failure.
+def _id_keys(paper: UnifiedPaperEntity) -> List[str]:
+    """Every identifier a record carries, so a paper found under a bare title in
+    one file still matches its DOI-bearing KG entry."""
+    from .federated_kg_resolver import normalize_arxiv_id, normalize_doi, normalize_title
+
+    keys: List[str] = []
+    doi = normalize_doi(paper.doi)
+    if doi:
+        keys.append(f"doi|{doi}")
+    arxiv = normalize_arxiv_id(paper.arxiv_id)
+    if arxiv:
+        keys.append(f"arxiv|{arxiv}")
+    if paper.pmid:
+        keys.append(f"pmid|{paper.pmid}")
+    if paper.openalex_id:
+        keys.append("openalex|" + paper.openalex_id.replace("https://openalex.org/", ""))
+    if paper.ss_paper_id:
+        keys.append(f"ss|{paper.ss_paper_id}")
+    if paper.source_native_id:
+        keys.append(f"native|{paper.source_native_id}")
+    title = normalize_title(paper.title)
+    if title and paper.year:
+        keys.append(f"title|{title}|{paper.year}")
+    return keys
+
+
+def retrieval_occasions(
+    raw_dir: Path, kg: Dict[str, UnifiedPaperEntity]
+) -> List[Set[str]]:
+    """One set of KG keys per retrieval file in ``raw_dir``, oldest first.
+
+    Papers are matched to the KG through any shared identifier. A file whose
+    papers were all seen in earlier files is skipped: it is a subset or merge
+    the agent derived from them, not a new search. Counting such a file would
+    re-detect papers for free and inflate coverage; the cost of the rule is that
+    a genuine search finding nothing new is skipped too, which errs low.
+    Unreadable files are skipped.
     """
-    if len(papers_evaluated) < 3 or len(highly_relevant) < 3:
-        if highly_relevant:
-            return (max(1.0, highly_relevant[-1] * 1.5), 0.0)
-        return (1.0, 0.0)
+    from .federated_kg_resolver import _papers_from_payload
 
-    current_t = papers_evaluated[-1]
-    current_y = highly_relevant[-1]
-    if current_t <= 0 or current_y <= 0:
-        return (max(1.0, current_y * 1.5), 0.0)
+    index: Dict[str, str] = {}
+    for key, paper in kg.items():
+        for k in _id_keys(paper):
+            index.setdefault(k, key)
 
-    cutoff = max(1, len(papers_evaluated) // 5)
+    occasions: List[Set[str]] = []
+    seen: Set[str] = set()
+    # Oldest first, and on a timestamp tie the larger file first, so a subset
+    # the agent carved out of a search never displaces the search itself.
+    files = sorted(
+        Path(raw_dir).glob("*.json"),
+        key=lambda f: (f.stat().st_mtime, -f.stat().st_size, f.name),
+    )
+    for f in files:
+        try:
+            payload = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        members: Set[str] = set()
+        for paper in _papers_from_payload(payload):
+            ks = _id_keys(paper)
+            if not ks:
+                continue
+            members.add(next((index[k] for k in ks if k in index), ks[0]))
+        if not members or members <= seen:
+            continue
+        occasions.append(members)
+        seen |= members
+    return occasions
 
-    early_dt = papers_evaluated[cutoff] - papers_evaluated[0]
-    early_dy = highly_relevant[cutoff] - highly_relevant[0]
-    recent_dt = papers_evaluated[-1] - papers_evaluated[-cutoff - 1]
-    recent_dy = highly_relevant[-1] - highly_relevant[-cutoff - 1]
 
-    early_rate = (early_dy / early_dt) if early_dt > 0 else 0.0
-    recent_rate = (recent_dy / recent_dt) if recent_dt > 0 else 0.0
+def _wilson(p: float, n: int, z: float = 1.96) -> Tuple[float, float]:
+    """Wilson score interval for a proportion observed over n detections."""
+    denom = 1.0 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+    return (max(0.0, centre - half), min(1.0, centre + half))
 
-    if early_rate <= 0 or recent_rate <= 0 or recent_rate >= early_rate:
-        return (max(float(current_y), current_y * 1.5), 0.0)
 
-    try:
-        lambda_est = -math.log(recent_rate / early_rate) / current_t
-    except (ValueError, ZeroDivisionError):
-        return (max(float(current_y), current_y * 1.5), 0.0)
+def sample_coverage(
+    occasions: List[Set[str]], relevant: Set[str]
+) -> Optional[Dict]:
+    """Chao & Jost (2012) incidence-based sample coverage of ``relevant`` papers.
 
-    if not math.isfinite(lambda_est) or lambda_est <= 0:
-        return (max(float(current_y), current_y * 1.5), 0.0)
-
-    lambda_est = max(1e-4, min(0.2, lambda_est))
-
-    exp_factor = 1.0 - math.exp(-lambda_est * current_t)
-    if exp_factor <= 1e-3:
-        n_total_est = current_y / 0.5
+    Returns None when there is no evidence: fewer than two occasions, or no
+    relevant paper found in any of them.
+    """
+    m = len(occasions)
+    counts: Dict[str, int] = {}
+    for occ in occasions:
+        for key in occ & relevant:
+            counts[key] = counts.get(key, 0) + 1
+    detections = sum(counts.values())
+    if m < 2 or detections == 0:
+        return None
+    q1 = sum(1 for c in counts.values() if c == 1)
+    q2 = sum(1 for c in counts.values() if c == 2)
+    if q2 > 0:
+        share = (m - 1) * q1 / ((m - 1) * q1 + 2 * q2)
+    elif q1 > 1:
+        share = (m - 1) * (q1 - 1) / ((m - 1) * (q1 - 1) + 2)
     else:
-        n_total_est = current_y / exp_factor
+        share = 0.0
+    coverage = min(1.0, max(0.0, 1.0 - (q1 / detections) * share))
+    lower, upper = _wilson(coverage, detections)
+    return {
+        "coverage": coverage,
+        "lower": min(lower, coverage),
+        "upper": max(upper, coverage),
+        "occasions": m,
+        "detections": detections,
+    }
 
-    n_total_est = max(float(current_y), min(current_y * 5.0, n_total_est))
-    return (n_total_est, lambda_est)
 
-
-# --------------------------------------------------------------------------- #
-# Coverage
-# --------------------------------------------------------------------------- #
-
-def compute_coverage(
-    current_relevant: int,
-    n_total: float,
-) -> Tuple[float, float, float]:
-    """Coverage point estimate + 95% CI bounds.
-
-    Returns (point, lower, upper). All values clamped to [0, 1]. If n_total is
-    non-positive, returns (1.0, 0.5, 1.0) (degenerate but safe).
-    """
-    if n_total <= 0:
-        return (1.0, 0.5, 1.0)
-
-    point = min(1.0, max(0.0, current_relevant / n_total))
-    upper_total = n_total * 0.85
-    lower_total = n_total * 1.15
-    lower = min(1.0, max(0.0, current_relevant / lower_total)) if lower_total > 0 else 0.0
-    upper = min(1.0, max(0.0, current_relevant / upper_total)) if upper_total > 0 else 1.0
-    if lower > upper:
-        lower, upper = upper, lower
-    return (point, lower, upper)
+def prior_coverage(papers_evaluated: int) -> Tuple[float, float, float]:
+    """Undermind prior 1 - exp(-n/tau), tau = 80, with tau in [40, 160] as the band."""
+    n = max(0, papers_evaluated)
+    return (
+        1.0 - math.exp(-n / UNDERMIND_MEDIAN_TAU),
+        1.0 - math.exp(-n / (2 * UNDERMIND_MEDIAN_TAU)),
+        1.0 - math.exp(-n / (UNDERMIND_MEDIAN_TAU / 2)),
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -146,35 +210,48 @@ def make_snapshot(
     kg: Dict[str, UnifiedPaperEntity],
     prior_snapshots: List[Dict] | None = None,
     papers_evaluated: int | None = None,
+    occasions: List[Set[str]] | None = None,
 ) -> Dict:
     """Compute the current discovery snapshot from a classified KG.
 
     Args:
         kg: dict keyed by canonical_key whose values are classified UnifiedPaperEntity
             (each with `.rcs` populated when classification has run).
-        prior_snapshots: optional list of earlier snapshots (in order). The new
-            snapshot is NOT appended in place; the caller persists the list.
+        prior_snapshots: optional list of earlier snapshots (in order). Kept for
+            the low-progress warning; the coverage estimate does not need them.
         papers_evaluated: optional override for the "papers_evaluated" counter.
             When None, defaults to `len(kg)` (each KG entry counts as one
             evaluated record).
+        occasions: retrieval occasions from `retrieval_occasions()`. Without
+            them (or with too little evidence) the prior is used.
 
     Returns:
-        snapshot dict containing the saturation fit + coverage estimate.
+        snapshot dict with the coverage estimate and how it was obtained
+        (`method`: "sample_coverage" or "prior").
     """
     if papers_evaluated is None:
         papers_evaluated = len(kg)
-    highly_relevant_count = sum(
-        1 for p in kg.values() if p.rcs is not None and p.rcs >= 7
-    )
+    relevant = {
+        key for key, p in kg.items() if p.rcs is not None and p.rcs >= HIGHLY_RELEVANT_RCS
+    }
+    highly_relevant_count = len(relevant)
 
-    history = list(prior_snapshots or [])
-    eval_series = [s["papers_evaluated"] for s in history] + [papers_evaluated]
-    rel_series = [s["highly_relevant_count"] for s in history] + [highly_relevant_count]
+    estimate = sample_coverage(occasions, relevant) if occasions else None
+    if estimate:
+        point, lower, upper = estimate["coverage"], estimate["lower"], estimate["upper"]
+        method = "sample_coverage"
+    else:
+        point, lower, upper = prior_coverage(papers_evaluated)
+        method = "prior"
 
-    n_total, lambda_est = fit_exponential(eval_series, rel_series)
-    point, lower, upper = compute_coverage(highly_relevant_count, n_total)
+    n_total = highly_relevant_count / point if point > 0 else float(highly_relevant_count)
+    # Rate of the saturation curve through (papers_evaluated, point), for plotting.
+    if 0 < point < 1 and papers_evaluated > 0:
+        lambda_est = -math.log(1 - point) / papers_evaluated
+    else:
+        lambda_est = 1 / UNDERMIND_MEDIAN_TAU
 
-    snapshot = {
+    return {
         "timestamp": datetime.now().isoformat(),
         "papers_evaluated": papers_evaluated,
         "highly_relevant_count": highly_relevant_count,
@@ -183,9 +260,10 @@ def make_snapshot(
         "coverage_estimate": round(point, 3),
         "ci_lower": round(lower, 3),
         "ci_upper": round(upper, 3),
-        "fit_failed": lambda_est <= 0.0,
+        "method": method,
+        "occasions": estimate["occasions"] if estimate else len(occasions or []),
+        "fit_failed": method == "prior",
     }
-    return snapshot
 
 
 # --------------------------------------------------------------------------- #
@@ -264,6 +342,7 @@ def _kg_from_json(payload) -> Dict[str, UnifiedPaperEntity]:
             openalex_id=d.get("openalex_id"),
             ss_paper_id=d.get("ss_paper_id"),
             pmid=d.get("pmid"),
+            source_native_id=d.get("source_native_id"),
             title=d.get("title", "") or "",
             abstract=d.get("abstract"),
             authors=authors,
@@ -304,8 +383,8 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
         description=(
-            "Discovery saturation curve — fit an exponential to the marginal "
-            "discovery rate and emit a snapshot JSON. ADVISORY ONLY."
+            "Discovery saturation snapshot — estimate how much of the relevant "
+            "literature this run has found and emit a snapshot JSON. ADVISORY ONLY."
         )
     )
     parser.add_argument(
@@ -317,7 +396,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--prior-snapshots",
         type=Path,
-        help="Optional path to a JSON list of prior snapshots (default: none).",
+        help="Optional earlier snapshot(s): a previous curve.json or a JSON list of them.",
+    )
+    parser.add_argument(
+        "--raw-dir",
+        type=Path,
+        help=(
+            "Directory of this run's retrieval files (default: raw/ next to --kg). "
+            "Each file is one search; the coverage estimate is computed from them."
+        ),
     )
     parser.add_argument(
         "--papers-evaluated",
@@ -340,14 +427,23 @@ if __name__ == "__main__":
     prior_snapshots: List[Dict] = []
     if args.prior_snapshots:
         prior_snapshots = json.loads(args.prior_snapshots.read_text(encoding="utf-8"))
+        if isinstance(prior_snapshots, dict):
+            prior_snapshots = [prior_snapshots]
         if not isinstance(prior_snapshots, list):
-            sys.exit("--prior-snapshots must contain a JSON list")
+            sys.exit("--prior-snapshots must contain a snapshot or a JSON list of them")
+
+    raw_dir = args.raw_dir or args.kg.parent / "raw"
+    occasions = retrieval_occasions(raw_dir, kg) if raw_dir.is_dir() else []
 
     snapshot = make_snapshot(
         kg=kg,
         prior_snapshots=prior_snapshots,
         papers_evaluated=args.papers_evaluated,
+        occasions=occasions,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"discovery_curve: wrote snapshot to {args.output}")
+    print(
+        f"discovery_curve: coverage {snapshot['coverage_estimate']:.0%} "
+        f"({snapshot['method']}, {snapshot['occasions']} retrieval files) -> {args.output}"
+    )

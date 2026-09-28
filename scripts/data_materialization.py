@@ -39,6 +39,7 @@ def _load_search_strategies(
     output_dir: Path, explicit_path: Optional[Path]
 ) -> Optional[Any]:
     """Load a v2.4 STEP 11.5 ``search_strategies.json`` if one exists (spec §2.2).
+    (Also used for ``query_plan.json``: same read-if-present rule.)
 
     Reads ``explicit_path`` when given, else auto-discovers
     ``output_dir/search_strategies.json`` ("存在才读"). Returns None when absent or
@@ -159,6 +160,9 @@ def materialize(
         kg_source_path=kg_source_path,
     )
 
+    # The run directory (where STEP 1-5 wrote raw/ and query_plan.json).
+    run_dir = Path(kg_source_path).parent if kg_source_path else output_dir
+
     classified = [p for p in kg.values() if p.rcs is not None]
     if not classified:
         # Allow callers to materialise an unclassified KG (degraded but useful).
@@ -167,7 +171,12 @@ def materialize(
     chart_data = {
         "publication_year": _build_year_histogram(classified),
         "relevance_score": _build_rcs_distribution(classified),
-        "discovery_curve": _build_discovery_curve(discovery_curve_snapshots, classified),
+        "discovery_curve": _build_discovery_curve(
+            discovery_curve_snapshots,
+            classified,
+            kg=kg,
+            raw_dir=run_dir / "raw",
+        ),
         # max_nodes 50 → 150 (2026-05-23). React CitationScatter handles 150+
         # log-scale dots comfortably; previous cap was a payload-size guess
         # from when the hydrated bundle was capped at 1.5 MB. With 5 MB now
@@ -196,7 +205,14 @@ def materialize(
         user_query=user_query,
         tier=tier,
         search_id=search_id,
-        discovery_curve_snapshots=discovery_curve_snapshots,
+        # The run's query plan, when STEP 1 wrote one: without it the report's
+        # audit tab said "no filters" for runs that had year / rank filters.
+        query_plan=_load_search_strategies(run_dir, run_dir / "query_plan.json"),
+        # The same estimate the chart and metadata show (one number per report).
+        discovery_curve_snapshots=[{
+            "coverage_estimate": chart_data["discovery_curve"]["coverage_estimate"],
+            "method": chart_data["discovery_curve"]["method"],
+        }],
         wall_clock_seconds=wall_clock_seconds,
     )
 
@@ -282,13 +298,22 @@ def _build_rcs_distribution(papers: List[UnifiedPaperEntity]) -> Dict[str, Any]:
 
 
 def _build_discovery_curve(
-    snapshots: List[Dict], papers: List[UnifiedPaperEntity]
+    snapshots: List[Dict],
+    papers: List[UnifiedPaperEntity],
+    *,
+    kg: Optional[Dict[str, UnifiedPaperEntity]] = None,
+    raw_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    """Cumulative discovery vs evaluated. Snapshot schema (best-effort) supports:
-    {n_evaluated, n_highly_relevant} per round.
+    """Coverage panel data: the ``discovery_curve`` estimate, rendered.
 
-    Falls back to a synthesized single-point series if snapshots are empty.
+    One estimator for the whole report: the latest STEP 7 snapshot's coverage
+    when one was passed, otherwise the same estimate computed here from the KG
+    and the run's retrieval files. ``tau`` and ``estimated_total_relevant``
+    describe the saturation curve that passes through that estimate at the
+    number of papers screened, so the chart agrees with the number.
     """
+    from . import discovery_curve as dcurve
+
     points: List[Dict[str, Any]] = []
     for snap in snapshots:
         if not isinstance(snap, dict):
@@ -296,58 +321,59 @@ def _build_discovery_curve(
         n = snap.get("n_evaluated") or snap.get("papers_evaluated") or 0
         y = snap.get("n_highly_relevant") or snap.get("highly_relevant_count") or 0
         points.append({"n": int(n), "y": int(y)})
-    if not points and papers:
-        highly = sum(1 for p in papers if (p.rcs or 0) >= 7)
-        points = [{"n": 0, "y": 0}, {"n": len(papers), "y": highly}]
 
-    tau = _fit_tau(points)
-    last = points[-1] if points else {"n": 0, "y": 0}
-    if tau and tau > 0 and last["n"] > 0:
-        # f(n) = total * (1 - exp(-n/tau)); solve total from last point.
-        denom = 1.0 - math.exp(-last["n"] / tau)
-        total = last["y"] / denom if denom > 1e-9 else last["y"]
-        coverage = last["y"] / total if total > 0 else 0.0
+    screened = len(papers)
+    found = sum(1 for p in papers if (p.rcs or 0) >= dcurve.HIGHLY_RELEVANT_RCS)
+    if not points and papers:
+        points = [{"n": 0, "y": 0}, {"n": screened, "y": found}]
+
+    # Only snapshots that say how they were estimated: older curve.json files
+    # carry a 0.667 failure placeholder with no `method`, which is not an estimate.
+    estimate = next(
+        (
+            s for s in reversed(snapshots)
+            if isinstance(s, dict) and s.get("method") and s.get("coverage_estimate") is not None
+        ),
+        None,
+    )
+    if estimate is None:
+        source = kg if kg is not None else {p.paper_id: p for p in papers}
+        occasions = (
+            dcurve.retrieval_occasions(raw_dir, source)
+            if raw_dir is not None and Path(raw_dir).is_dir()
+            else []
+        )
+        estimate = dcurve.make_snapshot(source, papers_evaluated=screened, occasions=occasions)
+
+    coverage = max(0.0, min(1.0, float(estimate["coverage_estimate"])))
+    ci_low = max(0.0, min(coverage, float(estimate.get("ci_lower", coverage))))
+    ci_high = min(1.0, max(coverage, float(estimate.get("ci_upper", coverage))))
+
+    total = found / coverage if coverage > 0 else float(found)
+    if screened <= 0:
+        tau = dcurve.UNDERMIND_MEDIAN_TAU
+    elif coverage >= 0.999:
+        tau = screened / 7.0
+    elif coverage <= 0.0:
+        tau = screened * 10.0
     else:
-        total = last["y"]
-        coverage = 1.0 if total > 0 else 0.0
-    coverage = max(0.0, min(1.0, coverage))
-    # rough symmetric 95% band on coverage
-    band = 0.08 if last["n"] >= 50 else 0.15
-    ci_low = max(0.0, coverage - band)
-    ci_high = min(1.0, coverage + band)
+        tau = -screened / math.log(1.0 - coverage)
+
     summary = (
-        f"Estimated to have found about {last['y']} relevant papers, "
+        f"Estimated to have found about {found} relevant papers, "
         f"approximately {coverage*100:.0f}% of the relevant set "
         f"(95% CI: {ci_low*100:.0f}-{ci_high*100:.0f}%)."
     )
     return {
         "points": points,
-        "tau": round(tau, 2) if tau else None,
+        "tau": round(tau, 2),
         "coverage_estimate": round(coverage, 3),
         "ci_low": round(ci_low, 3),
         "ci_high": round(ci_high, 3),
         "estimated_total_relevant": round(total, 1) if total else None,
+        "method": estimate.get("method", "prior"),
         "summary": summary,
     }
-
-
-def _fit_tau(points: List[Dict[str, Any]]) -> Optional[float]:
-    """Estimate tau using the last two points: f(n)=total*(1-exp(-n/tau)).
-
-    Without scipy in the runtime, we approximate by assuming the last point is
-    near saturation; a heuristic floor at tau=20, ceiling at 500.
-    """
-    if len(points) < 2:
-        return 80.0  # Undermind default
-    p0, p1 = points[-2], points[-1]
-    if p1["n"] <= p0["n"]:
-        return 80.0
-    marginal = (p1["y"] - p0["y"]) / max(1, (p1["n"] - p0["n"]))
-    # Higher marginal rate -> smaller tau (faster saturation).
-    if marginal <= 0:
-        return 200.0
-    tau_est = max(20.0, min(500.0, 1.0 / max(marginal, 1e-3) * 5))
-    return tau_est
 
 
 def _build_citation_network(
@@ -623,6 +649,7 @@ def _build_metadata(
             discovery_curve.get("ci_low"),
             discovery_curve.get("ci_high"),
         ],
+        "coverage_method": discovery_curve.get("method"),
         "generated_at": datetime.now().isoformat(),
         "skill_version": "paper-search-pro/2.4.0",
         "stop_reason": stop_reason,

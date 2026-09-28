@@ -71,7 +71,7 @@
 
 Search executed by paper-search-pro using OpenAlex (primary) and Semantic Scholar (supplement). See `execution_log.json` for the PRISMA-S 16-item checklist and full discovery curve snapshots.
 
-Coverage is an LLM-estimated saturation heuristic, not a PRISMA-validated recall figure. Treat the result set as a candidate corpus for downstream screening.
+{% if metadata.coverage_method == 'sample_coverage' %}Coverage is estimated from how often this run's separate searches found the same highly relevant papers again (sample coverage); {% else %}Coverage is a prior from comparable searches, not measured on this run; {% endif %}it is not a PRISMA-validated recall figure. Treat the result set as a candidate corpus for downstream screening.
 {%- set ns = namespace(has_sjr=false, attribution='') %}
 {%- for p in paper_list %}{% if p.journal_metric and p.journal_metric.sjr_attribution %}{% set ns.has_sjr = true %}{% set ns.attribution = p.journal_metric.sjr_attribution %}{% endif %}{% endfor %}
 {%- if ns.has_sjr %}

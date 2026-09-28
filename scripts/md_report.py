@@ -156,6 +156,21 @@ def _fallback_summary(
     return "\n\n".join(parts)
 
 
+def _summary_from_run_dir(run_dir: Path) -> str:
+    """The agent's summary from a run directory: report_data.json, then summary.md."""
+    try:
+        data = json.loads((Path(run_dir) / "report_data.json").read_text(encoding="utf-8"))
+        text = data.get("summary") if isinstance(data, dict) else None
+        if isinstance(text, str) and text.strip():
+            return text
+    except (OSError, ValueError):
+        pass
+    try:
+        return (Path(run_dir) / "summary.md").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
 def _pct(x) -> str:
     if x is None:
         return "n/a"
@@ -236,6 +251,7 @@ def _kg_from_json(payload) -> Dict[str, UnifiedPaperEntity]:
         return UnifiedPaperEntity(
             doi=d.get("doi"),
             arxiv_id=d.get("arxiv_id"),
+            source_native_id=d.get("source_native_id"),
             title=d.get("title", "") or "",
             abstract=d.get("abstract"),
             authors=authors,
@@ -332,6 +348,10 @@ if __name__ == "__main__":
     summary_text = ""
     if args.summary and args.summary.exists():
         summary_text = args.summary.read_text(encoding="utf-8")
+    elif args.materialized_dir:
+        # No --summary: use the summary STEP 12a already carried in report_data.json,
+        # else the run's summary.md, before falling back to the generated stub.
+        summary_text = _summary_from_run_dir(args.materialized_dir)
 
     materialized_dir: Path
     tmp_dir_obj: Optional[tempfile.TemporaryDirectory] = None

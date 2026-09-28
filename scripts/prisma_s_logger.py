@@ -27,7 +27,7 @@ def build_prisma_s_log(
     user_query: str = "",
     tier: str = "standard",
     search_id: str = "",
-    query_plan: Optional[List[Dict]] = None,
+    query_plan: Any = None,
     discovery_curve_snapshots: Optional[List[Dict]] = None,
     output_paths: Optional[Dict[str, Any]] = None,
     errors: Optional[List[Dict]] = None,
@@ -50,7 +50,7 @@ def build_prisma_s_log(
     and the only state Quick/Standard ever reach — every item is byte-identical to
     the pre-v2.4 log.
     """
-    query_plan = query_plan or []
+    query_plan = normalize_query_plan(query_plan)
     discovery_curve_snapshots = discovery_curve_snapshots or []
     output_paths = output_paths or {}
 
@@ -117,7 +117,11 @@ def build_prisma_s_log(
             "filters_applied": query_filters,
             "language": None,
             "publication_type": None,
-            "note": "No restrictive filters by default; tier budget bounds the number of records returned.",
+            "note": (
+                "Filters as recorded in the query plan, per strategy."
+                if any(query_filters)
+                else "No restrictive filters by default; tier budget bounds the number of records returned."
+            ),
         },
         "10_search_filters": {
             "validated_filters_used": [],
@@ -145,6 +149,7 @@ def build_prisma_s_log(
             "papers_in_kg": len(kg),
             "highly_relevant_count": highly_relevant,
             "coverage_estimate": coverage,
+            **_coverage_method(discovery_curve_snapshots),
         },
         "15_deduplication": {
             "performed": True,
@@ -289,6 +294,65 @@ def _citation_seeds_used(kg: Dict[str, UnifiedPaperEntity]) -> int:
     return len(seeds)
 
 
+def normalize_query_plan(plan: Any) -> List[Dict]:
+    """The list-of-strategies form this log is built from.
+
+    Accepts the documented list (``[{text, type, source, filters, ...}]``) or the
+    object form a query plan is often written in: ``{strategies|queries: [...],
+    year_min, year_max | year_range, rank_filter, work_type_filter, ...}``. Plan-
+    level filters are recorded on every strategy, so item 9 no longer reports
+    "no filters" for a run that had them.
+    """
+    if isinstance(plan, list):
+        return [q for q in plan if isinstance(q, dict)]
+    if not isinstance(plan, dict):
+        return []
+
+    plan_filters: List[str] = []
+    years = plan.get("year_range") if isinstance(plan.get("year_range"), dict) else {}
+    y_min = plan.get("year_min", years.get("min"))
+    y_max = plan.get("year_max", years.get("max"))
+    if y_min is not None or y_max is not None:
+        plan_filters.append(
+            f"publication_year {y_min if y_min is not None else ''}-{y_max if y_max is not None else ''}"
+        )
+    rank = plan.get("rank_filter")
+    if isinstance(rank, dict) and rank.get("platform"):
+        bands = rank.get("tiers") or rank.get("quartiles") or []
+        top = " top" if rank.get("top") else ""
+        plan_filters.append(
+            f"journal rank {rank['platform']}{top} " + ",".join(str(b) for b in bands)
+        )
+    work_type = plan.get("work_type_filter")
+    if isinstance(work_type, str) and work_type.strip():
+        plan_filters.append(f"work type: {work_type.strip()}")
+
+    strategies = [
+        q for q in (plan.get("strategies") or plan.get("queries") or []) if isinstance(q, dict)
+    ]
+    normalized: List[Dict] = []
+    for q in strategies:
+        normalized.append({
+            "text": q.get("text") or q.get("query") or "",
+            "type": q.get("type") or q.get("subcommand") or q.get("sort"),
+            "source": q.get("source") or q.get("engine"),
+            "filters": [*(q.get("filters") or []), *plan_filters],
+            "boolean_openalex": q.get("boolean_openalex"),
+            "boolean_ss": q.get("boolean_ss"),
+        })
+    if not normalized and plan_filters:
+        normalized.append({"text": plan.get("search_topic") or "", "filters": plan_filters})
+    return normalized
+
+
+def _coverage_method(snapshots: List[Dict]) -> Dict[str, Any]:
+    """How the coverage estimate was obtained, when the snapshot says so."""
+    last = snapshots[-1] if snapshots else None
+    if isinstance(last, dict) and last.get("method"):
+        return {"coverage_method": last["method"]}
+    return {}
+
+
 def _estimate_coverage_from_snapshots(snapshots: List[Dict]) -> float:
     """Best-effort recall estimate from saturation snapshots."""
     if not snapshots:
@@ -421,6 +485,7 @@ def _kg_from_json(payload) -> Dict[str, UnifiedPaperEntity]:
             openalex_id=d.get("openalex_id"),
             ss_paper_id=d.get("ss_paper_id"),
             pmid=d.get("pmid"),
+            source_native_id=d.get("source_native_id"),
             title=d.get("title", "") or "",
             abstract=d.get("abstract"),
             authors=authors,
@@ -492,7 +557,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--query-plan",
         type=Path,
-        help="Optional path to query_plan.json (list of query dicts).",
+        help="Optional path to query_plan.json (list of strategies, or an object with a strategies list).",
     )
     parser.add_argument(
         "--snapshots",
@@ -580,7 +645,7 @@ if __name__ == "__main__":
         user_query=args.user_query,
         tier=args.tier,
         search_id=args.search_id,
-        query_plan=query_plan if isinstance(query_plan, list) else [],
+        query_plan=query_plan,
         discovery_curve_snapshots=snapshots if isinstance(snapshots, list) else [],
         output_paths=output_paths if isinstance(output_paths, dict) else {},
         errors=errors if isinstance(errors, list) else [],
