@@ -119,7 +119,7 @@ Each report has a scholarly, evidence-bounded title authored after screening. Th
     <td width="50%" valign="top">
       <a href="docs/screenshots/methods.png"><img src="docs/screenshots/methods.png" alt="Methods · Coverage"/></a>
       <br/>
-      <sub><strong>Methods · Coverage</strong> — saturation curve, model fit, current position on the curve.</sub>
+      <sub><strong>Methods · Coverage</strong> — saturation curve, estimated coverage with its interval, current position on the curve.</sub>
     </td>
     <td width="50%" valign="top">
       <a href="docs/screenshots/methods-2.png"><img src="docs/screenshots/methods-2.png" alt="Methods · Distribution"/></a>

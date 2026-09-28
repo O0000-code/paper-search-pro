@@ -119,7 +119,7 @@ python3 -m pip install -r "$PSP_HOME/scripts/requirements.lock"
     <td width="50%" valign="top">
       <a href="docs/screenshots/methods-zh.png"><img src="docs/screenshots/methods-zh.png" alt="方法 · 覆盖率"/></a>
       <br/>
-      <sub><strong>方法 · 覆盖率</strong> — 检索饱和曲线、模型拟合、当前位置。</sub>
+      <sub><strong>方法 · 覆盖率</strong> — 检索饱和曲线、估计覆盖率及其区间、当前位置。</sub>
     </td>
     <td width="50%" valign="top">
       <a href="docs/screenshots/methods-2-zh.png"><img src="docs/screenshots/methods-2-zh.png" alt="方法 · 分布"/></a>

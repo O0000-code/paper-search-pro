@@ -9,9 +9,11 @@ is separate at `~/.claude/skills/paper-search-pro/` — sync to it (rsync
 - **R-19 human-path preservation**: the human 14-STEP flow — especially **STEP 6** (parallel classification SubAgents) and **STEP 12** (HTML render) — must stay **byte-identical** when the agent/headless, source-switch, and journal-rank features are unused. Every new capability is opt-in additive; default = current behavior.
 - **Journal-rank data is never committed** (Clarivate/SCImago/CAS copyright). It is runtime-fetched from public GitHub mirrors into `~/.paper-search-pro/ranks/`. `scripts/journal_rank.py` is the single canonical rank layer; `scripts/sjr_helper.py` is superseded (kept for back-compat, not the wired source).
 - **Zero new hard dependencies** for v2.2 (GitHub-raw fetch uses `requests`) — keep it that way: no playwright, no heavyweight libs.
+- **One coverage estimator**: `scripts/discovery_curve.py` (sample coverage over the run's `raw/` retrieval files, bootstrap interval, labelled `prior` fallback). `data_materialization` only renders it — never add a second fit there: an improvised τ=80 fallback once became the only path and showed ~99% on every run.
 
 ## Test
-`PYTHONPATH=. python3 -m pytest tests -q` — ~264 offline pass. The ~12 failures in `tests/test_openalex_helper.py` are live OpenAlex rate-limit / key issues (environmental), not regressions.
+Offline, reproducible: a uv venv from `scripts/requirements.lock` plus `pytest pytest-socket`, then
+`HOME=<empty dir> PYTHONPATH=. python -m pytest tests -q -p no:cacheprovider --disable-socket --allow-unix-socket` — 672 pass (2026-09-28). Live checks are marked `live` and deselected by default.
 
 ## Building the HTML report (`bundle.html`)
 The report is TypeScript + Vite in `assets/webartifacts_app/paper-report/`. `node_modules` lives only
