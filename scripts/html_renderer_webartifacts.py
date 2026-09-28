@@ -50,6 +50,7 @@ def render_html_webartifacts(
     search_topic: str = "",
     display_title: str = "",
     language: Optional[str] = None,
+    rank_platform: Optional[str] = None,
 ) -> Path:
     """Render a Shadcn-styled HTML report by hydrating the pre-built bundle.
 
@@ -75,6 +76,10 @@ def render_html_webartifacts(
             (c) "en". Anything else falls back to "en" with a console warning
             inside the React bundle. The bundle ships with both `STRINGS.en`
             and `STRINGS.zh` dictionaries; this flag picks which one mounts.
+        rank_platform: the journal-rank platform the badges and zone filter
+            show ("cas" / "jcr" / "sjr"): this run's platform when it filtered on
+            one, else config ``rank.default_platform``, else JCR (the bundle's
+            default, injected as nothing).
     """
     materialized_data_dir = Path(materialized_data_dir)
     output_path = Path(output_path)
@@ -116,6 +121,7 @@ def render_html_webartifacts(
     # call). This matches the docstring's claim that LANG comes first.
     hydrated_html = _inject_report_data(bundle_html, report_data)
     hydrated_html = _inject_language(hydrated_html, resolved_lang)
+    hydrated_html = _inject_rank_source(hydrated_html, _resolve_rank_platform(rank_platform))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(hydrated_html, encoding="utf-8")
@@ -289,6 +295,36 @@ def _inject_language(bundle_html: str, language: str) -> str:
     return bundle_html[:insert_at] + injection + bundle_html[insert_at:]
 
 
+def _resolve_rank_platform(explicit: Optional[str]) -> Optional[str]:
+    """The platform the rank badges show, or None for the bundle's default (JCR).
+
+    Explicit (this run's filter platform) > config ``rank.default_platform``.
+    JCR resolves to None so a JCR report is byte-identical to before."""
+    platform = (explicit or "").strip().lower() or None
+    if platform is None:
+        try:
+            from .config import load_config
+
+            rank_cfg = getattr(load_config(), "rank", None)
+            if isinstance(rank_cfg, dict) and rank_cfg.get("default_platform"):
+                platform = str(rank_cfg["default_platform"]).strip().lower()
+        except Exception:
+            platform = None
+    return platform if platform in ("cas", "sjr") else None
+
+
+def _inject_rank_source(bundle_html: str, platform: Optional[str]) -> str:
+    """Set `window.__rankSource__` (read by JournalRank / ZoneFilter) before the
+    first <script>. No platform -> HTML unchanged."""
+    if platform is None:
+        return bundle_html
+    injection = f'<script>window.__rankSource__ = "{platform}";</script>'
+    match = _FIRST_SCRIPT_RE.search(bundle_html)
+    if not match:
+        return bundle_html + injection
+    return bundle_html[: match.start()] + injection + bundle_html[match.start():]
+
+
 # ---------------------------------------------------------------------------
 # Size policy
 # ---------------------------------------------------------------------------
@@ -358,6 +394,15 @@ if __name__ == "__main__":
             "never translated; only the report's UI chrome.)"
         ),
     )
+    parser.add_argument(
+        "--rank-platform",
+        choices=("cas", "jcr", "sjr"),
+        default=None,
+        help=(
+            "Journal-rank platform for the badges and zone filter. Pass the platform "
+            "this run filtered on; omitted -> config rank.default_platform -> JCR."
+        ),
+    )
     args = parser.parse_args()
 
     if args.materialized_dir:
@@ -396,5 +441,6 @@ if __name__ == "__main__":
         search_topic=args.search_topic,
         display_title=args.display_title,
         language=args.language,
+        rank_platform=args.rank_platform,
     )
     print(f"html_renderer_webartifacts: wrote {out}")

@@ -13,6 +13,7 @@ or via pytest:
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -353,3 +354,46 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# ---------------------------------------------------------------------------
+# Every ISSN of the journal is tried (The Lancet: issn_l is not in the tables)
+# ---------------------------------------------------------------------------
+
+
+class _ListLookup(_FakeLookup):
+    """Like the real RankLookup.lookup: accepts one ISSN or a list, first hit wins."""
+
+    def lookup(self, issns):
+        for raw in ([issns] if isinstance(issns, str) else issns):
+            hit = super().lookup(raw)
+            if hit is not None:
+                return hit
+        return None
+
+
+def test_annotate_falls_back_to_the_journals_other_issns():
+    p = _paper("10.1/lancet", "0099-5355")
+    p.issns = ["0099-5355", "0022-3514"]
+    lk = _ListLookup(_lookup()._t)
+    assert rank_filter.annotate_papers([p], lk) == 1
+    assert p.journal_rank.cas.tier == 1
+
+
+def test_annotate_kg_file_keeps_every_field_and_filters_when_asked():
+    kg = {
+        "doi|10.1/a": {"doi": "10.1/a", "issn": "0022-3514", "rcs": 8, "note": "keep me"},
+        "doi|10.2/b": {"doi": "10.2/b", "issn": "1234-5678", "rcs": 6},
+        "doi|10.3/c": {"doi": "10.3/c", "issn": "9999-9999", "rcs": 7},
+    }
+    lk = _ListLookup(_lookup()._t)
+    labelled, aside, counts = rank_filter.annotate_kg_file(json.loads(json.dumps(kg)), lk)
+    assert list(labelled) == list(kg) and not aside
+    assert labelled["doi|10.1/a"]["note"] == "keep me" and labelled["doi|10.1/a"]["rcs"] == 8
+    assert labelled["doi|10.1/a"]["journal_rank"]["cas"]["tier"] == 1
+    kept, aside, counts = rank_filter.annotate_kg_file(
+        json.loads(json.dumps(kg)), lk, "cas", tiers=[1, 2]
+    )
+    assert list(kept) == ["doi|10.1/a"]
+    assert set(aside) == {"doi|10.2/b", "doi|10.3/c"}
+    assert counts["filtered_out"] == 1 and counts["no_platform_data"] == 1

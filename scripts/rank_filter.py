@@ -96,15 +96,20 @@ def annotate_papers(papers, lookup) -> int:
 
     ``lookup`` is a ``journal_rank.RankLookup`` (or None → no-op). Returns the
     number of papers that got a rank record. Idempotent and network-free: it only
-    reads each paper's already-present ``issn`` (backfill is the caller's job)."""
+    reads each paper's already-present ``issn`` / ``issns`` (backfill is the
+    caller's job)."""
     if lookup is None:
         return 0
     annotated = 0
     for p in papers:
-        issn = getattr(p, "issn", None)
-        if not issn:
+        # The preferred ISSN first, then every other ISSN the journal lists: the
+        # linking ISSN is often not the one the rank tables carry.
+        candidates = [
+            i for i in dict.fromkeys([getattr(p, "issn", None), *(getattr(p, "issns", None) or [])]) if i
+        ]
+        if not candidates:
             continue
-        rec = lookup.lookup(issn)
+        rec = lookup.lookup(candidates[0] if len(candidates) == 1 else candidates)
         if rec is not None:
             p.journal_rank = rec
             annotated += 1
@@ -337,3 +342,116 @@ __all__ = [
     "journal_rank_dict",
     "rank_metric_dict",
 ]
+
+
+# ---------------------------------------------------------------------------
+# CLI: annotate (and optionally filter) a KG file in place of hand-written glue
+# ---------------------------------------------------------------------------
+
+
+def annotate_kg_file(
+    kg: Dict[str, Dict],
+    lookup,
+    platform: Optional[str] = None,
+    *,
+    tiers: Optional[List[int]] = None,
+    quartiles: Optional[List[str]] = None,
+    top: bool = False,
+    category: Optional[str] = None,
+) -> Tuple[Dict[str, Dict], Dict[str, Dict], Dict[str, int]]:
+    """Label every paper dict with all three platforms; filter when asked.
+
+    Works on the KG's own dicts so every other field (rcs, abstracts, ...) is
+    kept as is. Returns (kept, set_aside, counts). Without ``platform`` nothing
+    is filtered: every paper is kept, labelled.
+    """
+    from types import SimpleNamespace
+
+    for paper in kg.values():
+        proxy = SimpleNamespace(issn=paper.get("issn"), issns=paper.get("issns") or [])
+        if annotate_papers([proxy], lookup):
+            paper["journal_rank"] = journal_rank_dict(proxy.journal_rank)
+    counts = {"papers": len(kg), "labelled": sum(1 for p in kg.values() if p.get("journal_rank"))}
+    if not platform:
+        return dict(kg), {}, counts
+
+    from .data_materialization import _journal_rank_from_json
+
+    keys = list(kg)
+    proxies = [SimpleNamespace(key=k, journal_rank=_journal_rank_from_json(kg[k])) for k in keys]
+    kept, dropped, nodata = filter_by_rank(
+        proxies, platform, tiers=tiers, quartiles=quartiles, top=top, category=category
+    )
+    counts.update(kept=len(kept), filtered_out=len(dropped), no_platform_data=len(nodata))
+    kept_keys = {p.key for p in kept}
+    return (
+        {k: kg[k] for k in keys if k in kept_keys},
+        {k: kg[k] for k in keys if k not in kept_keys},
+        counts,
+    )
+
+
+def _main(argv: Optional[List[str]] = None) -> int:
+    import argparse
+    import json
+    import sys
+    from pathlib import Path
+
+    from . import journal_rank
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Label every paper in a KG file with its CAS / JCR / SJR journal rank; "
+            "with --platform, also keep only the requested tiers or quartiles."
+        )
+    )
+    parser.add_argument("--kg", required=True, type=Path, help="kg.json or kg_classified.json (dict).")
+    parser.add_argument("--output", required=True, type=Path, help="Where to write the labelled (and kept) KG.")
+    parser.add_argument("--platform", choices=("cas", "jcr", "sjr"), help="Filter on this platform.")
+    parser.add_argument("--tiers", help="CAS tiers to keep, e.g. 1,2.")
+    parser.add_argument("--quartiles", help="JCR/SJR quartiles to keep, e.g. Q1,Q2.")
+    parser.add_argument("--top", action="store_true", help="CAS Top journals only (Q1 on JCR/SJR).")
+    parser.add_argument("--category", help="Pin a sub-category (CAS 小类 / SJR category / JCR category).")
+    parser.add_argument(
+        "--set-aside",
+        type=Path,
+        help="Where to write the papers the filter did not keep (default: <output stem>_set_aside.json).",
+    )
+    args = parser.parse_args(argv)
+
+    kg = json.loads(args.kg.read_text(encoding="utf-8"))
+    if not isinstance(kg, dict):
+        sys.exit("rank_filter: --kg must be a KG dict keyed by canonical key")
+    lookup = journal_rank.load()
+    if lookup is None:
+        print(
+            "[paper-search-pro] No journal-rank data cached; run "
+            "`python3 -m scripts.journal_rank fetch` once. Nothing labelled or filtered.",
+            file=sys.stderr,
+        )
+        args.output.write_text(json.dumps(kg, ensure_ascii=False, indent=2), encoding="utf-8")
+        return 0
+
+    tiers = [int(t) for t in args.tiers.split(",") if t.strip()] if args.tiers else None
+    quartiles = [q.strip().upper() for q in args.quartiles.split(",") if q.strip()] if args.quartiles else None
+    kept, set_aside, counts = annotate_kg_file(
+        kg, lookup, args.platform,
+        tiers=tiers, quartiles=quartiles, top=args.top, category=args.category,
+    )
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(kept, ensure_ascii=False, indent=2), encoding="utf-8")
+    line = f"rank_filter: {counts['labelled']}/{counts['papers']} papers labelled"
+    if args.platform:
+        aside_path = args.set_aside or args.output.with_name(args.output.stem + "_set_aside.json")
+        aside_path.write_text(json.dumps(set_aside, ensure_ascii=False, indent=2), encoding="utf-8")
+        line += (
+            f"; {args.platform}: kept {counts['kept']}, outside the request {counts['filtered_out']}, "
+            f"not on {args.platform} {counts['no_platform_data']} (set aside in {aside_path.name})"
+        )
+        print(journal_rank.ATTRIBUTION.get(args.platform, ""), file=sys.stderr)
+    print(line)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
