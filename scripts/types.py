@@ -13,6 +13,7 @@ Helper scripts that consume these types:
 - prisma_s_logger.py, semantic_cache.py
 """
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
 
@@ -289,7 +290,9 @@ class UnifiedPaperEntity:
             or (f"pmid:{self.pmid}" if self.pmid else None)
             or self.ss_paper_id
             or self.source_native_id
-            or f"untitled_{hash(self.title)}"
+            # md5, not hash(): hash() is salted per process, so the same paper got
+            # a different id in the export than in the report.
+            or f"untitled_{hashlib.md5((self.title or '').encode('utf-8')).hexdigest()[:16]}"
         )
 
 

@@ -332,6 +332,7 @@ def _kg_from_json(payload) -> Dict[str, UnifiedPaperEntity]:
             openalex_id=d.get("openalex_id"),
             ss_paper_id=d.get("ss_paper_id"),
             pmid=d.get("pmid"),
+            source_native_id=d.get("source_native_id"),
             pmcid=d.get("pmcid"),
             title=d.get("title", "") or "",
             abstract=d.get("abstract"),

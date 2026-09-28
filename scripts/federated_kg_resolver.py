@@ -444,6 +444,8 @@ def _papers_from_payload(payload) -> List[UnifiedPaperEntity]:
     Accepts either:
       - a list of paper dicts
       - a dict keyed by canonical_key (or any string) -> paper dict
+      - a dict of paper lists, e.g. citation-network output
+        {"references": [...], "cited_by": [...]}
     """
     from .types import Author
 
@@ -495,6 +497,11 @@ def _papers_from_payload(payload) -> List[UnifiedPaperEntity]:
         )
 
     if isinstance(payload, dict):
+        # `openalex_helper citation-network` writes {"references": [...],
+        # "cited_by": [...]}: a dict of paper LISTS, not of papers. Flatten it so
+        # the STEP 9 -> STEP 5 loop federates the expansion instead of loading 0.
+        if payload and all(isinstance(v, list) for v in payload.values()):
+            return [_paper(d) for v in payload.values() for d in v if isinstance(d, dict)]
         return [_paper(v) for v in payload.values() if isinstance(v, dict)]
     if isinstance(payload, list):
         return [_paper(d) for d in payload if isinstance(d, dict)]

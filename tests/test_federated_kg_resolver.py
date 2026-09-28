@@ -645,3 +645,25 @@ def test_3_issn_absent_stays_byte_identical_r19():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_citation_network_output_federates():
+    """STEP 9 writes {"references": [...], "cited_by": [...]}; STEP 5 must read it."""
+    from scripts.federated_kg_resolver import _papers_from_payload
+
+    payload = {
+        "references": [{"doi": "10.1/r", "title": "R", "year": 2020}],
+        "cited_by": [{"doi": "10.1/c", "title": "C", "year": 2023}],
+    }
+    assert {p.doi for p in _papers_from_payload(payload)} == {"10.1/r", "10.1/c"}
+
+
+def test_issns_are_merged_and_emitted_only_when_present():
+    from scripts.federated_kg_resolver import _paper_to_dict
+
+    a = UnifiedPaperEntity(doi="10.1/x", title="X", year=2020, issn="0099-5355", issns=["0099-5355"])
+    b = UnifiedPaperEntity(doi="10.1/x", title="X", year=2020, issns=["0140-6736"])
+    kg = federated_dedup([a], [b])
+    (merged,) = kg.values()
+    assert merged.issns == ["0099-5355", "0140-6736"]
+    assert "issns" not in _paper_to_dict(UnifiedPaperEntity(doi="10.1/y", title="Y"))
