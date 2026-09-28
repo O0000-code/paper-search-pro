@@ -624,7 +624,7 @@ def _build_metadata(
             discovery_curve.get("ci_high"),
         ],
         "generated_at": datetime.now().isoformat(),
-        "skill_version": "paper-search-pro/2.4.1",
+        "skill_version": "paper-search-pro/2.4.0",
         "stop_reason": stop_reason,
     }
 

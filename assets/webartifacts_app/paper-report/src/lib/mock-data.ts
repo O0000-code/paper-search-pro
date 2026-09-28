@@ -30,7 +30,7 @@ export const MOCK_RAW = {
     coverage_estimate: 0.91,
     coverage_ci: [0.83, 0.96],
     generated_at: "2026-05-22T10:14:08.523000",
-    skill_version: "paper-search-pro/2.4.1",
+    skill_version: "paper-search-pro/2.4.0",
     stop_reason: null,
   },
 
