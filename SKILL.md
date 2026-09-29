@@ -521,7 +521,8 @@ Save to `"$SEARCH_DIR/summary.md"`.
 
 | Run | Export behavior |
 |------|-----------------|
-| Quick / Standard | **Does not run. Do not mention it, do not ask** — go straight to STEP 12. This silent skip is the one exception to Rule C: announcing it would itself disturb the untouched default path (R-19). |
+| Quick | **Does not run. Do not mention it, do not ask** — go straight to STEP 12. This silent skip is the one exception to Rule C: announcing it would itself disturb the untouched default path (R-19). |
+| Standard | **Does not run during the search** — no question, go straight to STEP 12. **At STEP 14, offer it in one sentence only when this run has a gap the export fills:** the search space included Chinese (`zh` / `both`: 知网 / 万方 hold much of what PSP cannot reach), or `coverage_estimate` < 0.6 (other databases can fill in). No such gap → say nothing. Skip the offer if STEP 4 already made it this run. Accepted → run this step, then re-run 12a–12c so the report gains the export tab. |
 | Deep | Offer once, one light sentence: *"要不要顺带导出各平台可粘贴的专业检索式?"* Accepted → run; declined or unanswered → skip without further mention. |
 | Audit | **Runs by default** — it is the deliverable behind the Audit disclaimer's promise (Example 4). |
 | Explicit ask, any tier | "给我 WOS 检索式" / "我要去知网查" / "导出检索式" / STEP 4's 知网 offer accepted → run immediately, whatever the tier. |
@@ -648,6 +649,7 @@ Use `open` on macOS by default. If it fails (rare — only bare Linux containers
 - Where the report is on disk (absolute path: `$SEARCH_DIR/report.html`) — so the user can find it later
 - Top findings (3-5 sentences from your executive summary)
 - Any caveats — including any steps you skipped per Rule C (e.g. "PubMed wasn't queried because no medical signals were detected", "Skipped STEP 10 L3 enrichment because Quick tier; re-run at standard to include funder/license fields")
+- Standard tier, only when STEP 11.5's Standard row finds a gap: one sentence offering the strategy export, naming the gap and the cost — e.g. *"这次中文侧主要缺知网、万方的文献；需要的话我把这两个库的专业检索式写好（约 3–4 分钟），粘进检索框就能查。"* or *"估算覆盖率 45%，还有不少没找到；需要的话我把 WOS、Scopus、PubMed 的检索式写好（约 3–4 分钟），你拿去补检。"*
 
 ---
 
