@@ -14,7 +14,7 @@ is separate at `~/.claude/skills/paper-search-pro/` — sync to it (rsync
 
 ## Test
 Offline, reproducible: a uv venv from `scripts/requirements.lock` plus `pytest pytest-socket`, then
-`HOME=<empty dir> PYTHONPATH=. python -m pytest tests -q -p no:cacheprovider --disable-socket --allow-unix-socket` — 677 pass (2026-09-30). Live checks are marked `live` and deselected by default.
+`HOME=<empty dir> PYTHONPATH=. python -m pytest tests -q -p no:cacheprovider --disable-socket --allow-unix-socket` — 678 pass (2026-09-30). Live checks are marked `live` and deselected by default.
 
 ## Building the HTML report (`bundle.html`)
 The report is TypeScript + Vite in `assets/webartifacts_app/paper-report/`. `node_modules` lives only
