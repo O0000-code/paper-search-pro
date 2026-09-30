@@ -270,7 +270,7 @@ def _oa_targets(results_by_sort):
     quota_guard), so patching the module objects is what agent_search will call.
     """
     def fake_search_top_n_pages(query, total_papers=100, sort="cited_by_count:desc", year_min=None, year_max=None,
-                                date_from=None, date_to=None):
+                                date_from=None, date_to=None, title_abstract_only=False):
         # The recent leg is the only call with a publication-date window (both of
         # its windows land here; run_leg dedups the repeat).
         key = "recent" if date_from is not None else sort

@@ -212,8 +212,10 @@ def _require_terms(query: str) -> str:
     uses arXiv operators or field prefixes is left as written; quoted phrases
     stay phrases.
     """
-    if _OPERATOR_RE.search(query):
-        return query
+    if query.count('"') % 2:
+        query = query.replace('"', " ")          # unmatched quote: treat as plain words
+    if _OPERATOR_RE.search(re.sub(r'"[^"]*"', " ", query)):
+        return query                              # operators outside quotes: user syntax
     terms = re.findall(r'"[^"]+"|\S+', query)
     terms = [t for t in terms if t.startswith('"') or t.lower() not in _STOPWORDS]
     if len(terms) < 2:

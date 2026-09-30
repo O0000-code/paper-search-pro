@@ -192,7 +192,7 @@ def test_collect_pages_attaches_partial():
 
 
 def test_double_sort_keeps_finished_strategies(monkeypatch):
-    def fake(query, total_papers, sort, year_min=None, year_max=None, date_from=None, date_to=None):
+    def fake(query, total_papers, sort, year_min=None, year_max=None, date_from=None, date_to=None, title_abstract_only=False):
         if sort == "cited_by_count:desc":
             return [_paper("10.1/cited", "openalex")]
         exc = OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
@@ -434,7 +434,7 @@ def test_crossref_record_mapping():
 
 
 def test_agent_retrieve_switches_mid_run(monkeypatch):
-    def fake(query, total_papers, sort, year_min=None, year_max=None, date_from=None, date_to=None):
+    def fake(query, total_papers, sort, year_min=None, year_max=None, date_from=None, date_to=None, title_abstract_only=False):
         if sort == "cited_by_count:desc":
             return [_paper("10.1/a", "openalex")]
         exc = OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED, reset_seconds=60)
@@ -486,7 +486,7 @@ def test_citation_partial_is_reported_as_kept(monkeypatch):
 
 
 def test_agent_retrieve_respects_fallback_off(monkeypatch):
-    def down(query, total_papers, sort, year_min=None, year_max=None, date_from=None, date_to=None):
+    def down(query, total_papers, sort, year_min=None, year_max=None, date_from=None, date_to=None, title_abstract_only=False):
         raise OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
 
     monkeypatch.setattr(agent_search.openalex_helper, "search_top_n_pages", down)
@@ -530,7 +530,7 @@ def test_agent_min_impact_is_skipped_not_emptying_when_openalex_is_down(monkeypa
 def test_agent_switch_is_sticky_even_when_fallback_found_nothing(monkeypatch):
     calls = {"impact": 0}
 
-    def fetch(query, total_papers, sort, year_min=None, year_max=None, date_from=None, date_to=None):
+    def fetch(query, total_papers, sort, year_min=None, year_max=None, date_from=None, date_to=None, title_abstract_only=False):
         if sort == "cited_by_count:desc":
             return [_journal_paper("10.1/a")]
         raise OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
@@ -688,7 +688,7 @@ def test_deepening_outage_keeps_the_previous_complete_round():
     lookup = _FakeLookup(table, loaded=("cas",))
     papers = [rank_paper(f"10.x/{i}", f"memory {i}", f"{i:04d}-000X", 100 - i) for i in range(1, 9)]
 
-    def fake_search(query, total_papers=50, sort="cited_by_count:desc", year_min=None, year_max=None, date_from=None, date_to=None):
+    def fake_search(query, total_papers=50, sort="cited_by_count:desc", year_min=None, year_max=None, date_from=None, date_to=None, title_abstract_only=False):
         if total_papers > 4:  # the deeper round hits the spent budget mid-crawl
             exc = OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
             exc.partial = papers[:1]

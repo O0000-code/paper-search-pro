@@ -19,6 +19,8 @@ import sys
 import pytest
 
 import scripts.openalex_helper as oah
+from scripts import openalex_guard
+from scripts.openalex_guard import OpenAlexUnavailable
 from scripts.types import UnifiedPaperEntity
 
 
@@ -109,7 +111,8 @@ def test_other_sorts_match_title_and_abstract_only(monkeypatch, sort):
     monkeypatch.setattr(oah, "Works", _RecordingWorks)
     oah.search_top_n_pages("emotion regulation, teens | kids", total_papers=5, sort=sort)
     assert not any(c[0] == "search" for c in _RecordingWorks.calls)
-    assert {"title_and_abstract": {"search": "emotion regulation teens kids"}} in _filters()
+    # comma dropped (it separates filters); "|" kept as OR
+    assert {"title_and_abstract": {"search": "emotion regulation teens OR kids"}} in _filters()
 
 
 def test_seminal_matches_title_and_abstract_only(monkeypatch):
@@ -142,7 +145,7 @@ def test_legs_without_year_max_are_capped_at_this_year(monkeypatch, today):
     seen = []
 
     def fake(query, total_papers=100, sort="", year_min=None, year_max=None,
-             date_from=None, date_to=None):
+             date_from=None, date_to=None, title_abstract_only=False):
         seen.append(year_max)
         return []
 
@@ -166,19 +169,65 @@ def test_recent_leg_runs_last_year_then_two_years_before(monkeypatch, today):
     calls = []
 
     def fake(query, total_papers=100, sort="", year_min=None, year_max=None,
-             date_from=None, date_to=None):
-        calls.append((total_papers, sort, date_from, date_to))
-        return [_p(f"10.1/{date_from}-{i}") for i in range(2)] + [_p("10.1/both")]
+             date_from=None, date_to=None, title_abstract_only=False):
+        calls.append((total_papers, sort, date_from, date_to, title_abstract_only))
+        tag = "ta" if title_abstract_only else "ft"
+        return [_p(f"10.1/{date_from}-{tag}-{i}") for i in range(2)] + [_p("10.1/both")]
 
     monkeypatch.setattr(oah, "search_top_n_pages", fake)
     out = oah.run_leg("recent", "q", 50)
+    # Each window: title+abstract first; 3 < n, so topped up from full text.
     assert calls == [
-        (50, "relevance_score:desc", "2025-10-01", "2026-10-01"),
-        (25, "relevance_score:desc", "2023-10-01", "2025-09-30"),
+        (50, "relevance_score:desc", "2025-10-01", "2026-10-01", True),
+        (50, "relevance_score:desc", "2025-10-01", "2026-10-01", False),
+        (25, "relevance_score:desc", "2023-10-01", "2025-09-30", True),
+        (25, "relevance_score:desc", "2023-10-01", "2025-09-30", False),
     ]
-    # Later-window papers follow the last-year ones; the repeat is dropped.
-    assert [p.doi for p in out] == ["10.1/2025-10-01-0", "10.1/2025-10-01-1", "10.1/both",
-                                    "10.1/2023-10-01-0", "10.1/2023-10-01-1"]
+    # Precise matches first, full-text fill next, repeats dropped; then the earlier window.
+    assert [p.doi for p in out] == [
+        "10.1/2025-10-01-ta-0", "10.1/2025-10-01-ta-1", "10.1/both",
+        "10.1/2025-10-01-ft-0", "10.1/2025-10-01-ft-1",
+        "10.1/2023-10-01-ta-0", "10.1/2023-10-01-ta-1",
+        "10.1/2023-10-01-ft-0", "10.1/2023-10-01-ft-1",
+    ]
+
+
+def test_full_precise_window_is_not_topped_up(monkeypatch, today):
+    calls = []
+
+    def fake(query, total_papers=100, sort="", year_min=None, year_max=None,
+             date_from=None, date_to=None, title_abstract_only=False):
+        calls.append(title_abstract_only)
+        return [_p(f"10.1/{date_from}-{i}") for i in range(total_papers)]
+
+    monkeypatch.setattr(oah, "search_top_n_pages", fake)
+    out = oah.run_leg("recent", "q", 4)
+    assert calls == [True, True]      # both windows filled by title+abstract alone
+    assert len(out) == 4 + 2
+
+
+def test_top_up_keeps_precise_results_when_openalex_drops_out(monkeypatch, today):
+    def fake(query, total_papers=100, sort="", year_min=None, year_max=None,
+             date_from=None, date_to=None, title_abstract_only=False):
+        if title_abstract_only:
+            return [_p("10.1/precise")]
+        exc = OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
+        exc.partial = [_p("10.1/partial")]
+        raise exc
+
+    monkeypatch.setattr(oah, "search_top_n_pages", fake)
+    with pytest.raises(OpenAlexUnavailable) as ei:
+        oah.run_leg("recent", "q", 5)
+    assert [p.doi for p in ei.value.partial] == ["10.1/precise", "10.1/partial"]
+
+
+def test_title_abstract_only_switches_relevance_to_the_filter(monkeypatch):
+    monkeypatch.setattr(oah, "Works", _RecordingWorks)
+    oah.search_top_n_pages("emotion regulation", total_papers=5, sort="relevance_score:desc",
+                           title_abstract_only=True)
+    assert not any(c[0] == "search" for c in _RecordingWorks.calls)
+    assert {"title_and_abstract": {"search": "emotion regulation"}} in _filters()
+    assert ("sort", {"relevance_score": "desc"}) in _RecordingWorks.calls
 
 
 def test_recent_leg_is_empty_for_a_future_range(monkeypatch, today):
@@ -241,7 +290,7 @@ def test_search_without_recent_does_not_run_the_recent_leg(monkeypatch):
     assert [p["doi"] for p in out] == ["10.1/a", "10.1/b"]
 
 
-def test_search_with_recent_merges_the_recent_leg(monkeypatch):
+def test_search_with_recent_merges_the_recent_leg(monkeypatch, today):
     seen = {}
 
     def leg(name, query, n, year_min=None, year_max=None):
@@ -253,5 +302,5 @@ def test_search_with_recent_merges_the_recent_leg(monkeypatch):
         search_works=lambda q, **k: [_p("10.1/a", 90), _p("10.1/b", 80)],
         run_leg=leg,
     )
-    assert seen == {"name": "recent", "n": 20, "year_min": 2018, "year_max": None}
+    assert seen == {"name": "recent", "n": 20, "year_min": 2018, "year_max": 2026}   # capped at this year
     assert [p["doi"] for p in out] == ["10.1/a", "10.1/b", "10.1/new"]

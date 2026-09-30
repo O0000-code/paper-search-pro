@@ -431,6 +431,15 @@ _PREPRINT_VENUE_RE = re.compile(
 )
 
 
+# Normalized-title length below which a title is too generic to merge on.
+_MIN_TITLE_KEY = 20
+
+
+def _looks_preprint(p: UnifiedPaperEntity) -> bool:
+    return (not p.venue or bool(_PREPRINT_VENUE_RE.search(p.venue))
+            or (p.type or "").lower() == "preprint")
+
+
 def _is_openreview_record(p: UnifiedPaperEntity) -> bool:
     return (p.source_native_id or "").startswith("openreview:")
 
@@ -449,6 +458,8 @@ def _absorb_openreview(kg: Dict[CanonicalKey, UnifiedPaperEntity]) -> None:
     or_keys = [k for k, p in kg.items() if _is_openreview_record(p)]
     if not or_keys:
         return
+    # Guards against labelling the wrong paper: both years must be known, and a
+    # short title ("Introduction") is too generic to identify a paper by.
     by_title: Dict[str, List[CanonicalKey]] = {}
     for key, p in kg.items():
         if not _is_openreview_record(p):
@@ -457,16 +468,18 @@ def _absorb_openreview(kg: Dict[CanonicalKey, UnifiedPaperEntity]) -> None:
                 by_title.setdefault(t, []).append(key)
     for key in or_keys:
         orp = kg[key]
-        target_key = next(
-            (k for k in by_title.get(normalize_title(orp.title), [])
-             if orp.year is None or kg[k].year is None or abs(orp.year - kg[k].year) <= 1),
-            None,
-        )
-        if target_key is None:
+        title = normalize_title(orp.title)
+        if orp.year is None or len(title) < _MIN_TITLE_KEY:
             continue
+        candidates = [k for k in by_title.get(title, [])
+                      if kg[k].year is not None and abs(orp.year - kg[k].year) <= 1]
+        if not candidates:
+            continue
+        # Several records of one paper (preprint DOI + proceedings DOI): the
+        # label belongs on the preprint one.
+        target_key = next((k for k in candidates if _looks_preprint(kg[k])), candidates[0])
         target = kg[target_key]
-        was_preprint = (not target.venue or bool(_PREPRINT_VENUE_RE.search(target.venue))
-                        or (target.type or "").lower() == "preprint")
+        was_preprint = _looks_preprint(target)
         native_id = target.source_native_id
         merge_paper_fields(target, orp)
         target.source_native_id = native_id  # stays the other source's record

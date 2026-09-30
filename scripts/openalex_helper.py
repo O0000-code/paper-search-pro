@@ -438,6 +438,15 @@ def _default_year_max(year_max: Optional[int]) -> int:
     return year_max if year_max is not None else _today().year
 
 
+def _empty_range(year_min: Optional[int], year_max: Optional[int]) -> bool:
+    """A range that holds no year (e.g. --year-min 2027 capped at 2026).
+
+    Sent to OpenAlex it becomes publication_year:2027-2026, which the API rejects;
+    the right answer is simply nothing.
+    """
+    return year_min is not None and year_max is not None and year_min > year_max
+
+
 # How far back the recent leg looks. Rolling, not "this calendar year": in
 # January a calendar-year window would hold almost nothing.
 RECENT_WINDOW_DAYS = 365
@@ -496,10 +505,11 @@ def mid_window(
 def _title_abstract_filter_value(query: str) -> str:
     """The query as a ``title_and_abstract.search`` filter value.
 
-    Commas separate filters and ``|`` means OR inside a filter value, so either
-    character would break the filter; neither carries meaning in a search query.
+    Commas separate filters, so they become spaces (they carry no meaning in a
+    search query). ``|`` is OR inside a filter value; it is written out as OR so
+    "a|b" keeps meaning a or b instead of silently becoming a and b.
     """
-    return " ".join(query.replace(",", " ").replace("|", " ").split())
+    return " ".join(query.replace(",", " ").replace("|", " OR ").split())
 
 
 def search_works(
@@ -510,8 +520,11 @@ def search_works(
     work_type: Optional[str] = None,
 ) -> List[UnifiedPaperEntity]:
     """Keyword search with optional year + type filter. Default top-25 by relevance."""
+    year_max = _default_year_max(year_max)
+    if _empty_range(year_min, year_max):
+        return []
     q = Works().search(query)
-    year_filter = _year_filter(year_min, _default_year_max(year_max))
+    year_filter = _year_filter(year_min, year_max)
     if year_filter is not None:
         q = q.filter(publication_year=year_filter)
     if work_type:
@@ -527,6 +540,7 @@ def search_top_n_pages(
     year_max: Optional[int] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    title_abstract_only: bool = False,
 ) -> List[UnifiedPaperEntity]:
     """Deep crawl. Default top-100. Sort options:
     cited_by_count:desc / publication_date:desc / relevance_score:desc.
@@ -541,12 +555,14 @@ def search_top_n_pages(
     the citation leg to 9–47). ``date_from`` / ``date_to`` (ISO dates) narrow the
     publication date further, e.g. the recent leg's window.
     """
+    if _empty_range(year_min, year_max):
+        return []
     if ":" not in sort:
         sort_field, sort_dir = sort, "desc"
     else:
         sort_field, sort_dir = sort.split(":", 1)
 
-    if sort_field == "relevance_score":
+    if sort_field == "relevance_score" and not title_abstract_only:
         q = Works().search(query)
     else:
         q = Works().filter(title_and_abstract={"search": _title_abstract_filter_value(query)})
@@ -561,11 +577,46 @@ def search_top_n_pages(
     return _collect_pages(q, total_papers, _PER_PAGE)
 
 
+def _windowed_relevance(
+    query: str,
+    n: int,
+    year_min: Optional[int],
+    year_max: Optional[int],
+    window: Tuple[str, str],
+) -> List[UnifiedPaperEntity]:
+    """The ``n`` most relevant works in a publication-date window.
+
+    Title-and-abstract matches first, then full-text matches to fill up to ``n``.
+    Matching title and abstract only is the more precise ranking (2026-10-01,
+    last-year window, 8 topics: on-topic 30→39, 20→37, 27→44 of 50, none worse by
+    more than one) but it amplifies the query: a long run of bare words, every one
+    of them required, can leave a handful of matches (one query matched a single
+    paper). Filling from the full-text ranking keeps that case no worse than
+    before, and costs a call only when the precise set runs short.
+    """
+    precise = search_top_n_pages(query, total_papers=n, sort="relevance_score:desc",
+                                 year_min=year_min, year_max=year_max,
+                                 date_from=window[0], date_to=window[1],
+                                 title_abstract_only=True)
+    if len(precise) >= n:
+        return precise[:n]
+    try:
+        broad = search_top_n_pages(query, total_papers=n, sort="relevance_score:desc",
+                                   year_min=year_min, year_max=year_max,
+                                   date_from=window[0], date_to=window[1])
+    except OpenAlexUnavailable as exc:
+        exc.partial = precise + list(exc.partial or [])
+        raise
+    have = {p.paper_id for p in precise}
+    return (precise + [p for p in broad if p.paper_id not in have])[:n]
+
+
 # The three legs of double-sort, in run order. The order is part of the
 # agent-path contract (per_strategy_new_papers is reported in this order).
 #   cited     — the topic's most-cited work (title-and-abstract match)
 #   recent    — the most relevant work of the last RECENT_WINDOW_DAYS days (n),
-#               then of the MID_WINDOW_DAYS before that (n // 2)
+#               then of the MID_WINDOW_DAYS before that (n // 2); title-and-abstract
+#               matches first, topped up from full text (see _windowed_relevance)
 #   relevance — the most relevant work overall
 # The recent leg used to be "newest first" over a full-text match, which
 # returned whatever mentioned the words most recently: of 52 records dated
@@ -582,6 +633,8 @@ def run_leg(
 ) -> List[UnifiedPaperEntity]:
     """Run one double-sort leg (see DOUBLE_SORT_LEGS)."""
     year_max = _default_year_max(year_max)
+    if _empty_range(year_min, year_max):
+        return []
     if leg == "cited":
         return search_top_n_pages(query, total_papers=n, sort="cited_by_count:desc",
                                   year_min=year_min, year_max=year_max)
@@ -589,15 +642,11 @@ def run_leg(
         window = recent_window(year_min, year_max)
         if window is None:
             return []
-        papers = search_top_n_pages(query, total_papers=n, sort="relevance_score:desc",
-                                    year_min=year_min, year_max=year_max,
-                                    date_from=window[0], date_to=window[1])
+        papers = _windowed_relevance(query, n, year_min, year_max, window)
         earlier = mid_window(window, year_min)
         if earlier is not None and n // 2 > 0:
             try:
-                older = search_top_n_pages(query, total_papers=n // 2, sort="relevance_score:desc",
-                                           year_min=year_min, year_max=year_max,
-                                           date_from=earlier[0], date_to=earlier[1])
+                older = _windowed_relevance(query, n // 2, year_min, year_max, earlier)
             except OpenAlexUnavailable as exc:
                 exc.partial = papers + list(exc.partial or [])
                 raise
@@ -652,6 +701,8 @@ def count_title_abstract_matches(
     """
     y_max = year_max if year_max is not None else _today().year
     y_min = year_min if year_min is not None else y_max - 1
+    if _empty_range(y_min, y_max):
+        return 0, y_min, y_max
     q = (
         Works()
         .filter(title_and_abstract={"search": _title_abstract_filter_value(query)})
@@ -753,6 +804,8 @@ def find_review_articles(
     year_max: Optional[int] = None,
 ) -> List[UnifiedPaperEntity]:
     """Filter type='review' with optional year_min / year_max (inclusive)."""
+    if _empty_range(year_min, year_max):
+        return []
     q = Works().filter(type="review").search(topic)
     year_filter = _year_filter(year_min, year_max)
     if year_filter is not None:
@@ -1050,6 +1103,9 @@ _AGENT_SEARCH_NUDGE = (
 # nudge on every seed). stderr ONLY — stdout is never touched (R-11/R-19).
 _NUDGE_ON_SUBCOMMANDS = {"search", "double-sort"}
 
+# Retrieval subcommands whose missing --year-max defaults to the current year.
+_CAPPED_COMMANDS = {"search", "deep", "double-sort", "reviews"}
+
 
 def _wrap_envelope(
     data,
@@ -1113,6 +1169,10 @@ def _fallback_args(args) -> dict:
     a = {k: getattr(args, k, None) for k in
          ("query", "topic", "limit", "year_min", "year_max", "sort", "work_type")}
     a["n"] = getattr(args, "n", None) or getattr(args, "total_per_strategy", None)
+    if args.cmd == "search" and getattr(args, "recent", 0) and a.get("limit"):
+        # `search --recent N` returns up to limit + N records; capping the fallback
+        # at --limit cut off the recent layer and the fallback's own records.
+        a["limit"] = a["limit"] + args.recent
     if args.cmd == "journal-list":
         a["journals"] = JOURNAL_PRESETS.get(args.preset) or []
     return a
@@ -1354,6 +1414,10 @@ def _main_cli() -> None:
     p_presets = sub.add_parser("presets", help="List available journal presets")
 
     args = parser.parse_args()
+    # No end year given → this year, for every retrieval entry point and so also
+    # for the fallback source, which reads its arguments from here.
+    if args.cmd in _CAPPED_COMMANDS and getattr(args, "year_max", None) is None:
+        args.year_max = _today().year
     config = load_config()
     init_pyalex(config)
 

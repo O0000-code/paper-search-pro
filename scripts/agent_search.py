@@ -488,6 +488,8 @@ def _retrieve(
         the public search() API. (Documented limitation, not a correctness gap.)
     """
     warnings: List[str] = []
+    # No end year → this year, for the legs and for any fallback source alike.
+    year_max = openalex_helper._default_year_max(year_max)
 
     if source == "openalex":
         results: List[List[UnifiedPaperEntity]] = []
