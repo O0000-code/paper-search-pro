@@ -152,6 +152,17 @@ def test_a_handful_of_rcs7_papers_does_not_read_as_complete():
     assert snap["highly_relevant_count"] == 2
 
 
+def test_an_informative_estimate_does_not_round_to_full_coverage():
+    """Q1 = 1, Q2 = 22 over two searches: 99.95% before rounding (Codex review)."""
+    papers = [_p(f"10.1/{i}", 7) for i in range(23)]
+    twice = {_k(p) for p in papers[1:]}
+    occ = [twice | {_k(papers[0])}, set(twice)]
+    snap = dc.make_snapshot(_kg(papers), occasions=occ)
+    assert snap["method"] == "sample_coverage" and snap["relevance_band"] == 7
+    assert snap["coverage_estimate"] <= dc.MEASURED_CEILING
+    assert snap["ci_lower"] <= snap["coverage_estimate"]
+
+
 def test_when_no_band_says_anything_the_capped_prior_stands_in():
     a, b = _p("10.1/a", 7), _p("10.1/b", 6)
     kg = _kg([a, b, *[_p(f"10.1/n{i}", 2) for i in range(300)]])

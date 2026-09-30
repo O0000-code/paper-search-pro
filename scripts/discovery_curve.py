@@ -92,6 +92,7 @@ def compute_marginal_rates(snapshots: List[Dict]) -> List[float]:
 HIGHLY_RELEVANT_RCS = 7
 RELEVANCE_BANDS = (HIGHLY_RELEVANT_RCS, 6)
 NO_EVIDENCE_CEILING = 0.5
+MEASURED_CEILING = 0.99
 UNDERMIND_MEDIAN_TAU = 80.0
 
 
@@ -312,7 +313,10 @@ def make_snapshot(
             estimate, relevance_band = candidate, floor
             break
     if estimate:
-        point, lower, upper = estimate["coverage"], estimate["lower"], estimate["upper"]
+        # Two searches that overlap almost completely still give 99.9x%, which
+        # rounds to 100% in the report; a measured estimate stays below that.
+        point = min(estimate["coverage"], MEASURED_CEILING)
+        lower, upper = min(estimate["lower"], point), estimate["upper"]
         method = "sample_coverage"
     else:
         point, lower, upper = no_evidence_coverage(papers_evaluated)
