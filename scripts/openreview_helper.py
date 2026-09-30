@@ -304,6 +304,30 @@ def _title_key(title: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+_BOOLEAN_TOKENS = {"AND", "OR", "NOT"}
+
+
+def plain_terms(query: str) -> str:
+    """The query as plain words for OpenReview's term search.
+
+    PSP's OpenAlex queries may be Boolean — ("short video" OR TikTok) AND
+    (attention OR concentration). OpenReview does not parse that: quotes and
+    parentheses came back with dynamic-pricing and min-cost-flow papers for a
+    diffusion-model query (2026-10-01), while the same words without the syntax
+    ranked on-topic papers first. So quotes, brackets and upper-case AND / OR /
+    NOT are dropped, words kept once each, in order. A plain query is unchanged.
+    """
+    if not re.search(r'["()]|\b(?:AND|OR|NOT)\b', query):
+        return query
+    words, seen = [], set()
+    for w in re.findall(r"[^\s\"()]+", query):
+        if w in _BOOLEAN_TOKENS or w.lower() in seen:
+            continue
+        seen.add(w.lower())
+        words.append(w)
+    return " ".join(words)
+
+
 def _fetch_page(query: str, offset: int, *, session=None) -> Tuple[Optional[list], str]:
     """Fetch one page. Returns (notes, "ok") or (None, <stop reason>). Never raises."""
     params = {
@@ -382,7 +406,7 @@ def search(
             return []
         if year_min is not None and year_max is not None and year_min > year_max:
             return []
-        query = query.strip()
+        query = plain_terms(query.strip())
         stats["query"] = query
         seen_ids: set = set()
         seen_titles: set = set()

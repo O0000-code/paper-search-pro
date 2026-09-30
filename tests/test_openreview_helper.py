@@ -754,3 +754,32 @@ def test_neurips_datasets_and_benchmarks_track_is_kept_and_labelled(venueid, ven
 ])
 def test_other_data_track_ids_are_dropped(venueid):
     assert orh._note_to_entity(_note(venueid, "Submitted to NeurIPS 2025 Datasets and Benchmarks Track")) is None
+
+
+# ---------------------------------------------------------------------------
+# Boolean queries become plain words (added by the main agent, 2026-10-01)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("query,expected", [
+    ('("diffusion language model" OR "masked diffusion") AND (reasoning OR inference)',
+     "diffusion language model masked reasoning inference"),
+    ('("short video" OR TikTok) AND (attention OR concentration)',
+     "short video TikTok attention concentration"),
+    ("diffusion language model", "diffusion language model"),          # plain: unchanged
+    ("memory or attention", "memory or attention"),                    # lower-case 'or' is a word
+])
+def test_plain_terms(query, expected):
+    assert orh.plain_terms(query) == expected
+
+
+def test_search_sends_plain_terms(monkeypatch):
+    sent = []
+
+    class _S:
+        def get(self, url, params=None, **_k):
+            sent.append(params["term"])
+            return _FakeResp({"count": 10000, "notes": []})
+
+    orh.search('("short video" OR TikTok) AND attention', n=5, session=_S())
+    assert sent == ["short video TikTok attention"]
