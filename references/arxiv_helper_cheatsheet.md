@@ -1,26 +1,34 @@
 # arxiv_helper CLI cheatsheet
 
-Referenced by `SKILL.md` STEP 4 (L2 booster) — primary use: T-0~T-4 freshness window for preprints OpenAlex hasn't indexed yet (OA lags 4-5 days for arXiv ingestion).
+Referenced by `SKILL.md` STEP 4 (L2 booster). Two uses: the **recent layer** for CS/AI topics (the most relevant preprints of the last year) and the **freshness sentinel** (the last 4 days, which no index has yet).
 
-**Role**: L2 Freshness Sentinel. arXiv's killer feature is the recent-preprint window; beyond ~4 days, 39/40 (98%) of arXiv papers are also in OpenAlex (SA-V2 24_v2_l2_booster_test §4 verified). Don't use arXiv for retrospective search — use OA.
+**Role**: L2 booster. The old premise — "beyond ~4 days, 98% of arXiv papers are also in OpenAlex" (SA-V2, 39/40) — no longer held on 2026-09-30: 7 of 20 recent on-topic OpenReview papers were absent from OpenAlex, and those present were not retrieved. So CS/AI topics run the one-year recent layer, not only the sentinel.
 
 **Entry point**: `python3 -m scripts.arxiv_helper <subcmd> [args]`.
-**No key required**. Rate limit: 1 req per 3 s (arXiv ToU enforced). Helper SDK uses `delay_seconds=4` (1 s safety margin) + `page_size=100`.
+**No key required**. Rate limit: 1 req per 3 s (arXiv ToU enforced). Helper SDK uses `delay_seconds=4` (1 s safety margin) + `page_size=100` + a 20 s request timeout. On failure or timeout the CLI prints `[]` and a stderr note instead of crashing.
+
+**Plain words are all required.** arXiv joins bare words with OR ("diffusion language model" returned Yiddish and Romansh language-model papers), so the helper sends `all:diffusion AND all:language AND all:model`. A query that already uses `AND` / `OR` / `ANDNOT` or a field prefix (`ti:`, `abs:`, `au:` …) goes through as written; quoted phrases stay phrases. Keep queries to the core 2–4 terms: every extra word narrows.
 
 ## Three subcommands
 
 | Cmd | Use | Tier |
 |---|---|---|
-| `freshness` | T-0~T-N day window (default 4 = OA lag) | Standard+ when freshness signal in query |
-| `search` | General arXiv search by submitted/relevance | Audit |
+| `search --sort relevance --since-days 365` | Recent layer: most relevant preprints of the last year | Every tier, CS/AI topics |
+| `freshness` | T-0~T-N day window (default 4 = OA lag) | Freshness signal in query |
+| `search` (no window) | General arXiv search by submitted/relevance | Audit |
 | `get` | Single paper by arxiv_id | Diagnostic |
 
 ## Syntax + examples
 
 ```bash
-# freshness — primary use: recent preprints OA can't yet see
+# recent layer — CS/AI topics
+python3 -m scripts.arxiv_helper search "diffusion language model" \
+    --sort relevance --since-days 365 --limit 30 > ./paper-search-results/<id>/raw/arxiv.json
+# 2026-10-01: 30/30 results had "diffusion" in the title (before the AND fix, the first six included Yiddish and Romansh language-model papers)
+
+# freshness — preprints OA can't yet see
 python3 -m scripts.arxiv_helper freshness "LLM reasoning" --days 4 --limit 30 \
-    > ./paper-search-results/<id>/raw/arxiv.json
+    > ./paper-search-results/<id>/raw/arxiv_fresh.json
 # Returns preprints with published >= now - 4 days. arXiv returns date-desc, so this
 # truncates cleanly once we drop below cutoff.
 

@@ -196,6 +196,20 @@ Then act on the parse:
 - **`ambiguous == True`** (a tier or quartile with no platform word, e.g. a bare "Q1" or "SSCI 一区" — the recogniser never guesses a platform): **ask the user one short question inline** before going further, offering the platforms in `candidates` — *"按 JCR 还是 SJR 的 Q1 筛?"* / *"按中科院分区还是 JCR 分区?"*, plus *"顺便要不要设为以后的默认?"* The CLI/headless path cannot ask, so this inline question is specifically the human path's job.
 - If the query mentions no partition at all, skip this entirely — STEP 1 proceeds exactly as before.
 
+**Time scope — decide the year window before retrieving.** 📖 `references/query_planner.md` §"Year filter heuristics". Sort the request into one of four cases:
+
+- **Explicit range** ("2020–2024", "近两年", "2023 年以后", "last 3 years", "只要 2026 年的") → set `year_min` / `year_max`; relative ranges count back from the current year ("近两年" = current year − 1 … current year). No question. One line: *"本次限定 2025–2026。"*
+- **"New" without a number** ("最新", "最近", "近年", "前沿", "recent", "latest", "cutting-edge") → how recent is genuinely ambiguous and changes the result set. If `config.recent_years` is set, use it and say so in one line. Otherwise **ask one question** — in the same message as any language or rank question from above, never a second round:
+
+  > 「最新」想要多近？近一年 / 近两年 / 近三年 / 近五年，或者直接给区间（如 2023–2026）。说「以后都这样」我就记成默认。
+
+  Only an explicit "以后都…" persists (`recent_years: <N>` in `~/.paper-search-pro/config.yaml`, same mechanism as `search_language`).
+- **Classics** ("经典", "奠基", "起源", "seminal", "classic") → no year window; add `seminal` in STEP 3.
+- **Nothing said** (most requests) → no year window, and **do not ask**: STEP 3's recent leg still brings the most relevant papers of the last year and of the two years before. One line: *"没说时间范围：本次不限年份，并单独补一层近一年的新文献。只要近几年的，说「只要近两年」即可。"* If a language or rank question is being asked anyway, you may offer the time choices in that same message.
+- **Audit tier**: date limits belong to the protocol (PRISMA-S reports them) — confirm the window as part of the Audit confirmation you already ask for.
+
+Where the host has a structured-choice tool (Claude Code's AskUserQuestion; Codex's `request_user_input` when it is listed), ask with these options plus free input; otherwise ask in text. The agent/headless path never asks — it takes `--year-min` / `--year-max` as given.
+
 Even Quick tier needs a lightweight version of this step — never skip silently. Output: 1-3 search strategies (concept blocks + year range + work type filter). Write to `"$SEARCH_DIR/query_plan.json"` as `{"strategies": [{"query": "..."}, ...], "year_min": …, "year_max": …, "rank_filter": {"platform": "cas", "tiers": [1, 2]}, "work_type_filter": …}` (other keys are fine; omit what does not apply). The report's audit tab and the PRISMA-S log (STEP 12a, 13) read the queries and filters from it.
 
 **Define `SEARCH_TOPIC`, but do not freeze the report title yet.** Read `references/report_title.md` §"STEP 1". `SEARCH_TOPIC` is the normalized semantic retrieval scope derived from the concept blocks, not the user's prose with a few regex matches removed. Strip greetings, tool/output instructions, tier/language/date/database constraints, and other operating directions; retain population, exposure/intervention, outcome, mechanism, and setting only when they are scientific concepts. Keep the exact user message separately as `USER_QUERY` for PRISMA-S. The final visual title is authored in STEP 11 after the retained evidence is known.
@@ -208,7 +222,8 @@ Even Quick tier needs a lightweight version of this step — never skip silently
 
 - **English space** (`en`, or the English half of `both`) — unchanged from v2.2:
   - Medical signals (RCT, PRISMA, MeSH, clinical, disease names) → enable PubMed
-  - CS/preprint signals (preprint, arXiv, NeurIPS, transformer, "最新", 2024+) → enable arXiv
+  - CS / AI topics (machine learning, LLM, transformer, NeurIPS, computer vision, …) → enable arXiv's recent layer **and OpenReview** (ICLR / NeurIPS / ICML / COLM / TMLR review platform — adds accepted-venue labels such as "ICLR 2026 Oral" and a few papers only it holds)
+  - Freshness signals (preprint, "最新", "this week") → also the 4-day arXiv sentinel
   - Cross-domain (e.g. "AI in radiology") → enable both
   - Pure social science / humanities → OpenAlex only
   - *(Judgment call: a core AI/CS query may also raise the primary engine to Semantic Scholar — see `source_routing.md` §"AI / CS queries → consider Semantic Scholar as primary".)*
@@ -217,7 +232,7 @@ Even Quick tier needs a lightweight version of this step — never skip silently
   - Medical signal → add **yiigle** (中华医学期刊全文数据库); PubMed still covers MEDLINE-indexed 中华 journals, so the two are complementary
   - Pure sci-tech with neither → Chinese side runs on OpenAlex only (sci-tech Chinese core journals mostly register DOIs, so OpenAlex covers them well)
 
-**Report one line** (axis-3 style — a statement, not a question; 22 §6.3). For an English-only run this is the existing PubMed/arXiv notice, unchanged (*"I detected medical + CS signals — also searching PubMed and arXiv. Override with `--no-pubmed`."*). For a Chinese space, e.g.:
+**Report one line** (axis-3 style — a statement, not a question; 22 §6.3). For an English-only run this is the PubMed/arXiv notice (*"I detected medical + AI signals — also searching PubMed, arXiv (last year) and OpenReview. Override with `--no-pubmed`."*). For a Chinese space, e.g.:
 
 > 本次按「中英都要」检索;中文侧检测到社科主题,已加 NSSD(国家哲社文献中心)。想去掉说 `--no-nssd`,只查一边说"只要英文/中文"。
 
@@ -238,20 +253,22 @@ For Standard+ tiers, use multi-strategy deep crawl:
 ```bash
 PYTHONPATH=$PSP_HOME \
   python3 -m scripts.openalex_helper double-sort "<query>" \
-    --n 50 --year-min 2018 \
+    --n 50 \
     > "$SEARCH_DIR/raw/openalex.json"
 ```
 
-For Quick tier, single-strategy is fine:
+Three legs, one file: **cited** (the topic's most-cited work), **recent** (the most relevant work of the last 12 months, then of the two years before), **relevance** (the best matches overall). The recent leg is what finds this year's papers — relevance ranking leans on citations, so without it new work barely appears.
+
+For Quick tier, relevance plus a smaller recent layer:
 
 ```bash
 PYTHONPATH=$PSP_HOME \
   python3 -m scripts.openalex_helper search "<query>" \
-    --limit 30 --year-min 2018 \
+    --limit 30 --recent 20 \
     > "$SEARCH_DIR/raw/openalex.json"
 ```
 
-If the STEP 1 query plan has an end year, add `--year-max YYYY` (inclusive) to either command.
+Add the STEP 1 window to either command: `--year-min YYYY` / `--year-max YYYY` (inclusive). No window given → none is added (the helpers cap at the current year themselves). The recent leg stays inside the window: for a window ending in the past, it takes that window's last year.
 
 **`raw/` holds retrieval output only — one file per search, as the helpers wrote it.** STEP 7 estimates coverage from how often these separate searches found the same papers. A subset, merge or screened copy you derive goes in `"$SEARCH_DIR/_working/"`, not `raw/`: in `raw/` it would look like another search that re-found everything.
 
@@ -279,19 +296,41 @@ The full subcommand + flag reference (`search` / `double-sort` / `seminal` / `re
   ```
 - Generic `pubmed_helper search` is a fallback when no MeSH term is known — prefer `enrich` or `search-mesh` whenever possible.
 
-**arXiv — only if query contains freshness signals (preprint, 最新, 2024+):**
+**arXiv — CS / AI topics: the recent layer.** The most relevant preprints of the last year (OpenAlex indexes arXiv late and incompletely: in one check, 7 of 20 recent on-topic papers from OpenReview were not in OpenAlex):
+
+```bash
+PYTHONPATH=$PSP_HOME \
+  python3 -m scripts.arxiv_helper search "<query>" \
+    --sort relevance --since-days 365 --limit 30 \
+    > "$SEARCH_DIR/raw/arxiv.json"
+```
+
+**Freshness signals ("最新", preprint, "this week") — also the 4-day sentinel**, for preprints too new for any index:
 
 ```bash
 PYTHONPATH=$PSP_HOME \
   python3 -m scripts.arxiv_helper freshness "<query>" \
     --days 4 --limit 30 \
-    > "$SEARCH_DIR/raw/arxiv.json"
+    > "$SEARCH_DIR/raw/arxiv_fresh.json"
 ```
+
+Plain words in the query are all required (arXiv would OR them). Both commands print `[]` and a stderr note when arXiv fails or times out — carry on without it (Rule C: say so in one line).
 
 Subcommand reference:
 - `arxiv_helper freshness <query> --days N --limit M [--all-cats]`
-- `arxiv_helper search <query> --limit M --sort submitted|relevance|lastUpdated [--all-cats]`
+- `arxiv_helper search <query> --limit M --sort submitted|relevance|lastUpdated [--since-days N] [--all-cats]`
 - `arxiv_helper get <arxiv_id>`
+
+**OpenReview — CS / AI topics only.** 📖 `references/openreview_helper_cheatsheet.md`. The review platform of ICLR, NeurIPS, ICML, COLM and TMLR. The helper returns only accepted papers, labelled like "ICLR 2026 Oral" — the label OpenAlex and Semantic Scholar lack (they list these as arXiv preprints). STEP 5 merges each into the same paper's arXiv/OpenAlex record.
+
+```bash
+PYTHONPATH=$PSP_HOME \
+  python3 -m scripts.openreview_helper --search "<query>" --n 30 \
+    [--year-min YYYY] [--year-max YYYY] \
+    --output-file "$SEARCH_DIR/raw/openreview.json"
+```
+
+Only its search endpoint is open to anonymous use; if OpenReview blocks it, the helper returns `[]` — say so in one line and carry on.
 
 **NSSD / yiigle — Chinese boosters (ONLY when STEP 1-2 put this run in the `zh` space, and only the one(s) the discipline routing selected):**
 
@@ -357,7 +396,7 @@ It labels every paper with all three platforms, keeps the requested ones, and wr
 
 📖 BEFORE THIS STEP, read: `references/classifier_subagent_prompt.md` and `references/rcs_rubric.md`.
 
-Split the KG into batches of 10 papers each. Write to `"$SEARCH_DIR/batches/batch_NNN.jsonl"`.
+Split the KG into batches of 10 papers each. Write to `"$SEARCH_DIR/batches/batch_NNN.jsonl"`. If the pool is larger than the tier can classify, trim evenly across the raw files and never by citation count: new papers have almost none, so a citation cut removes exactly the recent layer.
 
 **Before dispatch**, expand `$PSP_HOME/references/rcs_rubric.md` into the actual absolute path (e.g. `/Users/alice/.claude/skills/paper-search-pro/references/rcs_rubric.md`) and substitute it for `{rubric_path}` in the classifier prompt template. Each SubAgent runs in its own shell where `$PSP_HOME` is **not** exported — passing the literal `$PSP_HOME` token would leave the SubAgent unable to find the rubric, which silently degrades scoring quality. See `references/classifier_subagent_prompt.md` for the full placeholder table.
 

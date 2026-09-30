@@ -101,7 +101,7 @@ For Standard+ tiers, run 2-3 strategies. Each strategy targets a different angle
 | Strategy | Use for | OpenAlex helper CLI |
 |----------|---------|---------------------|
 | **By citation** | High-cited classics + foundational work | `openalex_helper deep "<q>" --sort cited_by_count:desc` |
-| **By recency** | Latest published in the area | `openalex_helper deep "<q>" --sort publication_date:desc` |
+| **By recency** | Most relevant work of the last year, then the two years before | `double-sort`'s recent leg (or `search --recent N`) — not `deep --sort publication_date:desc`, which returns the newest title/abstract matches in date order, relevant or not |
 | **By relevance** | Best topical match | `openalex_helper deep "<q>" --sort relevance_score:desc` |
 | **By seminal year cutoff** | Classics only (pre-2015) | `openalex_helper seminal "<topic>" --year-max 2015` |
 | **By review type** | Existing reviews on the topic | `openalex_helper reviews "<topic>"` |
@@ -145,12 +145,16 @@ The CN→EN table below is the **English-side expansion vocabulary**: it applies
 
 ## Year filter heuristics
 
-- Specific year range (e.g. "2010-2024"): use `year_min` / `year_max`
-- "Recent" / "latest" (no year): default `year_min = current_year - 5`
+When to ask and what to say: SKILL.md STEP 1 "Time scope". The windows:
+
+- Specific range ("2010-2024", "近两年", "2023 年以后"): `year_min` / `year_max`; relative ranges count back from the current year
+- "Recent" / "最新" with no number: ask (or use `config.recent_years`); never silently assume five years
 - "Last decade": `year_min = current_year - 10`
-- "Classics": no year filter, sort by citation_count
-- Audit tier: respect user's explicit `IC: 2010-present` etc.
-- Quick tier without year: no filter, sort relevance
+- "Classics": no year filter; add `seminal`
+- Nothing said: no year filter at any tier. The recent leg (double-sort, or `search --recent` at Quick) still brings the last year and the two years before, so new work is present without a window
+- Audit tier: respect the protocol's explicit `IC: 2010-present` etc.
+
+Why a window alone is not enough: relevance ranking leans on citations, so inside a five-year window the relevance leg still favours the oldest years. The recent leg is what finds this year's papers.
 
 ## Anti-patterns
 

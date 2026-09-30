@@ -347,6 +347,11 @@ class Config:
     # §"Language scope".
     search_language: str = "auto"          # auto | en | zh | both
 
+    # What "最新 / recent" means when the user gives no number: N years back
+    # from the current year. None = ask once per run (SKILL.md STEP 1 "Time
+    # scope"). Written only when the user says "以后都这样".
+    recent_years: Optional[int] = None
+
     # ---- Source routing (v2.2, additive — defaults preserve v2.0/2.1 behavior) ----
     # Which source the search entry-point treats as primary. "openalex" = current
     # behavior unchanged. "semantic_scholar" = use SS bulk search as primary.

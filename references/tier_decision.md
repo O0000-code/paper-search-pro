@@ -6,8 +6,8 @@
 
 | Tier | Wall-clock (ideal) | Wall-clock (realistic) | Papers | OpenAlex strategy | L2 boosters | L3 enrich | Citation hops |
 |------|-----------:|-----------:|-------:|-------------------|-------------|-----------|--------------:|
-| Quick | ~5 min | **~7-9 min** | 20-60 | single-strategy, top-30 | usually skip | skip | 0 |
-| **Standard** (default) | ~10 min | **~14-18 min** | 60-180 | `double-sort` 3-strategy top-50 | per source_routing | top-N rcs≥6 | 1 |
+| Quick | ~5 min | **~7-9 min** | 20-60 | relevance top-30 + recent 20 (`search --recent 20`) | usually skip | skip | 0 |
+| **Standard** (default) | ~10 min | **~14-18 min** | 60-180 | `double-sort` top-50 per leg (cited / recent / relevance) | per source_routing | top-N rcs≥6 | 1 |
 | Deep | ~30 min | **~40-50 min** | 180-400 | `double-sort` top-100 + seminal + reviews | per source_routing | top-N rcs≥6 | 1-2 |
 | Audit | ~2-3 hr | **~3-4 hr** | 400-1000+ | full multi-strategy + journal whitelist | independent PubMed search allowed | full top-N | 2 + venue whitelist |
 

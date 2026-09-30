@@ -62,6 +62,10 @@ language: "en"                  # en | zh — REPORT UI chrome language (auto-de
 # §"Language scope"。
 search_language: auto            # auto | en | zh | both
 
+# 「最新 / 最近」没说几年时按近几年算（1 / 2 / 3 / 5 …）。留空 = 每次问一句。
+# 只有用户说「以后都这样」才写这里。What "recent" means when no number is given.
+recent_years:
+
 
 # ============================================================================
 # Source routing (v2.2 — additive; leave at defaults for v2.0/2.1 behavior)

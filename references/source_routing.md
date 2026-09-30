@@ -84,7 +84,8 @@ Markers are **routing/filter conditions, not search terms** — once a marker se
 
 ```
 1. Detect medical signals → enable PubMed enricher
-2. Detect arXiv/freshness signals → enable arXiv freshness sentinel
+2. Detect CS/AI signals → enable arXiv's recent layer (last year, by relevance) + OpenReview;
+   freshness signals → also the 4-day arXiv sentinel
 3. Cross-domain whitelist match → force BOTH PubMed + arXiv (silent upgrade)
 4. Pure non-L2 signals AND no medical/CS hits → OpenAlex only
 5. Ambiguous → default upgrade to "BOTH PubMed + arXiv" (Recall > Precision)
@@ -190,7 +191,7 @@ The OpenAlex open impact figure (`openalex_2yr_mean_citedness`) is **NOT** the J
 
 ## arXiv enable rules
 
-**Judgment, not string-match** (same rule): the tables below **calibrate what a CS/AI or freshness-driven query looks like** — *you* decide whether the query wants the arXiv freshness sentinel and enable it accordingly. Meaning over tokens: `attention` in a psychology query is not the `attention mechanism` of a CS one. When torn, prefer recall.
+**Judgment, not string-match** (same rule): the tables below **calibrate what a CS/AI or freshness-driven query looks like** — *you* decide whether the query wants arXiv and enable it accordingly. A CS/AI topic gets the recent layer (`arxiv_helper search --sort relevance --since-days 365`) and OpenReview; a freshness word adds the 4-day sentinel on top. Meaning over tokens: `attention` in a psychology query is not the `attention mechanism` of a CS one. When torn, prefer recall.
 
 ### Strong CS/AI-or-freshness signals — the surest tells (any one usually means "run arXiv")
 
@@ -285,4 +286,5 @@ If two records share the same `title` + `year` but have **different DOIs**, **ke
 - **arXiv DOI case drift**: arXiv emits `10.48550/arXiv.<id>` (capital X), OpenAlex normalizes to `10.48550/arxiv.<id>` (lowercase x). The resolver must lowercase before comparing. Already handled by `_strip_doi_prefix()`.
 - **K&T 1979 prospect theory has `references=[]` in OpenAlex** — an OpenAlex upstream takedown for pre-2000 papers. Accept the empty list; do not retry or attempt repair. SA-Z2 F19 confirmed.
 - **NEJM clinical trial papers have empty CrossRef `clinical-trial-number`** (SA-V1) — fall back to PubMed `clinical_trial_numbers` parsing.
-- **OpenAlex 3-day arXiv index lag**: papers from T-0 to T-2 are 0% in OpenAlex, T-3 partial. Only run arXiv freshness sentinel for the 4-5 day window beyond OpenAlex's lag.
+- **OpenAlex 3-day arXiv index lag**: papers from T-0 to T-2 are 0% in OpenAlex, T-3 partial — the 4-day sentinel covers that. Beyond it OpenAlex is still incomplete for arXiv (2026-09-30: 7 of 20 recent on-topic OpenReview papers absent), which is why CS/AI topics also run the one-year recent layer.
+- **OpenReview (CS/AI only)**: accepted ICLR / NeurIPS / ICML / COLM / TMLR papers with their acceptance label; see `openreview_helper_cheatsheet.md`. Search endpoint only (the per-venue listing is behind a human check); an empty result means blocked or nothing accepted, not "no literature".

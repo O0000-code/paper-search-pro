@@ -10,10 +10,10 @@ Referenced by `SKILL.md` STEP 3 (always-on L1 retrieval) and STEP 9 (citation ex
 
 | Cmd | Use | Default budget |
 |---|---|---|
-| `search` | Keyword + year + type filter, top-N by relevance | limit=25 |
+| `search` | Keyword + year + type filter, top-N by relevance; `--recent N` adds a recent layer | limit=25 |
 | `get` | Single paper by OA-ID or DOI | n/a |
 | `deep` | Top-N by a single sort (cited / recency / relevance) | n=100 |
-| `double-sort` | Multi-strategy combine + cross-strategy boost | n=50 per strat |
+| `double-sort` | Three legs (cited / recent / relevance) combined | n=50 per leg |
 | `seminal` | High-cited classics (year<=year_max, cited desc) | limit=10 |
 | `reviews` | type=review filter | limit=10 |
 | `journal-list` | Restrict to a JOURNAL_PRESETS whitelist | limit=25 |
@@ -25,8 +25,8 @@ Referenced by `SKILL.md` STEP 3 (always-on L1 retrieval) and STEP 9 (citation ex
 ## Syntax + examples
 
 ```bash
-# Search — Quick tier default; broad keyword scan
-python3 -m scripts.openalex_helper search "prospect theory" --limit 30 --year-min 2018
+# Search — Quick tier default; relevance top-30 plus 20 recent papers (+10 from the two years before)
+python3 -m scripts.openalex_helper search "prospect theory" --limit 30 --recent 20
 
 # Get — single paper lookup; both forms accepted
 python3 -m scripts.openalex_helper get W3011865677
@@ -37,12 +37,19 @@ python3 -m scripts.openalex_helper get https://doi.org/10.1038/x
 python3 -m scripts.openalex_helper deep "working memory training" --n 100 \
     --sort cited_by_count:desc --year-min 2015
 # Valid --sort: cited_by_count:desc | publication_date:desc | relevance_score:desc
+# Any sort but relevance matches title + abstract only (full-text matching ranked by
+# citations or date returned mostly off-topic papers: 0–8 / 0–24 of 50 on topic, 8 topics).
 
 # Double-sort — Standard+/Deep multi-strategy (RECOMMENDED)
 python3 -m scripts.openalex_helper double-sort "attachment human-robot interaction" \
-    --n 50 --year-min 2018 > raw/openalex.json
-# Combines cited + recent + relevance, papers seen in ≥2 strategies ranked higher.
-# End year: add --year-max YYYY (inclusive). search / deep / double-sort / reviews all accept it.
+    --n 50 > raw/openalex.json
+# Legs: cited (title+abstract match, by citations) · recent (relevance within the last 365
+# days: n papers, then the 730 days before: n/2) · relevance (overall).
+# Order: papers several legs found first, then the legs take turns — never by citations
+# alone, which would sink every new paper to the end.
+# Years: --year-min / --year-max YYYY (inclusive); search / deep / double-sort / reviews all
+# accept them. No --year-max → capped at the current year (OpenAlex has 2027–2050 dated junk).
+# The recent leg stays inside the window: a window ending in the past gets its own last year.
 
 # Seminal — high-cited classics (Deep tier signature move)
 python3 -m scripts.openalex_helper seminal "prospect theory" --year-max 2000 --limit 15
