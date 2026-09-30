@@ -143,6 +143,25 @@ The CN→EN table below is the **English-side expansion vocabulary**: it applies
 
 **Markers that selected the space are not search terms.** Phrases that routed the space (`CSSCI`, `中文文献`, `SSCI`, `知网`, …) are filter/routing conditions — strip them from the topic before retrieval, exactly like `rank_intent` strips "中科院一区" (see `source_routing.md` §"Language scope"). Searching for the literal string "CSSCI" would return papers *about* CSSCI, not papers *on* your topic.
 
+## How OpenAlex reads a query
+
+This decides recall more than any other choice in STEP 1, and it fails silently.
+
+- **Every bare word is required.** `short video college students attention concentration` means short AND video AND college AND students AND attention AND concentration. Synonyms written as words therefore *exclude* each paper that uses only one of them.
+- **Write concept blocks: synonyms in OR, blocks in AND, phrases in quotes.** `("short video" OR "short-form video" OR TikTok OR Douyin) AND (attention OR concentration OR procrastination)`. Two or three blocks for retrieval; exports to Boolean libraries can carry more (`search_export/methodology.md`).
+- **Leave the population / setting block out of at least one strategy.** "college students" drops every paper that says "young adults" or "undergraduates"; the classifier can judge the population afterwards.
+- **Keep generic words out of OR groups** (interest, effect, use, role, development, exploration). One of them in a block lets thousands of loosely related papers match and buries the ones you want.
+- The search matches title, abstract and — where OpenAlex has it — full text. The cited and recent legs match title and abstract only, so a well-formed query matters most there.
+
+| Measured 2026-10-01, a user's own searches | Title+abstract matches in the window | Known on-topic papers retrieved |
+|---|---|---|
+| `short-form video use college university students attention attentional control sustained attention concentration` (11 bare words, 2021–26) | 1 | 2 of 6 |
+| `("short video" OR "short-form video" OR TikTok OR Douyin) AND (attention OR attentional OR concentration OR procrastination OR burnout)` | 5,014 | 4 of 6 |
+| `curiosity interest epistemic emotions development children` (2025–26) | 1 | 0 of 3 |
+| `(curiosity OR "epistemic emotion" OR "information seeking") AND (child OR children OR infant OR infants OR toddler)` | 2,220 | 2 of 3 |
+
+The OpenAlex helpers print a warning for six or more bare terms without OR, and STEP 3's `count` says when fewer than 30 works match — both mean: restructure before classifying. arXiv also requires every bare word (the helper sends `all:` terms); OpenReview does not parse Boolean syntax, so its helper sends the words alone.
+
 ## Year filter heuristics
 
 When to ask and what to say: SKILL.md STEP 1 "Time scope". The windows:
@@ -160,4 +179,4 @@ Why a window alone is not enough: relevance ranking leans on citations, so insid
 
 - Don't filter by `language=english` at the OpenAlex level — too restrictive, drops Chinese-Japanese-Korean studies that have English abstracts.
 - Don't add `AND "human"` to medical queries — half the relevant papers don't have "human" in title/abstract; rely on OpenAlex topic clustering instead.
-- Don't combine more than 4 AND blocks — recall craters. If you have 5+ concepts, split into 2 strategies and merge. **This ceiling is an OpenAlex relevance-engine heuristic, not a Boolean-library rule** — Boolean-library exports routinely AND 5–8 concept blocks (see `search_export/methodology.md` §2.2); do not inherit this ≤4 cap when exporting a professional search string, and it does not constrain the 5-block SPIDER example above.
+- Don't combine more than 4 AND blocks — recall craters. Bare words count as blocks: see "How OpenAlex reads a query". If you have 5+ concepts, split into 2 strategies and merge. **This ceiling is an OpenAlex relevance-engine heuristic, not a Boolean-library rule** — Boolean-library exports routinely AND 5–8 concept blocks (see `search_export/methodology.md` §2.2); do not inherit this ≤4 cap when exporting a professional search string, and it does not constrain the 5-block SPIDER example above.

@@ -172,6 +172,8 @@ The detector routes Japanese / Korean / European queries to **English** (the bun
 - **If a rank ambiguity (bare "Q1") also fired this run, merge both questions into ONE message** — ask language + platform together, never in two rounds (over-asking is a red line).
 - Once the space is known, phrase the query per `references/query_planner.md` §"Cross-language query handling": **`zh` keeps Chinese search terms (no translation)**, `en` uses the English terms (v2.2 behavior), `both` builds two sets.
 
+**Write each retrieval query as concept blocks, not a word list.** OpenAlex requires every bare word, so synonyms written as words exclude every paper that uses only one of them (a user's 11-word query matched one paper by title and abstract over five years). Synonyms go in OR groups, 2–3 blocks joined by AND, phrases in quotes — `("short video" OR TikTok OR Douyin) AND (attention OR concentration)` — and keep the population block out of at least one strategy. 📖 `references/query_planner.md` §"How OpenAlex reads a query".
+
 Apply PICO / SPIDER / PEO depending on domain:
 - Medical/clinical → PICO (Population/Intervention/Comparator/Outcome)
 - Qualitative → SPIDER
@@ -276,6 +278,8 @@ PYTHONPATH=$PSP_HOME \
   python3 -m scripts.openalex_helper count "<query>" [--year-min YYYY] [--year-max YYYY] \
     > "$SEARCH_DIR/pool_count.json"
 ```
+
+If `count` reports fewer than 30 works, or a helper warns about a long run of bare words, the query is too narrow (unless the topic is genuinely niche): regroup it as in STEP 1 and rerun retrieval before classifying.
 
 Add the STEP 1 window to the retrieval commands too: `--year-min YYYY` / `--year-max YYYY` (inclusive). No window given → none is added (the helpers cap at the current year themselves). The recent leg stays inside the window: for a window ending in the past, it takes that window's last year.
 

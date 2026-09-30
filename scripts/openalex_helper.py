@@ -14,6 +14,7 @@ Key implementation decisions (from SA-Y2 / SA-Z2 empirical testing):
 
 from typing import Dict, List, Optional, Tuple
 import datetime
+import re
 import sys
 
 import pyalex
@@ -436,6 +437,37 @@ def _default_year_max(year_max: Optional[int]) -> int:
     dates, data errors); one uncapped run pulled in 81 of them, all off-topic.
     """
     return year_max if year_max is not None else _today().year
+
+
+# A query with this many bare words and no OR gets a warning (see query_warning).
+_BARE_WORD_WARN_AT = 6
+# A title-and-abstract match count below this gets a "too narrow?" hint.
+_NARROW_POOL_BELOW = 30
+
+
+def query_warning(query: str) -> Optional[str]:
+    """A one-line warning when the query is a long run of bare words, else None.
+
+    OpenAlex requires every bare word. Agents tend to list synonyms as words —
+    "short-form video use college university students attention attentional
+    control sustained attention concentration" — which silently demands all of
+    them: that query matched a single paper by title and abstract across
+    2021–2026, and four of six on-topic papers OpenAlex held never came back
+    (2026-10-01). Advisory only; the query runs as written.
+    """
+    unquoted = re.sub(r'"[^"]*"', " ", query)
+    if re.search(r"\bOR\b", unquoted):
+        return None
+    words = [w for w in re.findall(r"[^\s()]+", unquoted) if w not in ("AND", "NOT")]
+    n = len(words) + len(re.findall(r'"[^"]*"', query))
+    if n < _BARE_WORD_WARN_AT:
+        return None
+    return (
+        f"[paper-search-pro] this query has {n} terms and OpenAlex requires every one, "
+        "so a paper using a synonym for any of them is excluded. Group synonyms with OR "
+        "in 2-3 concept blocks, e.g. (\"short video\" OR TikTok) AND (attention OR concentration) "
+        "- see references/query_planner.md \"How OpenAlex reads a query\"."
+    )
 
 
 def _empty_range(year_min: Optional[int], year_max: Optional[int]) -> bool:
@@ -1103,6 +1135,9 @@ _AGENT_SEARCH_NUDGE = (
 # nudge on every seed). stderr ONLY — stdout is never touched (R-11/R-19).
 _NUDGE_ON_SUBCOMMANDS = {"search", "double-sort"}
 
+# Subcommands whose query gets query_warning().
+_QUERY_COMMANDS = {"search", "deep", "double-sort", "count"}
+
 # Retrieval subcommands whose missing --year-max defaults to the current year.
 _CAPPED_COMMANDS = {"search", "deep", "double-sort", "reviews"}
 
@@ -1462,6 +1497,19 @@ def _main_cli() -> None:
     # human STEP 9 citation expansion does not get spammed.
     if getattr(args, "json_envelope", False) or args.cmd in _NUDGE_ON_SUBCOMMANDS:
         print(_AGENT_SEARCH_NUDGE, file=sys.stderr)
+    if args.cmd in _QUERY_COMMANDS:
+        warning = query_warning(args.query)
+        if warning:
+            print(warning, file=sys.stderr)
+    if args.cmd == "count" and isinstance(payload, dict) and payload.get("count") is not None \
+            and payload["count"] < _NARROW_POOL_BELOW:
+        print(
+            f"[paper-search-pro] only {payload['count']} works have every query word in title "
+            f"or abstract for {payload['year_min']}-{payload['year_max']}. Unless the topic is "
+            "genuinely niche, the query is too narrow: group synonyms with OR, drop the "
+            "population block, and rerun retrieval before classifying.",
+            file=sys.stderr,
+        )
     if notice:
         print(notice, file=sys.stderr)
     if not served:

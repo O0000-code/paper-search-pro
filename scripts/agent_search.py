@@ -492,6 +492,9 @@ def _retrieve(
     year_max = openalex_helper._default_year_max(year_max)
 
     if source == "openalex":
+        advice = openalex_helper.query_warning(query)
+        if advice:
+            warnings.append(advice)
         results: List[List[UnifiedPaperEntity]] = []
         for leg in openalex_helper.DOUBLE_SORT_LEGS:
             try:
