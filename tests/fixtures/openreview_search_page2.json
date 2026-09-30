@@ -1,0 +1,305 @@
+{
+ "_fixture_note": "Real notes from anonymous GET https://api2.openreview.net/notes/search (2026-10-01), re-grouped into one page and trimmed: only the fields openreview_helper reads are kept, abstracts cut to 300 characters. Values are otherwise unedited. Queries: 'diffusion language model', 'chain of thought reasoning', 'graph neural network', 'large language model hallucination', 'diffusion' (group TMLR / ICML.cc), 'contrastive learning' (group ICLR.cc), 'datasets and benchmarks' (group NeurIPS.cc). Page 2: a short final page (7).",
+ "count": 10000,
+ "notes": [
+  {
+   "id": "ynRnOqI2W8",
+   "forum": "ynRnOqI2W8",
+   "cdate": 1769217899329,
+   "pdate": 1777576891755,
+   "odate": 1782342027514,
+   "tcdate": 1769217899329,
+   "domain": "ICML.cc/2026/Conference",
+   "content": {
+    "title": {
+     "value": "Efficient-DLM: From Autoregressive to Diffusion Language Models, and Beyond in Speed"
+    },
+    "abstract": {
+     "value": "Diffusion language models (dLMs) have emerged as a promising paradigm enabling parallel generation, but their learning efficiency lags behind that of autoregressive (AR) language models when trained from scratch. To this end, we study AR-to-dLM conversion, which transforms pretrained AR models into …"
+    },
+    "authors": {
+     "value": [
+      "Yonggan Fu",
+      "Lexington Whalen",
+      "Zhifan Ye",
+      "Xin Dong",
+      "Shizhe Diao",
+      "Jingyu Liu",
+      "Chengyue Wu",
+      "Hao Zhang",
+      "Enze Xie",
+      "Song Han",
+      "Maksim Khadkevich",
+      "Jan Kautz",
+      "Yingyan Celine Lin",
+      "Pavlo Molchanov"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "Diffusion language model"
+     ]
+    },
+    "TLDR": {
+     "value": "We develop a training framework to convert pretrained autoregressive language models into diffusion language models that excel in speed."
+    },
+    "venue": {
+     "value": "ICML 2026 regular"
+    },
+    "venueid": {
+     "value": "ICML.cc/2026/Conference"
+    },
+    "pdf": {
+     "value": "/pdf/0b38d4d8e72b2fc349662e733066d6f9a2bf88c3.pdf"
+    }
+   }
+  },
+  {
+   "id": "E8adS5srds",
+   "forum": "E8adS5srds",
+   "cdate": 1743996825713,
+   "pdate": 1758216511814,
+   "odate": 1761704724009,
+   "tcdate": 1743996825713,
+   "domain": "NeurIPS.cc/2025/Conference",
+   "content": {
+    "title": {
+     "value": "Anchored Diffusion Language Model"
+    },
+    "abstract": {
+     "value": "Diffusion Language Models (DLMs) promise parallel generation and bidirectional context, yet they underperform autoregressive (AR) models in both *likelihood modeling* and *generated text quality*. We identify that this performance gap arises when important tokens (e.g., key words or low-frequency wo …"
+    },
+    "authors": {
+     "value": [
+      "Litu Rout",
+      "Constantine Caramanis",
+      "Sanjay Shakkottai"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "discrete diffusion",
+      "diffusion language models",
+      "large-language models",
+      "generative modeling",
+      "planning",
+      "reasoning",
+      "chain-of-thought"
+     ]
+    },
+    "TLDR": {
+     "value": "We propose the Anchored Diffusion Language Model (ADLM), a novel two-stage framework that generates an important token mixture which guides the prediction of missing likelihoods, resulting in better likelihood modeling and generated text quality."
+    },
+    "venue": {
+     "value": "NeurIPS 2025 poster"
+    },
+    "venueid": {
+     "value": "NeurIPS.cc/2025/Conference"
+    },
+    "pdf": {
+     "value": "/pdf/3382d1c97cabea9ba146422066b3f69a4a2fd5f3.pdf"
+    }
+   }
+  },
+  {
+   "id": "BsZeTuB5fD",
+   "forum": "BsZeTuB5fD",
+   "cdate": 1758094941424,
+   "pdate": 1769435948382,
+   "odate": 1759896705795,
+   "tcdate": 1758094941424,
+   "domain": "ICLR.cc/2026/Conference",
+   "content": {
+    "title": {
+     "value": "Don't Settle Too Early: Self-Reflective Remasking for Diffusion Language Models"
+    },
+    "abstract": {
+     "value": "Mask-based Diffusion Language Models (DLMs) struggle to revise incorrect tokens: once a token is generated, it typically remains fixed. The key challenge is to identify potential errors in the inputs. In this paper, we propose Remasking-enabled Diffusion Language Model (RemeDi), a mask-based DLM tha …"
+    },
+    "authors": {
+     "value": [
+      "Zemin Huang",
+      "Yuhang Wang",
+      "Zhiyang Chen",
+      "Guo-Jun Qi"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "diffusion language model",
+      "discrete diffusion",
+      "masked diffusion model",
+      "language model"
+     ]
+    },
+    "TLDR": {
+     "value": "We propose RemeDi, a new diffusion-based text generation model that introduces remasking allowing model to detect and resample low-confidence tokens during generation."
+    },
+    "venue": {
+     "value": "ICLR 2026 Poster"
+    },
+    "venueid": {
+     "value": "ICLR.cc/2026/Conference"
+    },
+    "pdf": {
+     "value": "/pdf/90246e1886c5411f65ca9504068c886cbb586062.pdf"
+    }
+   }
+  },
+  {
+   "id": "qiOqgphnVL",
+   "forum": "qiOqgphnVL",
+   "cdate": 1695198283094,
+   "odate": 1697213872796,
+   "tcdate": 1695198283094,
+   "domain": "ICLR.cc/2024/Conference",
+   "content": {
+    "title": {
+     "value": "Democratized Diffusion Language Model"
+    },
+    "abstract": {
+     "value": "Diffusion Models are a promising avenue for text generation, offering a multitude of frameworks for researchers and practitioners alike. These frameworks differ based on how the Diffusion Model is utilized for categorical data generation. This paper aims to look into these differences by examining t …"
+    },
+    "authors": {
+     "value": [
+      "Sofia Maria Lo Cicero Vaina",
+      "Nikita Balagansky",
+      "Daniil Gavrilov"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "Diffusion LMs",
+      "Language Modelling",
+      "Early Exiting",
+      "Diffusion Early Exiting"
+     ]
+    },
+    "TLDR": {
+     "value": "We observed that Diffusion LMs can halter the generation process and facilitate an adaptive early exit."
+    },
+    "venue": {
+     "value": "Submitted to ICLR 2024"
+    },
+    "venueid": {
+     "value": "ICLR.cc/2024/Conference/Rejected_Submission"
+    },
+    "pdf": {
+     "value": "/pdf/1c61141d135f28b2fedf60dbaeb19049982fa0a9.pdf"
+    }
+   }
+  },
+  {
+   "id": "g5hXhxXe3o",
+   "forum": "g5hXhxXe3o",
+   "cdate": 1773747099248,
+   "odate": 1780804780244,
+   "tcdate": 1773747099248,
+   "domain": "aclweb.org/ACL/ARR/2026/March",
+   "content": {
+    "title": {
+     "value": "Membership Inference in Fine-tuned Diffusion Language Models via Token-level Memorization Asymmetry"
+    },
+    "abstract": {
+     "value": "Diffusion language models (DLMs) have recently emerged as an alternative modeling paradigm to autoregressive LMs, offering advantages such as parallel generation and bidirectional context modeling.\nDespite growing interest in their generative capabilities, the privacy risks of DLMs remain underexplo …"
+    },
+    "keywords": {
+     "value": [
+      "Diffusion language model",
+      "membership inference",
+      "privacy"
+     ]
+    },
+    "venue": {
+     "value": "ACL ARR 2026 March Submission"
+    },
+    "venueid": {
+     "value": "aclweb.org/ACL/ARR/2026/March/Submission"
+    },
+    "pdf": {
+     "value": "/pdf/255ac155a77ae7f3d9dc67283771a9af89bdfe2c.pdf"
+    }
+   }
+  },
+  {
+   "id": "vZZ4hhniJU",
+   "forum": "vZZ4hhniJU",
+   "cdate": 1695154983741,
+   "pdate": 1705410837258,
+   "odate": 1697213872796,
+   "tcdate": 1695154983741,
+   "domain": "ICLR.cc/2024/Conference",
+   "content": {
+    "title": {
+     "value": "Learning Multi-Agent Communication with Contrastive Learning"
+    },
+    "abstract": {
+     "value": "Communication is a powerful tool for coordination in multi-agent RL. But inducing an effective, common language is a difficult challenge, particularly in the decentralized setting. In this work, we introduce an alternative perspective where communicative messages sent between agents are considered a …"
+    },
+    "authors": {
+     "value": [
+      "Yat Long Lo",
+      "Biswa Sengupta",
+      "Jakob Nicolaus Foerster",
+      "Michael Noukhovitch"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "Multi-Agent Reinforcement Learning",
+      "Emergent Communication",
+      "Contrastive Learning"
+     ]
+    },
+    "TLDR": {
+     "value": "A novel approach to learning communication in decentralized MARL based on a multi-view contrastive learning perspective by treating messages as agents' encodings of the state"
+    },
+    "venue": {
+     "value": "ICLR 2024 poster"
+    },
+    "venueid": {
+     "value": "ICLR.cc/2024/Conference"
+    },
+    "pdf": {
+     "value": "/pdf/2c9dcdc69b3da56a7ebdec7279ee8bc8087b5c39.pdf"
+    }
+   }
+  },
+  {
+   "id": "Jbe9AVsYS6",
+   "forum": "Jbe9AVsYS6",
+   "cdate": 1763405368404,
+   "pdate": 1774481004099,
+   "odate": 1763743684092,
+   "tcdate": 1763405368404,
+   "domain": "TMLR",
+   "content": {
+    "title": {
+     "value": "Cost-Aware Routing for Efficient Text-To-Image Generation"
+    },
+    "abstract": {
+     "value": "Diffusion models are well known for their ability to generate a high-fidelity image for an input\nprompt through an iterative denoising process. Unfortunately, the high fidelity also comes at\na high computational cost due to the inherently sequential generative process. In this work,\nwe seek to optim …"
+    },
+    "authors": {
+     "value": [
+      "Qinchan Li",
+      "Kenneth Chen",
+      "Changyue Su",
+      "Wittawat Jitkrittum",
+      "Qi Sun",
+      "Patsorn Sangkloy"
+     ]
+    },
+    "venue": {
+     "value": "Accepted by TMLR"
+    },
+    "venueid": {
+     "value": "TMLR"
+    },
+    "pdf": {
+     "value": "/pdf/3ac347a12218bcb206898998e045faa4a22c52dd.pdf"
+    }
+   }
+  }
+ ]
+}

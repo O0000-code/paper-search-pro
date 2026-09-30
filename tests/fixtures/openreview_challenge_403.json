@@ -1,0 +1,13 @@
+{
+ "_fixture_note": "Real HTTP 403 body from anonymous GET https://api2.openreview.net/notes?content.venueid=ICLR.cc/2026/Conference&limit=5 (2026-10-01).",
+ "status": 403,
+ "body": {
+  "name": "ChallengeRequiredError",
+  "message": "Challenge verification required (2026-09-30-10246308)",
+  "status": 403,
+  "details": {
+   "challengeUrl": "https://openreview.net/challenge?redirect=https%3A%2F%2Fapi2.openreview.net%2Fnotes%3Fcontent.venueid%3DICLR.cc%252F2026%252FConference%26limit%3D5",
+   "reqId": "2026-09-30-10246308"
+  }
+ }
+}

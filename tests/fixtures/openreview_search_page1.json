@@ -1,0 +1,1038 @@
+{
+ "_fixture_note": "Real notes from anonymous GET https://api2.openreview.net/notes/search (2026-10-01), re-grouped into one page and trimmed: only the fields openreview_helper reads are kept, abstracts cut to 300 characters. Values are otherwise unedited. Queries: 'diffusion language model', 'chain of thought reasoning', 'graph neural network', 'large language model hallucination', 'diffusion' (group TMLR / ICML.cc), 'contrastive learning' (group ICLR.cc), 'datasets and benchmarks' (group NeurIPS.cc). Page 1: a full page (25) covering every venueid class.",
+ "count": 10000,
+ "notes": [
+  {
+   "id": "cANYgbA6bb",
+   "forum": "cANYgbA6bb",
+   "cdate": 1773674786467,
+   "tcdate": 1773674786467,
+   "domain": "SwissText.org/2026/Conference",
+   "content": {
+    "title": {
+     "value": "Robust Language Identification for Romansh Varieties"
+    },
+    "abstract": {
+     "value": "The Romansh language has several regional varieties, called idioms, which sometimes have limited mutual intelligibility. This linguistic diversity motivates the need for a language identification (LID) system that can distinguish between these idioms, yet to date there has been no well-documented ef …"
+    },
+    "authors": {
+     "value": [
+      "Charlotte Model",
+      "Sina Ahmadi",
+      "Jannis Vamvas"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "Language Identification",
+      "Romansh",
+      "Low-Resource Languages",
+      "Dialect Identification"
+     ]
+    },
+    "TLDR": {
+     "value": "Language identification for the six Romansh varieties using character n-gram features, with a newly curated multi-domain benchmark."
+    },
+    "venue": {
+     "value": "SwissText 2026 Conference Submission"
+    },
+    "venueid": {
+     "value": "SwissText.org/2026/Conference/Submission"
+    },
+    "pdf": {
+     "value": "/pdf/dda04a104c1d55748aeb5eacdd97ab793924874c.pdf"
+    }
+   }
+  },
+  {
+   "id": "VGv5y60sXC",
+   "forum": "VGv5y60sXC",
+   "cdate": 1746672630313,
+   "pdate": 1758216803932,
+   "odate": 1761704839117,
+   "tcdate": 1746672630313,
+   "domain": "NeurIPS.cc/2025/Conference",
+   "content": {
+    "title": {
+     "value": "Continuous Diffusion Model for Language Modeling"
+    },
+    "abstract": {
+     "value": "Diffusion models have emerged as a promising alternative to autoregressive models in modeling discrete categorical data. However, diffusion models that directly work on discrete data space fail to fully exploit the power of iterative refinement, as the signals are lost during transitions between dis …"
+    },
+    "authors": {
+     "value": [
+      "Jaehyeong Jo",
+      "Sung Ju Hwang"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "Diffusion language model",
+      "Riemannian diffusion model",
+      "diffusion model for discrete data"
+     ]
+    },
+    "TLDR": {
+     "value": "We present a continuous diffusion model for language modeling that incorporates the geometry of the underlying categorical distribution."
+    },
+    "venue": {
+     "value": "NeurIPS 2025 poster"
+    },
+    "venueid": {
+     "value": "NeurIPS.cc/2025/Conference"
+    },
+    "pdf": {
+     "value": "/pdf/7931af3392de924f0200ce4c4754dc9d4544299e.pdf"
+    }
+   }
+  },
+  {
+   "id": "KUfKvlX3VY",
+   "forum": "KUfKvlX3VY",
+   "cdate": 1758291638314,
+   "pdate": 1769436413370,
+   "odate": 1759896705795,
+   "tcdate": 1758291638314,
+   "domain": "ICLR.cc/2026/Conference",
+   "content": {
+    "title": {
+     "value": "FlashDLM: Accelerating Diffusion Language Model Inference via Efficient KV Caching and Guided Diffusion"
+    },
+    "abstract": {
+     "value": "Diffusion language models offer parallel token generation and inherent bidirectionality, promising more efficient and powerful sequence modeling compared to autoregressive approaches. However, state-of-the-art diffusion models (e.g., Dream 7B, LLaDA 8B) suffer from slow inference. While they match t …"
+    },
+    "authors": {
+     "value": [
+      "Zhanqiu Hu",
+      "Jian Meng",
+      "Yash Akhauri",
+      "Mohamed S. Abdelfattah",
+      "Jae-sun Seo",
+      "Zhiru Zhang",
+      "Udit Gupta"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "Diffusion Model",
+      "Diffusion Language Model",
+      "Inference Speed",
+      "Language Models",
+      "Efficient Inference"
+     ]
+    },
+    "venue": {
+     "value": "ICLR 2026 Poster"
+    },
+    "venueid": {
+     "value": "ICLR.cc/2026/Conference"
+    },
+    "pdf": {
+     "value": "/pdf/ecdd2fccb679fc99c080b39b5ebb54c2e292fa53.pdf"
+    }
+   }
+  },
+  {
+   "id": "xXMO5h2r1J",
+   "forum": "xXMO5h2r1J",
+   "cdate": 1785818972007,
+   "odate": 1785846543432,
+   "tcdate": 1785818972007,
+   "domain": "aclweb.org/ACL/ARR/2026/August",
+   "content": {
+    "title": {
+     "value": "Unlocking Prompt Infilling Capability for Diffusion Language Models"
+    },
+    "abstract": {
+     "value": "Masked diffusion language models (dLMs) generate text through bidirectional denoising, yet this capability remains locked for infilling prompts. This limitation is an artifact of the current supervised finetuning (SFT) convention of applying response-only masking.\nTo unlock this capability, we exten …"
+    },
+    "keywords": {
+     "value": [
+      "diffusion language model",
+      "prompt optimization"
+     ]
+    },
+    "venue": {
+     "value": "ACL ARR 2026 August Submission"
+    },
+    "venueid": {
+     "value": "aclweb.org/ACL/ARR/2026/August/Submission"
+    },
+    "pdf": {
+     "value": "/pdf/6402db4bb298d838191e5eeb4d1d73a98f86768d.pdf"
+    }
+   }
+  },
+  {
+   "id": "BPNK5HDEMh",
+   "forum": "BPNK5HDEMh",
+   "cdate": 1758347389854,
+   "odate": 1759896705795,
+   "tcdate": 1758347389854,
+   "domain": "ICLR.cc/2026/Conference",
+   "content": {
+    "title": {
+     "value": "Prot2RNA: A Diffusion Language Model for Protein-Conditioned mRNA Coding Sequence Generation"
+    },
+    "abstract": {
+     "value": "The redundancy of the genetic code, where multiple codons encode the same amino acid, creates a vast design space for messenger RNA (mRNA) sequences. Synonymous codon choices significantly affect mRNA stability, structure, translation efficiency, and immunogenicity, all critical for mRNA therapeutic …"
+    },
+    "authors": {
+     "value": [
+      "Ivona Martinović",
+      "Wayne W. Z. Yeo",
+      "Srdan Masirevic",
+      "Bryan Hooi",
+      "Tin Vlašić",
+      "Mile Sikic"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "mRNA design",
+      "Codon optimization",
+      "Diffusion language model"
+     ]
+    },
+    "TLDR": {
+     "value": "Prot2RNA is a diffusion language model that generates protein-conditioned mRNA coding sequences and learns codon preferences and other biological features of highly expressed transcripts."
+    },
+    "venue": {
+     "value": "Submitted to ICLR 2026"
+    },
+    "venueid": {
+     "value": "ICLR.cc/2026/Conference/Rejected_Submission"
+    },
+    "pdf": {
+     "value": "/pdf/942f91f768fe188ac94849178e43913af5a1e5b2.pdf"
+    }
+   }
+  },
+  {
+   "id": "r12Cz05mUT",
+   "forum": "r12Cz05mUT",
+   "cdate": 1758242788253,
+   "odate": 1759896705795,
+   "tcdate": 1758242788253,
+   "domain": "ICLR.cc/2026/Conference",
+   "content": {
+    "title": {
+     "value": "Latent Adaptation with Masked Policy for Diffusion Language Models"
+    },
+    "abstract": {
+     "value": "Diffusion large language models (dLLMs) have emerged as promising alternatives to autoregressive generation, yet their ability to refine reasoning at test time remains underexplored. We present $\\textbf{LAMP}$ (Latent Adaptation with Masked Policy), a training-free framework for reward-guided \\emph{ …"
+    },
+    "authors": {
+     "value": [
+      "Guangyan Sun",
+      "Chunshu Wu",
+      "Ang Li",
+      "Ying Nian Wu",
+      "Tong Geng"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "diffusion language model",
+      "test-time scaling"
+     ]
+    },
+    "TLDR": {
+     "value": "Test Time Policy Gradient for Diffusion Language Models"
+    },
+    "venue": {
+     "value": "ICLR 2026 Conference Withdrawn Submission"
+    },
+    "venueid": {
+     "value": "ICLR.cc/2026/Conference/Withdrawn_Submission"
+    },
+    "pdf": {
+     "value": "/pdf/f867fd910d8b7a26317a60f1d9d50ee559d6e198.pdf"
+    }
+   }
+  },
+  {
+   "id": "NnnG2nGWTy",
+   "forum": "NnnG2nGWTy",
+   "cdate": 1769123972622,
+   "pdate": 1777576560994,
+   "odate": 1782341971946,
+   "tcdate": 1769123972622,
+   "domain": "ICML.cc/2026/Conference",
+   "content": {
+    "title": {
+     "value": "Simple Denoising Diffusion Language Models"
+    },
+    "abstract": {
+     "value": "Recent Uniform-state Diffusion Models (USDMs), initialized from a uniform prior, offer the promise of fast text generation due to their inherent self-correction ability compared to masked diffusion models. However, they still rely on complex loss formulations with additional computational overhead, …"
+    },
+    "authors": {
+     "value": [
+      "Huaisheng Zhu",
+      "Zhengyu Chen",
+      "Shijie Zhou",
+      "Zhihui Xie",
+      "Yige Yuan",
+      "Shiqi Chen",
+      "Zhimeng Guo",
+      "Siyuan Xu",
+      "Hangfan Zhang",
+      "Vasant G. Honavar",
+      "Teng Xiao"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "Diffusion Language Model"
+     ]
+    },
+    "venue": {
+     "value": "ICML 2026 regular"
+    },
+    "venueid": {
+     "value": "ICML.cc/2026/Conference"
+    },
+    "pdf": {
+     "value": "/pdf/1f531552ff323dee295ef8b196c63d2d43c4bd8a.pdf"
+    }
+   }
+  },
+  {
+   "id": "g88nt4ieTG",
+   "forum": "g88nt4ieTG",
+   "cdate": 1757144831254,
+   "pdate": 1769435693862,
+   "odate": 1759896705795,
+   "tcdate": 1757144831254,
+   "domain": "ICLR.cc/2026/Conference",
+   "content": {
+    "title": {
+     "value": "Diffusion Language Model Knows the Answer Before It Decodes"
+    },
+    "abstract": {
+     "value": "Diffusion language models (DLMs) have recently emerged as an alternative to autoregressive approaches, offering parallel sequence generation and flexible token orders. However, their inference remains slower than that of autoregressive models, primarily due to the cost of bidirectional attention and …"
+    },
+    "authors": {
+     "value": [
+      "Pengxiang Li",
+      "Yefan Zhou",
+      "Dilxat Muhtar",
+      "Lu Yin",
+      "Shilin Yan",
+      "Li Shen",
+      "Yi Liang",
+      "Soroush Vosoughi",
+      "Shiwei Liu"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "diffusion language model",
+      "discrete"
+     ]
+    },
+    "venue": {
+     "value": "ICLR 2026 Oral"
+    },
+    "venueid": {
+     "value": "ICLR.cc/2026/Conference"
+    },
+    "pdf": {
+     "value": "/pdf/2c85d36569105e62391aeb39300f8c19c4825ba6.pdf"
+    }
+   }
+  },
+  {
+   "id": "zOJnGgfEtd",
+   "forum": "zOJnGgfEtd",
+   "cdate": 1770197435416,
+   "pdate": 1772442809551,
+   "odate": 1772442809551,
+   "tcdate": 1770197435416,
+   "domain": "ICLR.cc/2026/Workshop/Gen2",
+   "content": {
+    "title": {
+     "value": "D3LM: A Discrete DNA Diffusion Language Model for Bidirectional DNA Understanding and Generation"
+    },
+    "abstract": {
+     "value": "Early DNA foundation models adopted BERT-style training, achieving good performance on DNA understanding tasks but lacking generative capabilities. Recent autoregressive models enable DNA generation, but employ left-to-right causal modeling that is suboptimal for DNA where regulatory relationships a …"
+    },
+    "authors": {
+     "value": [
+      "Zhao Yang",
+      "Hengchang Liu",
+      "Chuan Cao",
+      "Bing Su"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "dna foundation model",
+      "diffusion language model",
+      "bidirectional transformer",
+      "dna generation"
+     ]
+    },
+    "venue": {
+     "value": "Gen² 2026 Poster"
+    },
+    "venueid": {
+     "value": "ICLR.cc/2026/Workshop/Gen2"
+    },
+    "pdf": {
+     "value": "/pdf/8ffdb7cc566c39fa2c8408aba5d07e3cb802c226.pdf"
+    }
+   }
+  },
+  {
+   "id": "mbjRRWwZDP",
+   "forum": "mbjRRWwZDP",
+   "cdate": 1774458663096,
+   "pdate": 1783543374445,
+   "odate": 1787537165077,
+   "tcdate": 1774458663096,
+   "domain": "colmweb.org/COLM/2026/Conference",
+   "content": {
+    "title": {
+     "value": "Mask-Aware Policy Gradients for Diffusion Language Models"
+    },
+    "abstract": {
+     "value": "Reinforcement learning has proven effective for improving reasoning in large language models, but extending it to Masked Diffusion Language Models (MDLMs) remains challenging due to the intractability of the log-likelihood estimation. Existing approaches approximate this log-likelihood by modeling o …"
+    },
+    "authors": {
+     "value": [
+      "Haran Raajesh",
+      "Kulin Shah",
+      "Adam Klivans",
+      "Philipp Kraehenbuehl"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "Diffusion Language Model",
+      "Reinforcement Learning"
+     ]
+    },
+    "TLDR": {
+     "value": "By jointly learning what to generate and where to remask, our RL method significantly improves MDLM reasoning and coding performance."
+    },
+    "venue": {
+     "value": "COLM 2026"
+    },
+    "venueid": {
+     "value": "colmweb.org/COLM/2026/Conference"
+    },
+    "pdf": {
+     "value": "/pdf/3fecac41063de4b0a77ccc755d2f77e32ccffc8a.pdf"
+    }
+   }
+  },
+  {
+   "id": "CZOlnMcUVw",
+   "forum": "CZOlnMcUVw",
+   "cdate": 1703282928892,
+   "pdate": 1702666804923,
+   "tcdate": 1703282928892,
+   "domain": "OpenReview.net",
+   "content": {
+    "title": {
+     "value": "Score Normalization for a Faster Diffusion Exponential Integrator Sampler (DEIS)"
+    },
+    "abstract": {
+     "value": "Recently, Zhang et al. have proposed the Diffusion Exponential Integrator Sampler (DEIS) for fast generation of samples from Diffusion Models. It leverages the semi-linear nature of the probability flow ordinary differential equation (ODE) in order to greatly reduce integration error and improve gen …"
+    },
+    "authors": {
+     "value": [
+      "Guoxuan Xia",
+      "Duolikun Danier",
+      "Ayan Das",
+      "Stathi Fotiadis",
+      "Farhang Nabiei",
+      "Ushnish Sengupta",
+      "Alberto Bernacchia"
+     ]
+    },
+    "venue": {
+     "value": "NeurIPS 2023 Diffusion Model Workshop"
+    },
+    "venueid": {
+     "value": "OpenReview.net/Archive"
+    },
+    "pdf": {
+     "value": "/pdf/8ab67b1e040d70714ca04dcbf09a9b45b71c3a7a.pdf"
+    }
+   }
+  },
+  {
+   "id": "2MiTZxLFA9",
+   "forum": "2MiTZxLFA9",
+   "cdate": 1686938358638,
+   "pdate": 1696709281301,
+   "odate": 1701459763135,
+   "tcdate": 1686938358638,
+   "domain": "EMNLP/2023/Conference",
+   "content": {
+    "title": {
+     "value": "GRACE: Discriminator-Guided Chain-of-Thought Reasoning"
+    },
+    "abstract": {
+     "value": "In the context of multi-step reasoning, e.g., with chain-of-thought, language models (LMs) can easily assign a high likelihood to incorrect steps. As a result, decoding strategies that optimize for solution likelihood often yield incorrect solutions.\nTo address this issue, we propose Guiding chain-o …"
+    },
+    "authors": {
+     "value": [
+      "Muhammad Khalifa",
+      "Lajanugen Logeswaran",
+      "Moontae Lee",
+      "Honglak Lee",
+      "Lu Wang"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "chain-of-thought",
+      "guided decoding",
+      "math reasoning",
+      "symbolic reasoning",
+      "multi-step reasoning",
+      "large language models"
+     ]
+    },
+    "TLDR": {
+     "value": "A decoding method to guide multi-step reasoning at the step-level using a trained correctness discriminator model"
+    },
+    "venue": {
+     "value": "EMNLP 2023 Findings"
+    },
+    "venueid": {
+     "value": "EMNLP/2023/Conference"
+    },
+    "pdf": {
+     "value": "/attachment/8c0b2b533beba6e8587ac87d2a5de93d2046a8ed.pdf"
+    }
+   }
+  },
+  {
+   "id": "9tvxC2UQDh",
+   "forum": "9tvxC2UQDh",
+   "cdate": 1704067200000,
+   "pdate": 1704067200000,
+   "tcdate": 1742117972143,
+   "domain": "DBLP.org",
+   "content": {
+    "title": {
+     "value": "Chain of Preference Optimization: Improving Chain-of-Thought Reasoning in LLMs"
+    },
+    "abstract": {
+     "value": "The recent development of chain-of-thought (CoT) decoding has enabled large language models (LLMs) to generate explicit logical reasoning paths for complex problem-solving. However, research indicates that these paths are not always deliberate and optimal. The tree-of-thought (ToT) method employs tr …"
+    },
+    "authors": {
+     "value": [
+      "Xuan Zhang",
+      "Chao Du",
+      "Tianyu Pang",
+      "Qian Liu",
+      "Wei Gao",
+      "Min Lin"
+     ]
+    },
+    "venue": {
+     "value": "NeurIPS 2024"
+    },
+    "venueid": {
+     "value": "dblp.org/conf/NIPS/2024"
+    },
+    "pdf": {
+     "value": "https://proceedings.neurips.cc/paper_files/paper/2024/file/00d80722b756de0166523a87805dd00f-Paper-Conference.pdf"
+    }
+   }
+  },
+  {
+   "id": "iBv0M8WrFi",
+   "forum": "iBv0M8WrFi",
+   "cdate": 1686958127026,
+   "pdate": 1696709287845,
+   "odate": 1701459769936,
+   "tcdate": 1686958127026,
+   "domain": "EMNLP/2023/Conference",
+   "content": {
+    "title": {
+     "value": "A Cheaper and Better Diffusion Language Model with Soft-Masked Noise"
+    },
+    "abstract": {
+     "value": "Diffusion models that are based on iterative denoising have been recently proposed and leveraged in various generation tasks like image generation. Whereas, as a way inherently built for continuous data, existing diffusion models still have some limitations in modeling discrete data, e.g., languages …"
+    },
+    "authors": {
+     "value": [
+      "Jiaao Chen",
+      "Aston Zhang",
+      "Mu Li",
+      "Alex Smola",
+      "Diyi Yang"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "Diffusion Language Model",
+      "Soft-masked Noise"
+     ]
+    },
+    "venue": {
+     "value": "EMNLP 2023 Main"
+    },
+    "venueid": {
+     "value": "EMNLP/2023/Conference"
+    },
+    "pdf": {
+     "value": "/attachment/db3e1d8ce35b6e65aba14bc9009ba49eb330994c.pdf"
+    }
+   }
+  },
+  {
+   "id": "aE2EzXZZdq",
+   "forum": "aE2EzXZZdq",
+   "cdate": 1759276800000,
+   "pdate": 1767139200000,
+   "tcdate": 1784186395939,
+   "domain": "OpenReview.net/Public_Article",
+   "content": {
+    "title": {
+     "value": "Diffusion^2: Dual Diffusion Model with Uncertainty-Aware Adaptive Noise for Momentary Trajectory Prediction"
+    },
+    "abstract": {
+     "value": "Accurate pedestrian trajectory prediction is crucial for ensuring safety and efficiency in autonomous driving and human-robot interaction scenarios. Earlier studies primarily utilized sufficient observational data to predict future trajectories. However, in real-world scenarios, such as pedestrians …"
+    },
+    "authors": {
+     "value": [
+      {
+       "fullname": "Yuhao Luo",
+       "username": ""
+      },
+      {
+       "fullname": "Yuang Zhang",
+       "username": ""
+      },
+      {
+       "fullname": "Kehua Chen",
+       "username": ""
+      },
+      {
+       "fullname": "Xinyu Zheng",
+       "username": ""
+      },
+      {
+       "fullname": "Shucheng Zhang",
+       "username": "~Shucheng_Zhang2"
+      },
+      {
+       "fullname": "Sikai Chen",
+       "username": ""
+      },
+      {
+       "fullname": "Yinhai Wang",
+       "username": ""
+      }
+     ]
+    },
+    "venue": {
+     "value": "CoRR 2025"
+    },
+    "venueid": {
+     "value": "OpenReview.net/Public_Article"
+    },
+    "pdf": {
+     "value": "https://arxiv.org/pdf/2510.04365v1"
+    }
+   }
+  },
+  {
+   "id": "qIYb7GJMCz",
+   "forum": "qIYb7GJMCz",
+   "cdate": 1746057600000,
+   "pdate": 1735689600000,
+   "tcdate": 1752863016493,
+   "domain": "DBLP.org",
+   "content": {
+    "title": {
+     "value": "Anchored Diffusion Language Model"
+    },
+    "abstract": {
+     "value": "Diffusion Language Models (DLMs) promise parallel generation and bidirectional context, yet they underperform autoregressive (AR) models in both likelihood modeling and generated text quality. We identify that this performance gap arises when important tokens (e.g., key words or low-frequency words …"
+    },
+    "authors": {
+     "value": [
+      "Litu Rout",
+      "Constantine Caramanis",
+      "Sanjay Shakkottai"
+     ]
+    },
+    "venue": {
+     "value": "CoRR 2025"
+    },
+    "venueid": {
+     "value": "dblp.org/journals/CORR/2025"
+    },
+    "pdf": {
+     "value": "http://arxiv.org/pdf/2505.18456v1"
+    }
+   }
+  },
+  {
+   "id": "Tqo9T70Miu",
+   "forum": "Tqo9T70Miu",
+   "cdate": 1776177001740,
+   "pdate": 1781018400398,
+   "odate": 1781018400398,
+   "tcdate": 1776177001740,
+   "domain": "music-informatics.kr/KSMI/2026/Conference",
+   "content": {
+    "title": {
+     "value": "Music Tagging Graph Neural Network with Tag Labels"
+    },
+    "abstract": {
+     "value": "Music tagging is the task of automatically assigning a set of descriptive labels to a music recording. In a closely related field, audio tagging, ATGNN has demonstrated the effectiveness of graph neural networks in understanding audio content. Here we propose MTGNN, a graph neural network framework …"
+    },
+    "authors": {
+     "value": [
+      "Yunsu Park",
+      "Junhyung Park",
+      "Euisuh Jeong"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "Music Tagging",
+      "Genre Classification",
+      "GNN",
+      "Graph Neural Network",
+      "Graph",
+      "Music Information Retrieval",
+      "MIR",
+      "Music Encoder"
+     ]
+    },
+    "TLDR": {
+     "value": "We introduce MTGNN, a graph neural network for music auto-tagging that constructs adaptive graphs from semantic and timbre features, utilizing a CLAP-initialized Graph Transformer to model complex label dependencies."
+    },
+    "venue": {
+     "value": "KSMI 2026 ShortOralPoster"
+    },
+    "venueid": {
+     "value": "music-informatics.kr/KSMI/2026/Conference"
+    }
+   }
+  },
+  {
+   "id": "2QpvHDULWt",
+   "forum": "2QpvHDULWt",
+   "cdate": 1787001278634,
+   "odate": 1790773197596,
+   "tcdate": 1787001278634,
+   "domain": "NeurIPS.cc/2026/Workshop/WiML",
+   "content": {
+    "title": {
+     "value": "Transfer Learning in Gene Regulatory Network using Graph Neural Network"
+    },
+    "abstract": {
+     "value": "Gene Regulatory Networks (GRNs) depict the causal regulatory interactions between transcription factors (TFs) and their target genes [2], where TFs are proteins that regulate gene transcription. GRN plays a vital role in explaining gene function, which helps to identify and prioritize the candidate …"
+    },
+    "authors": {
+     "value": [
+      {
+       "username": "~Sivasharmini_Ganeshamoorthy1",
+       "fullname": "Sivasharmini Ganeshamoorthy",
+       "institutions": [
+        {
+         "name": "Coventry University",
+         "domain": "coventry.ac.uk",
+         "country": "GB"
+        }
+       ]
+      }
+     ]
+    },
+    "keywords": {
+     "value": [
+      "Gene Regulatory Network",
+      "Graph Neural Network",
+      "1D- CNN"
+     ]
+    },
+    "venue": {
+     "value": "Submitted to WiML @ NeurIPS 2026"
+    },
+    "venueid": {
+     "value": "NeurIPS.cc/2026/Workshop/WiML/Rejected_Submission"
+    },
+    "pdf": {
+     "value": "/pdf/307210516437966faf33d675133e63582b4669e5.pdf"
+    }
+   }
+  },
+  {
+   "id": "MyywdOeyn0",
+   "forum": "MyywdOeyn0",
+   "cdate": 1727316643587,
+   "pdate": 1738151839892,
+   "odate": 1738151839892,
+   "tcdate": 1727316643587,
+   "domain": "ACM.org/TheWebConf/2025/Conference",
+   "content": {
+    "title": {
+     "value": "LargePiG for Hallucination-Free Query Generation: Your Large Language Model is Secretly a Pointer Generator"
+    },
+    "abstract": {
+     "value": "Recent research on query generation has focused on using Large Language Models (LLMs), which despite bringing state-of-the-art performance, also introduce issues with hallucinations in the generated queries. In this work, we introduce relevance hallucination and factuality hallucination as a new typ …"
+    },
+    "authors": {
+     "value": [
+      "ZhongXiang Sun",
+      "Zihua Si",
+      "Xiaoxue Zang",
+      "Kai Zheng",
+      "Yang Song",
+      "Xiao Zhang",
+      "Jun Xu"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "Query Generation",
+      "Hallucination",
+      "Pointer Generator"
+     ]
+    },
+    "TLDR": {
+     "value": "LLM based query generation often makes factuality and relevance hallucination; We address this by decoupling content and form at the output end of LLMs, proposing a training-free plug-in method that implements pointer-generator decoding within LLMs."
+    },
+    "venue": {
+     "value": "WWW 2025 Poster"
+    },
+    "venueid": {
+     "value": "ACM.org/TheWebConf/2025/Conference"
+    },
+    "pdf": {
+     "value": "/pdf/1b3a24b5e99c4a56ace98c18788a65ea3d9e091b.pdf"
+    }
+   }
+  },
+  {
+   "id": "hFALpTb4fR",
+   "forum": "hFALpTb4fR",
+   "cdate": 1698133346337,
+   "pdate": 1709745597405,
+   "odate": 1698725750640,
+   "tcdate": 1698133346337,
+   "domain": "TMLR",
+   "content": {
+    "title": {
+     "value": "LLM-grounded Diffusion: Enhancing Prompt Understanding of Text-to-Image Diffusion Models with Large Language Models"
+    },
+    "abstract": {
+     "value": "Recent advancements in text-to-image diffusion models have yielded impressive results in generating realistic and diverse images. However, these models still struggle with complex prompts, such as those that involve numeracy and spatial reasoning. This work proposes to enhance prompt understanding c …"
+    },
+    "authors": {
+     "value": [
+      "Long Lian",
+      "Boyi Li",
+      "Adam Yala",
+      "Trevor Darrell"
+     ]
+    },
+    "venue": {
+     "value": "Accepted by TMLR"
+    },
+    "venueid": {
+     "value": "TMLR"
+    },
+    "pdf": {
+     "value": "/pdf/a3cf2bb6aaeb2b58e4aabbc79889496909c06ffe.pdf"
+    }
+   }
+  },
+  {
+   "id": "xoQV6kdTqG",
+   "forum": "xoQV6kdTqG",
+   "cdate": 1740225317317,
+   "odate": 1741815865573,
+   "tcdate": 1740225317317,
+   "domain": "TMLR",
+   "content": {
+    "title": {
+     "value": "Reproducibility Study of \"Attack-Resilient Image Watermarking Using Stable Diffusion\""
+    },
+    "abstract": {
+     "value": "This paper presents a reproducibility study and robustness evaluation of the paper ‘Attack Resilient Image Watermarking Using Stable Diffusion’ by Zhang et al. (2024), which proposes ZoDiac, a Stable Diffusion-based framework for attack-resilient image watermarking. While successfully replicating th …"
+    },
+    "venue": {
+     "value": "Rejected by TMLR"
+    },
+    "venueid": {
+     "value": "TMLR/Rejected"
+    },
+    "pdf": {
+     "value": "/pdf/84a922982f827c2024c05cd2d2494d1fccf8c2da.pdf"
+    }
+   }
+  },
+  {
+   "id": "uDrayegpOx",
+   "forum": "uDrayegpOx",
+   "cdate": 1726546390600,
+   "odate": 1727533027492,
+   "tcdate": 1726546390600,
+   "domain": "TMLR",
+   "content": {
+    "title": {
+     "value": "PAC Privacy Preserving Diffusion Models"
+    },
+    "abstract": {
+     "value": "Data privacy protection is garnering increased attention among researchers. Diffusion models (DMs), particularly with strict differential privacy, can potentially produce images with both high privacy and visual quality. However, challenges arise such as in ensuring robust protection in privatizing …"
+    },
+    "venue": {
+     "value": "Withdrawn by Authors"
+    },
+    "venueid": {
+     "value": "TMLR/Withdrawn_Submission"
+    },
+    "pdf": {
+     "value": "/pdf/6c501c5a44acbb96ad23e9049cc270c4f96ab835.pdf"
+    }
+   }
+  },
+  {
+   "id": "uqCfoVXb67",
+   "forum": "uqCfoVXb67",
+   "cdate": 1737112334359,
+   "pdate": 1746105160316,
+   "odate": 1750230985554,
+   "tcdate": 1737112334359,
+   "domain": "ICML.cc/2025/Conference",
+   "content": {
+    "title": {
+     "value": "UniDB: A Unified Diffusion Bridge Framework via Stochastic Optimal Control"
+    },
+    "abstract": {
+     "value": "Recent advances in diffusion bridge models leverage Doob’s $h$-transform to establish fixed endpoints between distributions, demonstrating promising results in image translation and restoration tasks. However, these approaches frequently produce blurred or excessively smoothed image details and lack …"
+    },
+    "authors": {
+     "value": [
+      "Kaizhen Zhu",
+      "Mokai Pan",
+      "Yuexin Ma",
+      "Yanwei Fu",
+      "Jingyi Yu",
+      "Jingya Wang",
+      "Ye Shi"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "Diffusion bridge",
+      "Doob's h-transform",
+      "Stochastic optimal control"
+     ]
+    },
+    "TLDR": {
+     "value": "We present UniDB, a unified diffusion bridge framework using stochastic optimal control, significantly improving detail preservation and image quality in generative tasks with minimal code modifications."
+    },
+    "venue": {
+     "value": "ICML 2025 spotlightposter"
+    },
+    "venueid": {
+     "value": "ICML.cc/2025/Conference"
+    },
+    "pdf": {
+     "value": "/pdf/86f35ade067ffb26416a10fffd84adffa561fbed.pdf"
+    }
+   }
+  },
+  {
+   "id": "3ZFvXHJwmB",
+   "forum": "3ZFvXHJwmB",
+   "cdate": 1769238137822,
+   "pdate": 1777576936306,
+   "odate": 1782342036697,
+   "tcdate": 1769238137822,
+   "domain": "ICML.cc/2026/Conference",
+   "content": {
+    "title": {
+     "value": "HDFlow: Hierarchical Diffusion-Flow Planning for Long-horizon Tasks"
+    },
+    "abstract": {
+     "value": "Recent advances in generative models have shown promise in generating behavior plans for long-horizon, sparse reward tasks. While these approaches have achieved promising results, they often lack a principled framework for hierarchical decomposition and struggle with the computational demands of rea …"
+    },
+    "authors": {
+     "value": [
+      "Gireesh Nandiraju",
+      "Yuanliang Ju",
+      "Chaoyi Xu",
+      "Weiheng Liu",
+      "Yuxuan Wan",
+      "He Wang"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "long-horizon planning",
+      "world models",
+      "contact-rich manipulation"
+     ]
+    },
+    "TLDR": {
+     "value": "We present HDFlow, a novel hierarchical planner that combines a diffusion model for high-level exploration & a rectified flow model for low-level trajectory generation, and demonstrate the efficiency on 3 long-horizon benchmarks comprising 37 tasks."
+    },
+    "venue": {
+     "value": "ICML 2026 spotlight"
+    },
+    "venueid": {
+     "value": "ICML.cc/2026/Conference"
+    },
+    "pdf": {
+     "value": "/pdf/9f0ad8d120a6b0af9c94ae2e42c497631d891730.pdf"
+    }
+   }
+  },
+  {
+   "id": "8HUnx0rJNq",
+   "forum": "8HUnx0rJNq",
+   "cdate": 1747002534789,
+   "pdate": 1758215863954,
+   "odate": 1761793895116,
+   "tcdate": 1747002534789,
+   "domain": "NeurIPS.cc/2025/Datasets_and_Benchmarks_Track",
+   "content": {
+    "title": {
+     "value": "CheMixHub: Datasets and Benchmarks for Chemical Mixture Property Prediction"
+    },
+    "abstract": {
+     "value": "Developing improved predictive models for multi-molecular systems is crucial, as nearly every chemical product used results from a mixture of chemicals. While being a vital part of the industry pipeline, the chemical mixture space remains relatively unexplored by the Machine Learning (ML) community. …"
+    },
+    "authors": {
+     "value": [
+      "Ella Miray Rajaonson",
+      "Mahyar Rajabi Kochi",
+      "Luis M. Mejía-Mendoza",
+      "Seyed Mohamad Moosavi",
+      "Benjamin Manuel Sanchez"
+     ]
+    },
+    "keywords": {
+     "value": [
+      "chemical mixtures",
+      "deep learning",
+      "molecular property prediction"
+     ]
+    },
+    "venue": {
+     "value": "NeurIPS 2025 Datasets and Benchmarks Track poster"
+    },
+    "venueid": {
+     "value": "NeurIPS.cc/2025/Datasets_and_Benchmarks_Track"
+    },
+    "pdf": {
+     "value": "/pdf/c522834a8f58166a83da250df5b6a3a9a93684ad.pdf"
+    }
+   }
+  }
+ ]
+}
