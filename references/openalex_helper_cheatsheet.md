@@ -56,7 +56,7 @@ python3 -m scripts.openalex_helper seminal "prospect theory" --year-max 2000 --l
 # E.g. K&T 1979 Econometrica cited 46625, returns as #1 for "prospect theory"
 
 # Reviews — type-filter for review articles (Deep tier; lit review writing)
-python3 -m scripts.openalex_helper reviews "working memory training elderly" --limit 15 --year-min 2018
+python3 -m scripts.openalex_helper reviews "working memory training elderly" --limit 15
 
 # Journal-list — whitelist top-tier venues
 python3 -m scripts.openalex_helper journal-list "ESG disclosure" --preset UTD24 --limit 30
@@ -120,7 +120,7 @@ OpenAlex strongly prefers English keywords (its index is multilingual but Englis
 # User: "青少年焦虑认知行为治疗"
 # Translate search terms only; keep original for report metadata.
 python3 -m scripts.openalex_helper double-sort "adolescent anxiety cognitive behavioral therapy" \
-    --n 50 --year-min 2018 > raw/openalex.json
+    --n 50 > raw/openalex.json
 # Then in summary.md / report.md: cite the user's original "青少年焦虑认知行为治疗" verbatim.
 
 # Tip: include both Chinese-romanized authors and English transliterations when querying by author —

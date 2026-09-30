@@ -146,7 +146,7 @@ When `primary_source: semantic_scholar`, or `auto` resolved to a switch, run STE
 ```bash
 PYTHONPATH=$PSP_HOME \
   python3 -m scripts.ss_helper --search "<query>" \
-    --year-min 2018 --n 50 \
+    --n 50 [--year-min YYYY] \
     > "$SEARCH_DIR/raw/openalex.json"
 ```
 

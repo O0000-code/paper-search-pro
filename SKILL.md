@@ -79,7 +79,8 @@ Python helpers do deterministic work — NO LLM inside, NO external API key.
 
   L1 OpenAlex (primary)  → deep top-100 multi-strategy
   L2 PubMed (medical)    → MeSH enricher (mostly; Audit-tier can search independently)
-  L2 arXiv (CS/preprint) → T-0~T-4 freshness sentinel
+  L2 arXiv (CS/AI)       → last-year recent layer (+ 4-day sentinel on freshness words)
+  L2 OpenReview (AI)     → accepted-venue labels (ICLR / NeurIPS / ICML …)
   L3 Semantic Scholar    → influentialCitationCount + abstract fallback
   L3 CrossRef            → funder / license / clinical-trial-number
 
@@ -348,13 +349,13 @@ Each is an independent primary source for the Chinese space (same role as `ss_he
 # NSSD — Chinese social-sciences & humanities (adds the CSSCI-tier layer OpenAlex lacks)
 PYTHONPATH=$PSP_HOME \
   python3 -m scripts.nssd_helper --search "<中文检索式>" \
-    --n 50 --year-min 2018 \
+    --n 50 [--year-min YYYY] \
     > "$SEARCH_DIR/raw/nssd.json"
 
 # yiigle — Chinese medical (中华医学期刊全文数据库; native-Chinese titles + abstracts)
 PYTHONPATH=$PSP_HOME \
   python3 -m scripts.yiigle_helper --search "<中文检索式>" \
-    --n 50 --year-min 2018 \
+    --n 50 [--year-min YYYY] \
     > "$SEARCH_DIR/raw/yiigle.json"
 ```
 
@@ -798,7 +799,7 @@ You: Pick Standard tier (default; signals: "找一些", "老板让我看"). Dete
 
 User: "I'm writing a proper literature review article on attachment and human-robot interaction in elderly care contexts. Need real depth..."
 
-You: Pick Deep tier ("proper literature review article" + "real depth"). Cross-domain (psychology + CS) in STEP 2 → enable arXiv freshness sentinel. SPIDER plan in STEP 1. OpenAlex `double-sort` top-200 + `reviews` subcommand in STEP 3. Classify 200+ papers via 8 batches in STEP 6 — dispatch 5 parallel Tasks per message, two waves. STEP 9 expand citations 2 hops. STEP 10 enrich top-50 with SS + CrossRef. Render report with PRISMA-S log.
+You: Pick Deep tier ("proper literature review article" + "real depth"). Cross-domain (psychology + CS) in STEP 2 → enable arXiv's recent layer and OpenReview. SPIDER plan in STEP 1. OpenAlex `double-sort` top-200 + `reviews` subcommand in STEP 3. Classify 200+ papers via 8 batches in STEP 6 — dispatch 5 parallel Tasks per message, two waves. STEP 9 expand citations 2 hops. STEP 10 enrich top-50 with SS + CrossRef. Render report with PRISMA-S log.
 
 ### Example 4: Audit × SR-prep (2-3 hr)
 

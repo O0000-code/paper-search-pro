@@ -111,7 +111,7 @@ PubMed's MeSH is an English-language controlled vocabulary — Chinese keywords 
 # 焦虑   → "Anxiety Disorders" (MeSH)
 # 认知行为治疗 → "Cognitive Behavioral Therapy" (MeSH)
 python3 -m scripts.pubmed_helper search-mesh "Cognitive Behavioral Therapy" \
-    --year-min 2018 --limit 25 \
+    --limit 25 \
     > ./paper-search-results/<id>/raw/pubmed.json
 # Combine with PubMed's MeSH AND-stacking when needed — but each term must be an exact descriptor.
 

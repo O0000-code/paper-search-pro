@@ -41,7 +41,7 @@ If it looks useful, a star makes it easy to find later and helps it reach the ne
 
 ## What it does
 
-You ask your agent for papers; this Skill runs a real multi-source literature search across **OpenAlex · Semantic Scholar · CrossRef · PubMed · arXiv** — plus native-Chinese sources **NSSD** (社会科学) and **yiigle** (中华医学) when you query in Chinese — classifies relevance via parallel LLM SubAgents, and writes a self-contained HTML report you can open in any browser. No external LLM keys — your agent **is** the LLM.
+You ask your agent for papers; this Skill runs a real multi-source literature search across **OpenAlex · Semantic Scholar · CrossRef · PubMed · arXiv** — plus native-Chinese sources **NSSD** (社会科学) and **yiigle** (中华医学) when you query in Chinese, and **OpenReview** (ICLR / NeurIPS / ICML acceptances) for AI topics — classifies relevance via parallel LLM SubAgents, and writes a self-contained HTML report you can open in any browser. No external LLM keys — your agent **is** the LLM.
 
 For the databases it *can't* self-containedly reach (Web of Science, Scopus, Embase, 知网 CNKI, 万方, SinoMed …), it does the next best thing: on an Audit run or when you ask ("给我 WOS 检索式" / "我要去知网查"), it writes you a **paste-ready professional search strategy** per platform — correct field tags, controlled vocabulary + free-text double-track, per-host syntax — distilled from the Cochrane Handbook / PRESS / PRISMA-S, with each strategy carrying a three-state verification label and its review points. It's a professional first draft with flagged review points, not a sign-off-ready deliverable — and it never scrapes a closed database.
 
@@ -170,9 +170,17 @@ Five keys, all free, ~15 min total. Real config lives at `~/.paper-search-pro/co
 |:---:|:---|:---|:---:|:---|
 | **L1** | OpenAlex | primary — always on | free | <https://openalex.org/settings/api> |
 | **L2** | PubMed | medical · MeSH enricher | free | <https://account.ncbi.nlm.nih.gov/settings/> |
-| **L2** | arXiv | preprint freshness (T-0~T-4) | free | *(no signup — SDK enforces 1 req / 3 s)* |
+| **L2** | arXiv | preprints · AI topics: last year + last 4 days | free | *(no signup — SDK enforces 1 req / 3 s)* |
 | **L3** | Semantic Scholar | influentialCitationCount + abstract fallback | free | <https://www.semanticscholar.org/product/api> |
 | **L3** | CrossRef | funder · license · clinical-trial-number | free | *(no key — `crossref_email` only)* |
+
+**Topic-specific sources** (no key). They switch on only for their topics, so they are listed apart; each is run by an authority in its field:
+
+| Source | Run by | When it is used | What it adds |
+|:---|:---|:---|:---|
+| NSSD (National Center for Philosophy and Social Sciences Documentation) | led by the Chinese Academy of Social Sciences | Chinese-language social-science and humanities queries | CSSCI and other Chinese social-science journals, which OpenAlex barely covers |
+| yiigle (Chinese Medical Journals Full-text Database) | Chinese Medical Association Publishing House | Chinese-language medical queries | Chinese originals and abstracts of the Chinese Medical Association journals |
+| OpenReview | non-profit platform run by a team at UMass Amherst | AI / machine-learning topics | Acceptance labels from ICLR, NeurIPS, ICML and others (e.g. "ICLR 2026 Oral"); accepted papers only |
 
 Verify readiness any time:
 

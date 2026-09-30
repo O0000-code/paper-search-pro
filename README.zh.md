@@ -41,7 +41,7 @@
 
 ## 它做什么
 
-你在 Agent 对话框中请求文献，这个 Skill 跨 **OpenAlex · Semantic Scholar · CrossRef · PubMed · arXiv** 五个数据源做真实检索——用中文提问时再叠加中文原生源 **NSSD**（国家哲社文献中心·社科）与 **yiigle**（中华医学期刊·医学）——通过并行 LLM SubAgent 进行相关性分级，输出一份单文件 HTML 报告，浏览器直接打开。无需第三方 LLM key — 你的 Agent 本身就是 LLM。
+你在 Agent 对话框中请求文献，这个 Skill 跨 **OpenAlex · Semantic Scholar · CrossRef · PubMed · arXiv** 五个数据源做真实检索——用中文提问时再叠加中文原生源 **NSSD**（国家哲社文献中心·社科）与 **yiigle**（中华医学期刊·医学），AI 主题再叠加 **OpenReview**（ICLR / NeurIPS / ICML 的录用信息）——通过并行 LLM SubAgent 进行相关性分级，输出一份单文件 HTML 报告，浏览器直接打开。无需第三方 LLM key — 你的 Agent 本身就是 LLM。
 
 对于它**自足触达不了**的订阅/封闭库（Web of Science、Scopus、Embase、知网 CNKI、万方、SinoMed……），它做下一件最有用的事：在 Audit 档或你开口时（"给我 WOS 检索式" / "我要去知网查"），为每个平台写好一份**可直接粘贴的专业检索式**——正确的字段标签、受控词+自由词双轨、逐库语法——蒸馏自 Cochrane Handbook / PRESS / PRISMA-S，每份检索式带三态验证标签和复核点。定位是"专业初稿 + 标注复核点"，不是可署名直用的成品，且**绝不抓取任何封闭库**。
 
@@ -170,9 +170,17 @@ metadata.json       分离保存用户原话 · 检索主题 · 展示标题
 |:---:|:---|:---|:---:|:---|
 | **L1** | OpenAlex | 主源 — 始终启用 | free | <https://openalex.org/settings/api> |
 | **L2** | PubMed | 医学 · MeSH 富化 | free | <https://account.ncbi.nlm.nih.gov/settings/> |
-| **L2** | arXiv | preprint freshness (T-0~T-4) | free | *（无需注册 — SDK 自带 1 req / 3 s 限速）* |
+| **L2** | arXiv | 预印本 · AI 主题近一年 + 最新 4 天 | free | *（无需注册 — SDK 自带 1 req / 3 s 限速）* |
 | **L3** | Semantic Scholar | influentialCitationCount + 摘要回退 | free | <https://www.semanticscholar.org/product/api> |
 | **L3** | CrossRef | funder · license · clinical-trial-number | free | *（无需 key — 仅需 `crossref_email`）* |
+
+**按主题自动启用的专业来源**（无需 key）。它们只在对应主题的检索里启用，所以单独列出；每个都由所在领域的权威机构运营：
+
+| 数据源 | 运营方 | 什么时候启用 | 补什么 |
+|:---|:---|:---|:---|
+| NSSD 国家哲学社会科学文献中心 | 中国社会科学院牵头承建 | 用中文检索社科、人文主题 | CSSCI 等中文社科期刊（OpenAlex 几乎没有收录） |
+| yiigle 中华医学期刊全文数据库 | 中华医学会杂志社 | 用中文检索医学主题 | 中华系列医学期刊的中文原文与摘要 |
+| OpenReview | 美国马萨诸塞大学阿默斯特分校团队运营的非营利平台 | AI / 机器学习主题 | ICLR、NeurIPS、ICML 等会议的录用信息（如「ICLR 2026 Oral」），只收正式录用的论文 |
 
 随时验证就绪状态：
 

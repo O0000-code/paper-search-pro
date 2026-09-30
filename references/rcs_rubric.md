@@ -75,7 +75,7 @@ The paper is a foundational reference in the field — work that defines the con
 | `off_topic_despite_keywords` | Title/keywords match query but abstract shows paper is about something else | Set RCS = 1-2 with reasoning |
 | `parse_failed_uncertain` | Paper data is malformed (missing title, garbled abstract) | Set RCS = 0, flag for human review |
 | `abstract_unavailable` | Abstract field exists but is "N/A" / "[paywalled]" / extremely short (< 20 chars) | Same as no_abstract_uncertain |
-| `recent_unindexed` | arXiv T-0 to T-4 paper without citation_count yet (don't penalize freshness) | Score by title/abstract only; do not penalize for citation_count=0 |
+| `recent_unindexed` | Recent paper (last year or so — arXiv, OpenReview, or the recent leg) with few or no citations yet (don't penalize freshness) | Score by title/abstract only; do not penalize for citation_count=0 |
 
 ## Scoring discipline
 
