@@ -8,7 +8,8 @@
 |-------|--------|---------|
 | `coverage_estimate` | `curve.json` | 0.0-1.0; estimate of how much of the relevant literature you've covered |
 | `ci_lower`, `ci_upper` | `curve.json` | 95% interval; it narrows as more relevant papers are re-found across searches |
-| `method` | `curve.json` | `sample_coverage` = estimated from this run's searches; `prior` = fewer than two searches (or no relevant paper found), so the number is the Undermind median prior, not evidence |
+| `method` | `curve.json` | `sample_coverage` = estimated from this run's searches; `prior` = nothing to measure (fewer than two searches, no relevant paper found, or too few relevant papers to tell), so the number is the Undermind median prior capped at 50%, not evidence |
+| `relevance_band` | `curve.json` | The rcs floor the estimate used: 7, or 6 when the rcs ≥ 7 papers were too few (e.g. two papers, each re-found or found once, which would otherwise read as 100%) |
 | `papers_evaluated` | KG length | How many papers have been classified |
 | `tier_budget` | `tier_decision.md` | Quick 60 / Standard 180 / Deep 400 / Audit 1000 |
 | `user_intent` | from your query understanding | Known topic (high prior) vs. exploration (low prior) |
@@ -75,6 +76,7 @@ Wait for user response. The default in the absence of response is **stop** (opti
 
 ### Few relevant papers (a handful rated ≥ 7)
 - The estimate rests on how often those few were re-found; its interval is wide
+- When they are too few to tell anything, `curve.json` says so: `relevance_band: 6` (estimated over rcs ≥ 6 instead) or `method: prior`. Either way the core is thin — for Standard+, chase citations from those papers (STEP 9) rather than stop
 - Quick tier often ends here — stop after retrieval, and quote the number with its interval
 
 ### curve.json missing
@@ -83,7 +85,7 @@ Wait for user response. The default in the absence of response is **stop** (opti
 
 ## Discovery curve is advisory, not authoritative
 
-`coverage_estimate` is the sample coverage of this run's searches: how often the separate searches in `raw/` (strategies, reviews, Chinese sources, citation hops) found the same rcs ≥ 7 papers again. `1 - coverage` is roughly the chance that one more search of the same kind turns up a relevant paper you do not have. Searches that are deliberately different (classics vs. recent, another language) lower it — that is real, not a bug. It is **a signal, not a verdict**. Override the curve when:
+`coverage_estimate` is the sample coverage of this run's searches: how often the separate searches in `raw/` (strategies, reviews, Chinese sources, citation hops) found the same rcs ≥ 7 papers again (rcs ≥ 6 when `relevance_band` is 6). `1 - coverage` is roughly the chance that one more search of the same kind turns up a relevant paper you do not have. Searches that are deliberately different (classics vs. recent, another language) lower it — that is real, not a bug. It is **a signal, not a verdict**. Override the curve when:
 
 - **User intent is exploratory** ("I don't know this field at all") → the estimate may understate how much of the core you have, since the user wants breadth, not just the core. Push 1 more hop.
 - **User intent is known topic** ("I just need the seminal papers on prospect theory") → curve may overestimate. Stop earlier if rcs ≥ 8 papers are well-represented.

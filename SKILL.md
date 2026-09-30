@@ -411,7 +411,7 @@ PYTHONPATH=$PSP_HOME \
     --output "$SEARCH_DIR/curve.json"
 ```
 
-`curve.json` gives `coverage_estimate` (0-1) with `ci_lower` / `ci_upper`, and `method`: `sample_coverage` means it was estimated from how often this run's separate searches in `raw/` re-found the same highly relevant papers; `prior` means there were fewer than two searches (or none found a relevant paper), so it is the Undermind median prior, not a measurement — say so if you quote it. `--raw-dir` overrides where the searches are read from (default: `raw/` next to `--kg`).
+`curve.json` gives `coverage_estimate` (0-1) with `ci_lower` / `ci_upper`, and `method`: `sample_coverage` means it was estimated from how often this run's separate searches in `raw/` re-found the same highly relevant papers (`relevance_band` 7 = rcs ≥ 7; 6 = rcs ≥ 6, used when the rcs ≥ 7 papers are too few for the estimator to say anything); `prior` means there was nothing to measure — fewer than two searches, no relevant paper found, or too few in either band — so it is the Undermind median prior capped at 50%, not a measurement — say so if you quote it. `--raw-dir` overrides where the searches are read from (default: `raw/` next to `--kg`).
 
 ### STEP 8 — Decide next action (MANDATORY)
 

@@ -69,12 +69,29 @@ def compute_marginal_rates(snapshots: List[Dict]) -> List[float]:
 # as one sampling occasion gives incidence data, and the Good-Turing / Chao &
 # Jost (2012) *sample coverage* of that data is the order-free form of the
 # curve's final slope: 1 - coverage is the chance that the next relevant paper
-# a further search turns up is one we do not have yet. It needs no fit and
-# cannot fail once there are two occasions and one relevant detection. With
-# less than that there is no evidence to use, and the Undermind prior (median
-# tau = 80 across queries, whitepaper s3.1) stands in, labelled as such.
+# a further search turns up is one we do not have yet. It needs no fit.
+#
+# It can still say nothing. The estimate is exactly 1 when no relevant paper was
+# found by only one search, or when one was and none by exactly two (Q1 = 0, or
+# Q1 = 1 and Q2 = 0): with no singletons to go on, the bias-corrected estimator
+# puts the unseen count at zero. That reads as "found everything" but means "too
+# few papers to tell", and it happens when the rcs >= 7 set is a handful of
+# papers (two, found by 3 and 1 of 8 searches -> 100%, and STEP 8 stopped the
+# search). Then the estimate is taken over rcs >= 6, which rcs_rubric.md still
+# calls highly relevant (7 adds "> 100 citations or landmark", which few recent
+# papers reach; citation_chasing.md drops to 6 for the same reason). Central
+# papers are re-found more often than the rest, so the wider band errs low.
+#
+# With no usable estimate (fewer than two occasions, no relevant detection, or
+# both bands saying nothing) the Undermind prior (median tau = 80 across
+# queries, whitepaper s3.1) stands in, labelled as such and capped at 50% with
+# no lower bound: the prior depends only on how many papers were screened, and
+# no evidence must never read as high coverage (it would stop the search and
+# tell the user the set is near-exhaustive).
 
 HIGHLY_RELEVANT_RCS = 7
+RELEVANCE_BANDS = (HIGHLY_RELEVANT_RCS, 6)
+NO_EVIDENCE_CEILING = 0.5
 UNDERMIND_MEDIAN_TAU = 80.0
 
 
@@ -207,24 +224,30 @@ def sample_coverage(
     """Chao & Jost (2012) incidence-based sample coverage of ``relevant`` papers.
 
     Returns None when there is no evidence: fewer than two occasions, or no
-    relevant paper found in any of them.
+    relevant paper found in any of them. ``informative`` is False when the
+    counts leave the estimator nothing to go on (Q1 = 0, or Q1 = 1 and Q2 = 0);
+    the coverage is then exactly 1 and must not be reported as a measurement.
     """
     m = len(occasions)
     counts: Dict[str, int] = {}
     for occ in occasions:
         for key in occ & relevant:
             counts[key] = counts.get(key, 0) + 1
-    freqs = list(counts.values())
+    # Sorted: set order varies with the per-process string hash seed, and the
+    # bootstrap draws follow this order, so the interval would too.
+    freqs = sorted(counts.values())
     coverage = _coverage_from_counts(freqs, m)
     if coverage is None:
         return None
     lower, upper = _bootstrap_interval(freqs, m, coverage)
+    q1, q2 = freqs.count(1), freqs.count(2)
     return {
         "coverage": coverage,
         "lower": lower,
         "upper": upper,
         "occasions": m,
         "detections": sum(freqs),
+        "informative": q1 > 1 or (q1 == 1 and q2 > 0),
     }
 
 
@@ -236,6 +259,14 @@ def prior_coverage(papers_evaluated: int) -> Tuple[float, float, float]:
         1.0 - math.exp(-n / (2 * UNDERMIND_MEDIAN_TAU)),
         1.0 - math.exp(-n / (UNDERMIND_MEDIAN_TAU / 2)),
     )
+
+
+def no_evidence_coverage(papers_evaluated: int) -> Tuple[float, float, float]:
+    """The number shown when nothing was measured: the prior, capped at
+    NO_EVIDENCE_CEILING, from 0 up to the prior band's upper end."""
+    point, _, upper = prior_coverage(papers_evaluated)
+    point = min(point, NO_EVIDENCE_CEILING)
+    return (point, 0.0, max(point, upper))
 
 
 # --------------------------------------------------------------------------- #
@@ -263,21 +294,28 @@ def make_snapshot(
 
     Returns:
         snapshot dict with the coverage estimate and how it was obtained
-        (`method`: "sample_coverage" or "prior").
+        (`method`: "sample_coverage" or "prior"; `relevance_band`: the rcs
+        floor the estimate was taken over, None for the prior).
     """
     if papers_evaluated is None:
         papers_evaluated = len(kg)
-    relevant = {
-        key for key, p in kg.items() if p.rcs is not None and p.rcs >= HIGHLY_RELEVANT_RCS
-    }
-    highly_relevant_count = len(relevant)
 
-    estimate = sample_coverage(occasions, relevant) if occasions else None
+    def band(floor: int) -> Set[str]:
+        return {key for key, p in kg.items() if p.rcs is not None and p.rcs >= floor}
+
+    highly_relevant_count = len(band(HIGHLY_RELEVANT_RCS))
+
+    estimate, relevance_band = None, None
+    for floor in (RELEVANCE_BANDS if occasions else ()):
+        candidate = sample_coverage(occasions, band(floor))
+        if candidate and candidate["informative"]:
+            estimate, relevance_band = candidate, floor
+            break
     if estimate:
         point, lower, upper = estimate["coverage"], estimate["lower"], estimate["upper"]
         method = "sample_coverage"
     else:
-        point, lower, upper = prior_coverage(papers_evaluated)
+        point, lower, upper = no_evidence_coverage(papers_evaluated)
         method = "prior"
 
     n_total = highly_relevant_count / point if point > 0 else float(highly_relevant_count)
@@ -297,6 +335,7 @@ def make_snapshot(
         "ci_lower": round(lower, 3),
         "ci_upper": round(upper, 3),
         "method": method,
+        "relevance_band": relevance_band,
         "occasions": estimate["occasions"] if estimate else len(occasions or []),
         "fit_failed": method == "prior",
     }
@@ -479,7 +518,10 @@ if __name__ == "__main__":
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False), encoding="utf-8")
+    band_note = (
+        f" over rcs >= {snapshot['relevance_band']}" if snapshot["relevance_band"] else ""
+    )
     print(
         f"discovery_curve: coverage {snapshot['coverage_estimate']:.0%} "
-        f"({snapshot['method']}, {snapshot['occasions']} retrieval files) -> {args.output}"
+        f"({snapshot['method']}{band_note}, {snapshot['occasions']} retrieval files) -> {args.output}"
     )

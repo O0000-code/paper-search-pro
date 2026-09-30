@@ -63,6 +63,17 @@ def test_sample_coverage_needs_two_occasions_and_a_detection():
     assert dc.sample_coverage([{"a"}, {"b"}], set()) is None
 
 
+def test_counts_that_leave_the_estimator_nothing_to_go_on_are_flagged():
+    # Q1 = 1, Q2 = 0: one paper found by 3 of 4 searches, one by 1 -> exactly 1
+    est = dc.sample_coverage([{"a", "b"}, {"a"}, {"a"}, {"x"}], {"a", "b"})
+    assert est["coverage"] == 1.0 and est["informative"] is False
+    # Q1 = 0: every relevant paper re-found
+    assert dc.sample_coverage([{"a"}, {"a"}], {"a"})["informative"] is False
+    # Q1 = 1, Q2 = 1 (and Q1 = 2): something to go on
+    assert dc.sample_coverage([{"a", "b", "c"}, {"a", "b"}, {"a"}], {"a", "b", "c"})["informative"]
+    assert dc.sample_coverage([{"a", "b"}, {"x"}], {"a", "b"})["informative"]
+
+
 # --------------------------------------------------------------------------- #
 # retrieval_occasions
 # --------------------------------------------------------------------------- #
@@ -104,6 +115,7 @@ def test_snapshot_uses_sample_coverage_when_there_is_evidence():
     occ = [{"doi|10.1/a", "doi|10.1/b"}, {"doi|10.1/a", "doi|10.1/c"}]
     snap = dc.make_snapshot(kg, occasions=occ)
     assert snap["method"] == "sample_coverage"
+    assert snap["relevance_band"] == 7
     assert snap["fit_failed"] is False
     assert 0 < snap["coverage_estimate"] < 1
 
@@ -111,9 +123,59 @@ def test_snapshot_uses_sample_coverage_when_there_is_evidence():
 def test_snapshot_falls_back_to_labelled_prior_but_always_gives_a_number():
     kg = _kg([_p(f"10.1/{i}", 8 if i < 5 else 2) for i in range(160)])
     snap = dc.make_snapshot(kg, occasions=[])
-    assert snap["method"] == "prior"
+    assert snap["method"] == "prior" and snap["relevance_band"] is None
     assert snap["coverage_estimate"] is not None
     assert snap["ci_lower"] <= snap["coverage_estimate"] <= snap["ci_upper"]
+    # 160 screened papers put the bare prior at 86%; with no evidence it is capped.
+    assert snap["coverage_estimate"] <= dc.NO_EVIDENCE_CEILING
+    assert snap["ci_lower"] == 0.0
+
+
+def _k(p):
+    return f"doi|{p.doi}"
+
+
+def test_a_handful_of_rcs7_papers_does_not_read_as_complete():
+    """Release-test shape (2026-09-30): two rcs 7 papers found by 3 and 1 of 8
+    searches gave 100%, and STEP 8 stopped the search. The rcs >= 6 band
+    carries the estimate instead; the report's highly relevant count stays."""
+    a, b = _p("10.1/a", 7), _p("10.1/b", 7)
+    sixes = [_p(f"10.1/s{i}", 6) for i in range(6)]
+    kg = _kg([a, b, *sixes])
+    occ = [
+        {_k(a), _k(sixes[0])}, {_k(a), _k(b)}, {_k(a), _k(sixes[1])},
+        {_k(sixes[2])}, {_k(sixes[3])}, {_k(sixes[4])}, {_k(sixes[5])}, {"doi|10.9/x"},
+    ]
+    snap = dc.make_snapshot(kg, occasions=occ)
+    assert snap["method"] == "sample_coverage" and snap["relevance_band"] == 6
+    assert abs(snap["coverage_estimate"] - 0.332) < 0.001  # 1 - (7/10) * 42/44
+    assert snap["highly_relevant_count"] == 2
+
+
+def test_when_no_band_says_anything_the_capped_prior_stands_in():
+    a, b = _p("10.1/a", 7), _p("10.1/b", 6)
+    kg = _kg([a, b, *[_p(f"10.1/n{i}", 2) for i in range(300)]])
+    occ = [{_k(a), _k(b)}, {_k(a), _k(b)}]
+    snap = dc.make_snapshot(kg, occasions=occ)
+    assert snap["method"] == "prior" and snap["relevance_band"] is None
+    assert snap["coverage_estimate"] <= dc.NO_EVIDENCE_CEILING
+
+
+def test_snapshot_never_reports_full_coverage():
+    """Every count pattern of up to three rcs 7 papers over two to four
+    searches: whatever the estimator says, the snapshot stays below 1."""
+    from itertools import product
+
+    papers = [_p(f"10.1/{i}", 7) for i in range(3)]
+    for m in (2, 3, 4):
+        for k in (1, 2, 3):
+            for freqs in product(range(1, m + 1), repeat=k):
+                occ = [
+                    {_k(papers[i]) for i in range(k) if freqs[i] > j} or {"doi|10.9/x"}
+                    for j in range(m)
+                ]
+                snap = dc.make_snapshot(_kg(papers[:k]), occasions=occ)
+                assert snap["coverage_estimate"] < 1, (m, freqs, snap)
 
 
 def _run_cli(*args):
@@ -125,14 +187,14 @@ def _run_cli(*args):
 
 
 def test_cli_finds_raw_dir_next_to_kg_and_accepts_a_curve_json(tmp_path):
-    a, b = _p("10.1/a", 8), _p("10.1/b", 8)
-    kg = {"doi|10.1/a": {"doi": "10.1/a", "title": a.title, "year": 2024, "rcs": 8},
-          "doi|10.1/b": {"doi": "10.1/b", "title": b.title, "year": 2024, "rcs": 8}}
+    a, b, c = _p("10.1/a", 8), _p("10.1/b", 8), _p("10.1/c", 8)
+    kg = {f"doi|{p.doi}": {"doi": p.doi, "title": p.title, "year": 2024, "rcs": 8} for p in (a, b, c)}
     (tmp_path / "kg_classified.json").write_text(json.dumps(kg), encoding="utf-8")
     raw = tmp_path / "raw"
     raw.mkdir()
+    # a and b re-found, c found once: counts the estimator can use
     _write(raw / "s1.json", [a, b], 10)
-    _write(raw / "s2.json", [a, b, _p("10.1/z")], 20)
+    _write(raw / "s2.json", [a, b, c, _p("10.1/z")], 20)
     first = _run_cli("--kg", str(tmp_path / "kg_classified.json"), "--output", str(tmp_path / "curve.json"))
     assert first.returncode == 0, first.stderr
     snap = json.loads((tmp_path / "curve.json").read_text())
@@ -164,3 +226,21 @@ def test_interval_is_reproducible_and_brackets_the_estimate():
     assert one == two
     assert 0 <= one["lower"] <= one["coverage"] <= one["upper"] <= 1
     assert one["upper"] - one["lower"] > 0.05  # few detections -> a real spread
+
+
+def test_interval_does_not_depend_on_the_hash_seed():
+    """Re-running STEP 7 on the same files must give the same interval; set
+    order (and so the bootstrap's draw order) changes with PYTHONHASHSEED."""
+    code = (
+        "from scripts import discovery_curve as dc;"
+        "occ=[{'a','b','c','d'},{'a','b','e'},{'a','f'},{'b','c','g'},{'h'}];"
+        "e=dc.sample_coverage(occ,set('abcdefgh'));print(e['lower'],e['upper'])"
+    )
+    outs = {
+        subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, cwd=str(SKILL_ROOT),
+            env={**os.environ, "PYTHONPATH": str(SKILL_ROOT), "PYTHONHASHSEED": seed},
+        ).stdout
+        for seed in ("1", "2", "3", "4", "5")
+    }
+    assert len(outs) == 1 and outs != {""}, outs

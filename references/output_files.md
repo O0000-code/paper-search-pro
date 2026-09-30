@@ -75,7 +75,7 @@ Main agent generates this once at start, never changes mid-search.
 | `kg.json` | `federated_kg_resolver.py` (STEP 5) | Deduped multi-source merge | `{<canonical_key>: UnifiedPaperEntity}` dict |
 | `summary.md` | Main agent (STEP 11) | Executive summary in main agent's voice | ~300 words plain markdown |
 | `execution_log.json` | `prisma_s_logger.py` (STEP 13) | PRISMA-S compliance / audit trail | `{prisma_s: {1-16 items}, discovery_curve_snapshots, agent_invocations, errors, stop_reason, search_id, user_query, tier, generated_at}` |
-| `curve.json` | `discovery_curve.py` (STEP 7) | Coverage estimate | `{papers_evaluated, highly_relevant_count, coverage_estimate, ci_lower, ci_upper, method, occasions, n_total_estimate, …}` |
+| `curve.json` | `discovery_curve.py` (STEP 7) | Coverage estimate | `{papers_evaluated, highly_relevant_count, coverage_estimate, ci_lower, ci_upper, method, relevance_band, occasions, n_total_estimate, …}` |
 | `raw/openalex.json` | `openalex_helper double-sort` or `deep` (STEP 3) | OpenAlex retrieval raw | `UnifiedPaperEntity[]` |
 | `raw/pubmed.json` | `pubmed_helper search-mesh` or `enrich` (STEP 4) | PubMed raw / enriched | parsed dict[] or UnifiedPaperEntity[] |
 | `raw/arxiv.json` | `arxiv_helper freshness` (STEP 4) | arXiv freshness raw | `UnifiedPaperEntity[]` |
