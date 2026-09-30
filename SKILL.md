@@ -268,7 +268,15 @@ PYTHONPATH=$PSP_HOME \
     > "$SEARCH_DIR/raw/openalex.json"
 ```
 
-Add the STEP 1 window to either command: `--year-min YYYY` / `--year-max YYYY` (inclusive). No window given → none is added (the helpers cap at the current year themselves). The recent leg stays inside the window: for a window ending in the past, it takes that window's last year.
+Then record how many works OpenAlex holds for the main query — one line under the report's year chart, so a thin recent bar is not read as a thin field (it counts title-and-abstract matches in the STEP 1 window, or the last two years when there is none):
+
+```bash
+PYTHONPATH=$PSP_HOME \
+  python3 -m scripts.openalex_helper count "<query>" [--year-min YYYY] [--year-max YYYY] \
+    > "$SEARCH_DIR/pool_count.json"
+```
+
+Add the STEP 1 window to the retrieval commands too: `--year-min YYYY` / `--year-max YYYY` (inclusive). No window given → none is added (the helpers cap at the current year themselves). The recent leg stays inside the window: for a window ending in the past, it takes that window's last year.
 
 **`raw/` holds retrieval output only — one file per search, as the helpers wrote it.** STEP 7 estimates coverage from how often these separate searches found the same papers. A subset, merge or screened copy you derive goes in `"$SEARCH_DIR/_working/"`, not `raw/`: in `raw/` it would look like another search that re-found everything.
 

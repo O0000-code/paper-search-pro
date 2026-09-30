@@ -114,6 +114,7 @@ const STRINGS = {
     insightCoverageModerate: 'Coverage is moderate ({pct}%). A meaningful share of relevant work is likely still undiscovered — escalate to audit tier for systematic-review use.',
     insightCoverageLow: 'Coverage is low ({pct}%). This is a scoping pass — treat results as exploratory, not exhaustive.',
     insightTime: 'Publication activity peaks at {peak} ({pkN} papers). {recentPct}% of the screened set is from 2020 onward.',
+    insightTimePool: ' The bars count what this search retrieved, not the field: OpenAlex holds about {n} papers from {range} whose title and abstract contain the search terms (an upper bound — not all are on topic).',
     insightQuality: 'Mean RCS {mean}. {hiN} paper{hiPlural} ({hiPct}%) scored ≥ 0.80, {loN} ({loPct}%) scored ≤ 0.20. Long tail of low-relevance papers is expected; they are surfaced for transparency.',
 
     rcsAccordion: 'Relevance Composite Score',
@@ -402,6 +403,7 @@ const STRINGS = {
     insightCoverageModerate: '覆盖率中等({pct}%)。仍有相当比例的相关文献可能未被发现 —— 系统综述用途建议升级到 audit 档级。',
     insightCoverageLow: '覆盖率较低({pct}%)。本次为探索性检索 —— 结果应作为初步参考，非穷尽。',
     insightTime: '发表活动峰值在 {peak} 年({pkN} 篇)。已筛集中 {recentPct}% 为 2020 年及以后发表。',
+    insightTimePool: '柱子数的是本次找回的文献，不是这个领域的总量：OpenAlex 中 {range} 年标题和摘要含这些检索词的文献约 {n} 篇（上限估计，并非都切题）。',
     insightQuality: '平均 RCS {mean}。{hiN} 篇({hiPct}%)得分 ≥ 0.80，{loN} 篇({loPct}%)得分 ≤ 0.20。低相关文献长尾属于预期 —— 出于透明性也予以呈现。',
 
     rcsAccordion: '相关性综合评分 (RCS)',

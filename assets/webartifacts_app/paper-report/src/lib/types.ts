@@ -125,6 +125,15 @@ export interface YearBin {
   highly_relevant: number
 }
 
+/** How many papers OpenAlex holds whose title + abstract contain the search
+ *  terms, in a year range (pool_count.json, written in STEP 3). An upper bound
+ *  on the field's output, shown so the bars are not read as the field's size. */
+export interface YearPool {
+  count: number
+  year_min: number
+  year_max: number
+}
+
 export interface RcsBin {
   rcs: number
   count: number
@@ -198,6 +207,7 @@ export interface ChartDataBins {
     bins: YearBin[]
     year_min?: number
     year_max?: number
+    pool?: YearPool
   }
   relevance_score?: {
     bins: RcsBin[]

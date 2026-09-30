@@ -168,8 +168,14 @@ def materialize(
         # Allow callers to materialise an unclassified KG (degraded but useful).
         classified = list(kg.values())
 
+    year_histogram = _build_year_histogram(classified)
+    pool = _read_pool_count(run_dir / "pool_count.json")
+    if pool is not None and year_histogram["bins"]:
+        # Additive: only runs that wrote pool_count.json (STEP 3) carry it.
+        year_histogram["pool"] = pool
+
     chart_data = {
-        "publication_year": _build_year_histogram(classified),
+        "publication_year": year_histogram,
         "relevance_score": _build_rcs_distribution(classified),
         "discovery_curve": _build_discovery_curve(
             discovery_curve_snapshots,
@@ -242,6 +248,20 @@ def materialize(
 
 
 # ---------- Chart builders ----------
+
+def _read_pool_count(path: Path) -> Optional[Dict[str, int]]:
+    """``{count, year_min, year_max}`` from STEP 3's pool_count.json, or None.
+
+    None when the file is missing, unreadable, or OpenAlex could not count
+    (``count`` null) — the report then shows no pool sentence.
+    """
+    try:
+        d = json.loads(Path(path).read_text(encoding="utf-8"))
+        out = {k: int(d[k]) for k in ("count", "year_min", "year_max")}
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+    return out
+
 
 def _build_year_histogram(papers: List[UnifiedPaperEntity]) -> Dict[str, Any]:
     """Per-year bar chart with highly_relevant overlay. Empty years are omitted."""

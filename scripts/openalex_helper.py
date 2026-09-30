@@ -637,6 +637,29 @@ def double_sort_search(
     return _merge_strategies(strategies)
 
 
+def count_title_abstract_matches(
+    query: str,
+    year_min: Optional[int] = None,
+    year_max: Optional[int] = None,
+) -> Tuple[int, int, int]:
+    """How many works have every query word in title or abstract, in a year range.
+
+    Returns ``(count, year_min, year_max)``. No range given → the last two years.
+    Feeds one line under the report's year chart: the bars count what the search
+    retrieved, and without this figure a thin recent bar read as a thin field
+    (a user concluded a 2025–2026 topic was unstudied). An upper bound — not all
+    matches are on topic — which the report says.
+    """
+    y_max = year_max if year_max is not None else _today().year
+    y_min = year_min if year_min is not None else y_max - 1
+    q = (
+        Works()
+        .filter(title_and_abstract={"search": _title_abstract_filter_value(query)})
+        .filter(publication_year=_year_filter(y_min, y_max))
+    )
+    return int(openalex_guard.call(lambda: q.count()) or 0), y_min, y_max
+
+
 def _merge_strategies(strategies: List[List[UnifiedPaperEntity]]) -> List[UnifiedPaperEntity]:
     """Dedup across strategies. Papers several strategies found come first (more
     strategies first, then more citations). Papers only one strategy found follow,
@@ -1183,6 +1206,15 @@ def _run_command(args):
         )
         payload = _entity_list_to_json(results)
         count = len(results)
+    elif args.cmd == "count":
+        # No fallback source: another index's total is not the same figure.
+        try:
+            n, y_min, y_max = count_title_abstract_matches(
+                args.query, year_min=args.year_min, year_max=args.year_max)
+            payload = {"count": n, "year_min": y_min, "year_max": y_max,
+                       "matched_in": "title_and_abstract", "query": args.query}
+        except OpenAlexUnavailable as exc:
+            payload = {"count": None, "error": exc.describe(), "query": args.query}
     elif args.cmd == "seminal":
         results = find_seminal_papers(args.topic, year_max=args.year_max, limit=args.limit)
         payload = _entity_list_to_json(results)
@@ -1277,6 +1309,13 @@ def _main_cli() -> None:
     p_double.add_argument("--year-max", type=int)
 
     # seminal
+    p_count = sub.add_parser(
+        "count", help="Works with every query word in title/abstract, in a year range "
+                      "(default: the last two years). Feeds the report's year-chart note.")
+    p_count.add_argument("query")
+    p_count.add_argument("--year-min", type=int)
+    p_count.add_argument("--year-max", type=int)
+
     p_seminal = sub.add_parser("seminal", help="High-cited classic papers")
     p_seminal.add_argument("topic")
     p_seminal.add_argument("--year-max", type=int, default=2015)

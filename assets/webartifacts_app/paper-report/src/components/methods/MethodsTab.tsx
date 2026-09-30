@@ -37,6 +37,7 @@ export function MethodsTab({ data, onSelectPaper }: MethodsTabProps) {
   const c = data.chartData || {}
   const m = data.meta
   const yearBins = c.publication_year?.bins || []
+  const yearPool = c.publication_year?.pool
   const rcsBins = c.relevance_score?.bins || []
   const rcsMean = c.relevance_score?.mean
   const rcsCiLow = c.relevance_score?.ci_low
@@ -47,6 +48,7 @@ export function MethodsTab({ data, onSelectPaper }: MethodsTabProps) {
   const insights = useInsights({
     data,
     yearBins,
+    yearPool,
     rcsBins,
     rcsMean,
     dc,

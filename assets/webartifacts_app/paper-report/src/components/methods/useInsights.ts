@@ -11,11 +11,13 @@ import type {
   NormalizedData,
   RcsBin,
   YearBin,
+  YearPool,
 } from "@/lib/types"
 
 export interface UseInsightsArgs {
   data: NormalizedData
   yearBins: YearBin[]
+  yearPool?: YearPool
   rcsBins: RcsBin[]
   rcsMean?: number
   dc?: DiscoveryCurve
@@ -31,6 +33,7 @@ export interface Insights {
 export function useInsights({
   data,
   yearBins,
+  yearPool,
   rcsBins,
   rcsMean,
   dc,
@@ -66,6 +69,19 @@ export function useInsights({
           pkN: peak.total,
           recentPct: Math.round((recent / total) * 100),
         })
+        // The bars count what this search retrieved. Without the pool figure
+        // readers took a thin recent bar for a thin field.
+        if (yearPool && typeof yearPool.count === "number") {
+          const range =
+            yearPool.year_min === yearPool.year_max
+              ? String(yearPool.year_min)
+              : `${yearPool.year_min}–${yearPool.year_max}`
+          // The separator lives in the string: a space in English, none after 。
+          out.time += t("insightTimePool", {
+            n: yearPool.count.toLocaleString("en-US"),
+            range,
+          })
+        }
       }
     }
 
@@ -91,5 +107,5 @@ export function useInsights({
     // data + nodes kept in deps for API parity with TARGET, even though only
     // shape-derived values are consumed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, yearBins, rcsBins, rcsMean, dc, nodes])
+  }, [data, yearBins, yearPool, rcsBins, rcsMean, dc, nodes])
 }
