@@ -14,14 +14,14 @@
 <br/>
 原生支持 Claude Code；也可在 Codex 等加载 SKILL.md 格式的 Agent 中使用。
 <br/>
-五源 + 中文原生检索 · 四档 · 期刊分区 · WOS / Scopus / Embase / 知网可粘贴检索式 · 单文件 Shadcn 报告。
+五源 + 中文原生检索 + AI 顶会录用信息 · 四档 · 期刊分区 · WOS / Scopus / Embase / 知网可粘贴检索式 · 单文件 Shadcn 报告。
 
 <br/>
 
 <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache_2.0-000?style=flat-square" alt="Apache 2.0"/></a>
 <a href="SKILL.md"><img src="https://img.shields.io/badge/agent-Skill-000?style=flat-square" alt="Agent Skill"/></a>
 <img src="https://img.shields.io/badge/Python-3.10+-000?style=flat-square" alt="Python 3.10+"/>
-<img src="https://img.shields.io/badge/version-2.4.0-000?style=flat-square" alt="v2.4.0"/>
+<img src="https://img.shields.io/badge/version-2.5.0-000?style=flat-square" alt="v2.5.0"/>
 
 </div>
 
@@ -170,17 +170,9 @@ metadata.json       分离保存用户原话 · 检索主题 · 展示标题
 |:---:|:---|:---|:---:|:---|
 | **L1** | OpenAlex | 主源 — 始终启用 | free | <https://openalex.org/settings/api> |
 | **L2** | PubMed | 医学 · MeSH 富化 | free | <https://account.ncbi.nlm.nih.gov/settings/> |
-| **L2** | arXiv | 预印本 · AI 主题近一年 + 最新 4 天 | free | *（无需注册 — SDK 自带 1 req / 3 s 限速）* |
+| **L2** | arXiv | preprint freshness (T‑0\~T‑4) · AI 主题 (T‑0\~T‑365) | free | *（无需注册 — SDK 自带 1 req / 3 s 限速）* |
 | **L3** | Semantic Scholar | influentialCitationCount + 摘要回退 | free | <https://www.semanticscholar.org/product/api> |
 | **L3** | CrossRef | funder · license · clinical-trial-number | free | *（无需 key — 仅需 `crossref_email`）* |
-
-**按主题自动启用的专业来源**（无需 key）。它们只在对应主题的检索里启用，所以单独列出；每个都由所在领域的权威机构运营：
-
-| 数据源 | 运营方 | 什么时候启用 | 补什么 |
-|:---|:---|:---|:---|
-| NSSD 国家哲学社会科学文献中心 | 中国社会科学院牵头承建 | 用中文检索社科、人文主题 | CSSCI 等中文社科期刊（OpenAlex 几乎没有收录） |
-| yiigle 中华医学期刊全文数据库 | 中华医学会杂志社 | 用中文检索医学主题 | 中华系列医学期刊的中文原文与摘要 |
-| OpenReview | 美国马萨诸塞大学阿默斯特分校团队运营的非营利平台 | AI / 机器学习主题 | ICLR、NeurIPS、ICML 等会议的录用信息（如「ICLR 2026 Oral」），只收正式录用的论文 |
 
 随时验证就绪状态：
 
@@ -194,6 +186,18 @@ PYTHONPATH=$PSP_HOME python3 -c \
 
 - **自选主源。** 默认 OpenAlex；当某个领域或语料更适合 Semantic Scholar 时，可把它设为主源。
 - **额度自动兜底。** 当前主源当日额度见底（或开始报错）时，整轮会自动切到另一个源继续，而不是停下 —— key 用尽时优雅降级。
+
+<br/>
+
+## 按主题启用的数据源
+
+除了上面配置表里的五个通用数据源，下面三个只在对应主题的检索里自动启用，无需 key；每个都由所在领域的权威机构运营：
+
+| 数据源 | 运营方 | 什么时候启用 | 补什么 |
+|:---|:---|:---|:---|
+| NSSD 国家哲学社会科学文献中心 | 中国社会科学院牵头承建 | 用中文检索社科、人文主题 | CSSCI 等中文社科期刊（OpenAlex 几乎没有收录） |
+| yiigle 中华医学期刊全文数据库 | 中华医学会杂志社 | 用中文检索医学主题 | 中华系列医学期刊的中文原文与摘要 |
+| OpenReview | 美国马萨诸塞大学阿默斯特分校团队运营的非营利平台 | AI / 机器学习主题 | ICLR、NeurIPS、ICML 等会议的录用信息（如「ICLR 2026 Oral」），只收正式录用的论文 |
 
 <br/>
 

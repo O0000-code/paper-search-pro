@@ -14,14 +14,14 @@
 <br/>
 Built natively for Claude Code; runs in Codex and any agent that loads the SKILL.md format.
 <br/>
-Five open sources + native-Chinese search · four tiers · journal partitions · paste-ready search strategies for WOS / Scopus / Embase / 知网 · single-file Shadcn report.
+Five open sources + native-Chinese search + AI-venue acceptances · four tiers · journal partitions · paste-ready search strategies for WOS / Scopus / Embase / 知网 · single-file Shadcn report.
 
 <br/>
 
 <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-Apache_2.0-000?style=flat-square" alt="Apache 2.0"/></a>
 <a href="SKILL.md"><img src="https://img.shields.io/badge/agent-Skill-000?style=flat-square" alt="Agent Skill"/></a>
 <img src="https://img.shields.io/badge/Python-3.10+-000?style=flat-square" alt="Python 3.10+"/>
-<img src="https://img.shields.io/badge/version-2.4.0-000?style=flat-square" alt="v2.4.0"/>
+<img src="https://img.shields.io/badge/version-2.5.0-000?style=flat-square" alt="v2.5.0"/>
 
 </div>
 
@@ -170,17 +170,9 @@ Five keys, all free, ~15 min total. Real config lives at `~/.paper-search-pro/co
 |:---:|:---|:---|:---:|:---|
 | **L1** | OpenAlex | primary — always on | free | <https://openalex.org/settings/api> |
 | **L2** | PubMed | medical · MeSH enricher | free | <https://account.ncbi.nlm.nih.gov/settings/> |
-| **L2** | arXiv | preprints · AI topics: last year + last 4 days | free | *(no signup — SDK enforces 1 req / 3 s)* |
+| **L2** | arXiv | preprint freshness (T‑0\~T‑4) · AI topics (T‑0\~T‑365) | free | *(no signup — SDK enforces 1 req / 3 s)* |
 | **L3** | Semantic Scholar | influentialCitationCount + abstract fallback | free | <https://www.semanticscholar.org/product/api> |
 | **L3** | CrossRef | funder · license · clinical-trial-number | free | *(no key — `crossref_email` only)* |
-
-**Topic-specific sources** (no key). They switch on only for their topics, so they are listed apart; each is run by an authority in its field:
-
-| Source | Run by | When it is used | What it adds |
-|:---|:---|:---|:---|
-| NSSD (National Center for Philosophy and Social Sciences Documentation) | led by the Chinese Academy of Social Sciences | Chinese-language social-science and humanities queries | CSSCI and other Chinese social-science journals, which OpenAlex barely covers |
-| yiigle (Chinese Medical Journals Full-text Database) | Chinese Medical Association Publishing House | Chinese-language medical queries | Chinese originals and abstracts of the Chinese Medical Association journals |
-| OpenReview | non-profit platform run by a team at UMass Amherst | AI / machine-learning topics | Acceptance labels from ICLR, NeurIPS, ICML and others (e.g. "ICLR 2026 Oral"); accepted papers only |
 
 Verify readiness any time:
 
@@ -194,6 +186,18 @@ PYTHONPATH=$PSP_HOME python3 -c \
 
 - **Pick your primary.** OpenAlex is the default; set Semantic Scholar as the primary source instead when its corpus or field coverage suits your topic better.
 - **Automatic quota fallback.** When the active primary runs low on its daily quota (or starts erroring), the run continues on the other source rather than stopping — a depleted key degrades gracefully.
+
+<br/>
+
+## Topic-specific sources
+
+Beyond the five general sources in the table above, these three switch on only for their topics and need no key; each is run by an authority in its field:
+
+| Source | Run by | When it is used | What it adds |
+|:---|:---|:---|:---|
+| NSSD (National Center for Philosophy and Social Sciences Documentation) | led by the Chinese Academy of Social Sciences | Chinese-language social-science and humanities queries | CSSCI and other Chinese social-science journals, which OpenAlex barely covers |
+| yiigle (Chinese Medical Journals Full-text Database) | Chinese Medical Association Publishing House | Chinese-language medical queries | Chinese originals and abstracts of the Chinese Medical Association journals |
+| OpenReview | non-profit platform run by a team at UMass Amherst | AI / machine-learning topics | Acceptance labels from ICLR, NeurIPS, ICML and others (e.g. "ICLR 2026 Oral"); accepted papers only |
 
 <br/>
 

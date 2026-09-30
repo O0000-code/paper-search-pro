@@ -671,7 +671,7 @@ def _build_metadata(
         ],
         "coverage_method": discovery_curve.get("method"),
         "generated_at": datetime.now().isoformat(),
-        "skill_version": "paper-search-pro/2.4.0",
+        "skill_version": "paper-search-pro/2.5.0",
         "stop_reason": stop_reason,
     }
 

@@ -30,7 +30,7 @@ export const MOCK_RAW = {
     coverage_estimate: 0.91,
     coverage_ci: [0.83, 0.96],
     generated_at: "2026-05-22T10:14:08.523000",
-    skill_version: "paper-search-pro/2.4.0",
+    skill_version: "paper-search-pro/2.5.0",
     stop_reason: null,
   },
 
@@ -418,6 +418,9 @@ export const MOCK_RAW = {
       ],
       year_min: 2008,
       year_max: 2024,
+      // OpenAlex title+abstract matches for the demo query over the same years
+      // (openalex_helper count, 2026-10-01).
+      pool: { count: 1136, year_min: 2008, year_max: 2024 },
     },
     relevance_score: {
       bins: [
