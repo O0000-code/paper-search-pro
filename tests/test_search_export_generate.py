@@ -122,6 +122,16 @@ def test_render_style_detection():
     assert g.render_style(lt.load_card("scopus")) == "paren"
 
 
+def test_fielded_hosts_open_advanced_search():
+    # WOS `TS=` and Scopus `TITLE-ABS-KEY(...)` only work in each host's
+    # advanced search box; "Copy & open" landing on basic search sends the user
+    # to a box that rejects the strategy they just copied.
+    wos = lt.load_card("wos")["deep_link"]["url_template"]
+    scopus = lt.load_card("scopus")["deep_link"]["url_template"]
+    assert wos == "https://www.webofscience.com/wos/woscc/advanced-search"
+    assert scopus == "https://www.scopus.com/search/form.uri?display=advanced"
+
+
 def test_platform_vocab_routing():
     assert g.platform_vocab(lt.load_card("pubmed")) == "mesh"
     assert g.platform_vocab(lt.load_card("eric")) == "eric"
@@ -379,7 +389,7 @@ def test_md_link_text_by_tier():
     assert re.search(
         r"\[打开并直接执行检索\]\(https://pubmed\.ncbi\.nlm\.nih\.gov/\?term=", md)
     # C 档订阅墙模板 / B 档浏览器 / 宿主入口页：均为「打开<入口>」，无括注后缀
-    assert "[打开 Advanced Search](https://www.webofscience.com/wos/woscc/basic-search)" in md
+    assert "[打开 Advanced Search](https://www.webofscience.com/wos/woscc/advanced-search)" in md
     assert "[打开专业检索](https://s.wanfangdata.com.cn/paper)" in md
     assert "[打开专业检索](https://kns.cnki.net)" in md
     # 链接后不再挂「（需机构登录）」「（浏览器内可用）」括注（合并进附录备注一句）

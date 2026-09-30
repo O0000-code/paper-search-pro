@@ -61,8 +61,8 @@ special_chars_escape: null
 deep_link:
   tier: "C"
   url_kind: "paste_only"
-  url_template: "https://www.scopus.com/search/form.uri?display=basic"
-  note: "登录墙：/search/form.uri 实测 301 重定向至 SSO 登录。URL 结构已考证，执行待机构账号；交付=可粘贴检索式；绝不构造绕登录 URL。"
+  url_template: "https://www.scopus.com/search/form.uri?display=advanced"
+  note: "登录墙：/search/form.uri 实测 301 重定向至 SSO 登录。入口指向 Advanced document search（display=advanced）：本卡产出的 TITLE-ABS-KEY(...) 字段码只在高级检索框生效，基本检索页粘进去不工作（2026-09-30 由 display=basic 改）。URL 结构已考证，执行待机构账号；交付=可粘贴检索式；绝不构造绕登录 URL。"
 source_url:
   - "https://elsevier.libguides.com/Scopus/topical-search"
   - "https://supportcontent.elsevier.com/RightNow%20Next%20Gen/Scopus/Files/Scopus%20Quick%20Reference%20Guide%20WEB_2023.pdf"

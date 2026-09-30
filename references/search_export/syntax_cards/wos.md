@@ -65,8 +65,8 @@ special_chars_escape: null
 deep_link:
   tier: "C"
   url_kind: "paste_only"
-  url_template: "https://www.webofscience.com/wos/woscc/basic-search"
-  note: "登录墙：basic-search 页实测 HTTP 200 但仅加载 Angular 外壳，出结果需机构鉴权；Advanced Search 有会话内可分享 query 链接但绑定会话、非无状态预填。URL 结构已考证，执行待机构账号；交付=可粘贴检索式；绝不构造绕登录 URL。"
+  url_template: "https://www.webofscience.com/wos/woscc/advanced-search"
+  note: "登录墙：advanced-search 页实测 HTTP 200 但仅加载 Angular 外壳（2026-09-30 由 basic-search 改：本卡产出的 TS= 字段标签只在 Advanced Search 生效），出结果需机构鉴权；Advanced Search 有会话内可分享 query 链接但绑定会话、非无状态预填。URL 结构已考证，执行待机构账号；交付=可粘贴检索式；绝不构造绕登录 URL。"
 source_url:
   - "https://webofscience.zendesk.com/hc/en-us/articles/20016122409105-Search-Operators"
   - "https://webofscience.zendesk.com/hc/en-us/articles/26916347018257-Web-of-Science-Core-Collection-Advanced-Search-Field-Tags"
@@ -99,4 +99,4 @@ WoS Core Collection 是 Clarivate 的跨学科引文索引，订阅登录墙。�
 **无**（WoS 无主题词表）→ 靠同义词穷举 + 截词；`SU=` 是 WoS 自造的研究方向宽类，非可爆炸叙词表。`controlled_vocab.verification = not_applicable`（无受控词可核）。
 
 ### 深链（C 档）
-`https://www.webofscience.com/wos/woscc/basic-search` — 实测 HTTP 200（仅 SPA 外壳，出结果需鉴权）。Advanced Search 有「会话内可分享 query 链接」（链条图标复制），但绑定会话、非无状态预填。URL 结构已考证，执行待机构账号；只观测不绕墙（C-14）。
+`https://www.webofscience.com/wos/woscc/advanced-search` — 实测 HTTP 200（仅 SPA 外壳，出结果需鉴权；2026-09-30 复测）。检索式用 TS= 字段标签，只能粘进 Advanced Search，所以入口指向它而不是 basic-search。Advanced Search 有「会话内可分享 query 链接」（链条图标复制），但绑定会话、非无状态预填。URL 结构已考证，执行待机构账号；只观测不绕墙（C-14）。
