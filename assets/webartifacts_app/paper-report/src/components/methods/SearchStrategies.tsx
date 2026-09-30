@@ -51,8 +51,10 @@ import { SectionHeader } from "./SectionHeader"
 
 const CJK_RE = /[一-鿿]/
 
+// The host names the operator ("中国知网 / kns.cnki.net"), so a Chinese database
+// stays in the Chinese group even when its display name is Latin ("SinoMed / CBM").
 function isZhPlatform(s: SearchStrategyEntry): boolean {
-  return CJK_RE.test(String(s.platform ?? ""))
+  return CJK_RE.test(`${s.platform ?? ""} ${s.host ?? ""}`)
 }
 
 // Tagged review point: "[CMeSH] 社交媒体: CMeSH 无权威免费 API：须在 ... 人工确认"

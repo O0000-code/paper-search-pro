@@ -4,7 +4,7 @@
 > 与 `chinese_methodology.md` 耦合最深（CMeSH 机制在此写透，供中文方法学专节引用）。语法主张附官方/馆方文档 URL + verified_date。
 
 ```yaml
-platform: "SinoMed / CBM（中国生物医学文献服务系统）"
+platform: "SinoMed / CBM"
 host: "中国医学科学院医学信息研究所·图书馆 / www.sinomed.ac.cn"
 database: "CBM 中国生物医学文献数据库（+ WBM 西文·CBMCI 引文·PUMCD 协和博硕论文·CPM 科普）"
 access: subscription                  # IP 段自动登录 或 账号登录；根域 302→LoginServlet

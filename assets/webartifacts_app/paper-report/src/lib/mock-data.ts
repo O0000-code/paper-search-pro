@@ -1082,7 +1082,7 @@ export const MOCK_RAW = {
         "vocab_verification_status": "语法已验·无受控词表"
       },
       {
-        "platform": "SinoMed / CBM（中国生物医学文献服务系统）",
+        "platform": "SinoMed / CBM",
         "host": "中国医学科学院医学信息研究所·图书馆 / www.sinomed.ac.cn",
         "access": "subscription",
         "strategy_string": "(\"老年人/全部树/全部副主题词\" OR 老年人 OR 老年 OR 老人 OR 老年群体 OR 中老年人 OR 高龄老人) AND (工作记忆训练 OR 工作记忆干预 OR 记忆训练 OR 认知训练 OR n-back训练)",
@@ -1137,8 +1137,8 @@ export const MOCK_RAW = {
       "[CINAHL] [CINAHL] Aged: CINAHL 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
       "[CINAHL] [CINAHL] Aged, 80 and Over: CINAHL 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
       "[CINAHL] 语法已验·词表待核：无免费 API 的受控词须人工核对；受控词状态戳机械已核（L11）；主题词相关性/爆炸/副主题需 LLM 判断。",
-      "[SinoMed / CBM（中国生物医学文献服务系统）] [CMeSH] 老年人: CMeSH 无权威免费 API：须在 SinoMed 主题检索 UI 人工确认主题词 + 副主题词组配",
-      "[SinoMed / CBM（中国生物医学文献服务系统）] 语法已验·词表待核：无免费 API 的受控词须人工核对；受控词状态戳机械已核（L11）；主题词相关性/爆炸/副主题需 LLM 判断。"
+      "[SinoMed / CBM] [CMeSH] 老年人: CMeSH 无权威免费 API：须在 SinoMed 主题检索 UI 人工确认主题词 + 副主题词组配",
+      "[SinoMed / CBM] 语法已验·词表待核：无免费 API 的受控词须人工核对；受控词状态戳机械已核（L11）；主题词相关性/爆炸/副主题需 LLM 判断。"
     ]
   },
 }
