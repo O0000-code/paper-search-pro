@@ -6,6 +6,7 @@
 // text-link Tier chips and a Cards/List ToggleGroup.
 
 import { SearchInput } from "@/components/adapters/SearchInput"
+import { BrandLink } from "./BrandLink"
 import { ZoneFilter, type ZoneFilterValue } from "@/components/papers/ZoneFilter"
 import { fmtNum } from "@/lib/format"
 import { t } from "@/lib/i18n"
@@ -94,7 +95,7 @@ export function EditorialTop({
             }}
           >
             <span style={{ whiteSpace: "nowrap" }}>
-              {m.skillVersion || "paper-search-pro"}
+              <BrandLink skillVersion={m.skillVersion} />
             </span>
             <span style={{ whiteSpace: "nowrap" }}>{date}</span>
             <span style={{ whiteSpace: "nowrap" }}>{m.tier || "standard"} {t("tierLabel")}</span>
@@ -225,7 +226,7 @@ export function EditorialTop({
               fontFamily: "var(--font-mono)",
             }}
           >
-            {m.skillVersion} · {date}
+            <BrandLink skillVersion={m.skillVersion} /> · {date}
           </span>
         </div>
       </nav>

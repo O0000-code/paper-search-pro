@@ -1747,3 +1747,14 @@
     font-size: 40px !important;
   }
 }
+
+/* Tool name on the first screen (BrandLink): reads as the surrounding text,
+   underlines on hover so it is found to be a link. */
+.psp-brand-link {
+  color: inherit;
+  text-decoration: none;
+}
+.psp-brand-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

@@ -6,6 +6,7 @@
 // numerals ("I. Findings", "II. Methods", "III. Audit log").
 
 import { SearchInput } from "@/components/adapters/SearchInput"
+import { BrandLink } from "./BrandLink"
 import { ZoneFilter, type ZoneFilterValue } from "@/components/papers/ZoneFilter"
 import { fmtNum } from "@/lib/format"
 import { t } from "@/lib/i18n"
@@ -250,7 +251,7 @@ export function DocumentTop({
                 className="tabular"
                 style={{ fontFamily: "var(--font-mono)", fontStyle: "normal" }}
               >
-                {m.skillVersion}
+                <BrandLink skillVersion={m.skillVersion} />
               </span>
               {" · "}
               <span

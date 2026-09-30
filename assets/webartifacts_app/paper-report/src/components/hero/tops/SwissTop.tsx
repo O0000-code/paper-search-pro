@@ -7,6 +7,7 @@
 // Tier filter strip with vertical dividers between tier cells.
 
 import { SearchInput } from "@/components/adapters/SearchInput"
+import { BrandLink } from "./BrandLink"
 import { ZoneFilter, type ZoneFilterValue } from "@/components/papers/ZoneFilter"
 import { fmtNum } from "@/lib/format"
 import { t } from "@/lib/i18n"
@@ -111,7 +112,11 @@ export function SwissTop({
             >
               {m.searchId || m.skillVersion}
             </span>
-            <span style={{ flexShrink: 0 }}>{date.replace(/-/g, ".")}</span>
+            <span style={{ flexShrink: 0 }}>
+              <BrandLink skillVersion={m.skillVersion} />
+              {" · "}
+              {date.replace(/-/g, ".")}
+            </span>
           </div>
 
           {/* 12-col grid: query | gutter | 16 | 96% */}
