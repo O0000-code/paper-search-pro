@@ -707,4 +707,438 @@ export const MOCK_RAW = {
       search_id: "mock_20260522_wm_training_older_adults",
     },
   },
+
+  // v2.4 search-strategy export, so the demo shows the Extensions tab. Real output of
+  // scripts.search_export.generate for this topic (PubMed / Cochrane MeSH verified live;
+  // Emtree / APA / CINAHL / CMeSH flagged for manual checking), trimmed to the fields
+  // SearchStrategyEntry reads. Order follows the generator's platform order.
+  search_strategies: {
+    "topic": "working memory training in older adults",
+    "language_space": "both",
+    "quality_claim": "professional first draft with flagged review points",
+    "strategies": [
+      {
+        "platform": "PubMed",
+        "host": "NLM / pubmed.ncbi.nlm.nih.gov",
+        "access": "free",
+        "strategy_string": "(\"Aged\"[mh] OR \"Aged, 80 and over\"[mh] OR \"older adults\"[tiab] OR \"older people\"[tiab] OR \"older persons\"[tiab] OR elderly[tiab] OR seniors[tiab] OR \"late life\"[tiab])\nAND\n(\"Cognitive Training\"[mh] OR \"working memory training\"[tiab] OR \"working-memory training\"[tiab] OR \"working memory intervention\"[tiab] OR \"n-back training\"[tiab] OR Cogmed[tiab] OR \"memory training\"[tiab] OR \"cognitive training\"[tiab] OR \"brain training\"[tiab])",
+        "strategy_lines": [
+          "#1 \"Aged\"[mh] OR \"Aged, 80 and over\"[mh] OR \"older adults\"[tiab] OR \"older people\"[tiab] OR \"older persons\"[tiab] OR elderly[tiab] OR seniors[tiab] OR \"late life\"[tiab]",
+          "#2 \"Cognitive Training\"[mh] OR \"working memory training\"[tiab] OR \"working-memory training\"[tiab] OR \"working memory intervention\"[tiab] OR \"n-back training\"[tiab] OR Cogmed[tiab] OR \"memory training\"[tiab] OR \"cognitive training\"[tiab] OR \"brain training\"[tiab]",
+          "#3 #1 AND #2"
+        ],
+        "deep_link": {
+          "platform": "pubmed",
+          "tier": "A",
+          "url_kind": "prefill",
+          "url": "https://pubmed.ncbi.nlm.nih.gov/?term=%28%22Aged%22%5Bmh%5D+OR+%22Aged%2C+80+and+over%22%5Bmh%5D+OR+%22older+adults%22%5Btiab%5D+OR+%22older+people%22%5Btiab%5D+OR+%22older+persons%22%5Btiab%5D+OR+elderly%5Btiab%5D+OR+seniors%5Btiab%5D+OR+%22late+life%22%5Btiab%5D%29%0AAND%0A%28%22Cognitive+Training%22%5Bmh%5D+OR+%22working+memory+training%22%5Btiab%5D+OR+%22working-memory+training%22%5Btiab%5D+OR+%22working+memory+intervention%22%5Btiab%5D+OR+%22n-back+training%22%5Btiab%5D+OR+Cogmed%5Btiab%5D+OR+%22memory+training%22%5Btiab%5D+OR+%22cognitive+training%22%5Btiab%5D+OR+%22brain+training%22%5Btiab%5D%29",
+          "api_url": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=%28%22Aged%22%5Bmh%5D+OR+%22Aged%2C+80+and+over%22%5Bmh%5D+OR+%22older+adults%22%5Btiab%5D+OR+%22older+people%22%5Btiab%5D+OR+%22older+persons%22%5Btiab%5D+OR+elderly%5Btiab%5D+OR+seniors%5Btiab%5D+OR+%22late+life%22%5Btiab%5D%29%0AAND%0A%28%22Cognitive+Training%22%5Bmh%5D+OR+%22working+memory+training%22%5Btiab%5D+OR+%22working-memory+training%22%5Btiab%5D+OR+%22working+memory+intervention%22%5Btiab%5D+OR+%22n-back+training%22%5Btiab%5D+OR+Cogmed%5Btiab%5D+OR+%22memory+training%22%5Btiab%5D+OR+%22cognitive+training%22%5Btiab%5D+OR+%22brain+training%22%5Btiab%5D%29",
+          "verified_http": null,
+          "verified_date": null,
+          "pattern_verified_date": "2026-07-16",
+          "note": "A 档：?term= 服务器端渲染结果页；编程核验走 E-utilities esearch.fcgi (<Count>)。方括号已编码为 %5B%5D。"
+        },
+        "review_points": [],
+        "controlled_vocab_terms": [
+          {
+            "term": "Aged",
+            "vocab": "MeSH",
+            "status": "verified",
+            "descriptor_ui": "D000368",
+            "explode": true,
+            "verification_method": "free_api",
+            "review_point": null,
+            "note": "NCBI esearch db=mesh Count=1",
+            "verified_date": "2026-09-30"
+          },
+          {
+            "term": "Aged, 80 and over",
+            "vocab": "MeSH",
+            "status": "verified",
+            "descriptor_ui": "D000369",
+            "explode": true,
+            "verification_method": "free_api",
+            "review_point": null,
+            "note": "NCBI esearch db=mesh Count=1",
+            "verified_date": "2026-09-30"
+          },
+          {
+            "term": "Cognitive Training",
+            "vocab": "MeSH",
+            "status": "verified",
+            "descriptor_ui": null,
+            "explode": true,
+            "verification_method": "free_api",
+            "review_point": null,
+            "note": "NCBI esearch db=mesh Count=1",
+            "verified_date": "2026-09-30"
+          }
+        ],
+        "vocab_verification_status": "机械已验"
+      },
+      {
+        "platform": "Web of Science Core Collection",
+        "host": "Clarivate / webofscience.com",
+        "access": "subscription",
+        "strategy_string": "TS=(\n  (\"older adult*\" OR \"older people\" OR \"older person*\" OR elderly OR senior* OR \"late life\")\n  AND (\"working memory training\" OR \"working-memory training\" OR \"working memory intervention\" OR \"n-back training\" OR Cogmed OR \"memory training\" OR \"cognitive training\" OR \"brain training\")\n)",
+        "strategy_lines": [
+          "#1 TS=(\"older adult*\" OR \"older people\" OR \"older person*\" OR elderly OR senior* OR \"late life\")",
+          "#2 TS=(\"working memory training\" OR \"working-memory training\" OR \"working memory intervention\" OR \"n-back training\" OR Cogmed OR \"memory training\" OR \"cognitive training\" OR \"brain training\")",
+          "#3 #1 AND #2"
+        ],
+        "deep_link": {
+          "platform": "wos",
+          "tier": "C",
+          "url_kind": "paste_only",
+          "url": null,
+          "url_template": "https://www.webofscience.com/wos/woscc/advanced-search",
+          "verified_http": null,
+          "verified_date": null,
+          "pattern_verified_date": null,
+          "note": "C 档：登录墙 / 会话态 / 验证码墙。交付形态=可粘贴进目标库检索框的检索式本身；URL 结构（若有）见 url_template，机构登录后可试。绝不绕登录/验证码/签名（C-14）。"
+        },
+        "review_points": [],
+        "controlled_vocab_terms": [],
+        "vocab_verification_status": "结构参考"
+      },
+      {
+        "platform": "Scopus",
+        "host": "Elsevier / scopus.com",
+        "access": "subscription",
+        "strategy_string": "TITLE-ABS-KEY(\n  (\"older adult*\" OR \"older people\" OR \"older person*\" OR elderly OR senior* OR \"late life\")\n  AND (\"working memory training\" OR \"working-memory training\" OR \"working memory intervention\" OR \"n-back training\" OR Cogmed OR \"memory training\" OR \"cognitive training\" OR \"brain training\")\n)",
+        "strategy_lines": [
+          "#1 TITLE-ABS-KEY(\"older adult*\" OR \"older people\" OR \"older person*\" OR elderly OR senior* OR \"late life\")",
+          "#2 TITLE-ABS-KEY(\"working memory training\" OR \"working-memory training\" OR \"working memory intervention\" OR \"n-back training\" OR Cogmed OR \"memory training\" OR \"cognitive training\" OR \"brain training\")",
+          "#3 #1 AND #2"
+        ],
+        "deep_link": {
+          "platform": "scopus",
+          "tier": "C",
+          "url_kind": "paste_only",
+          "url": null,
+          "url_template": "https://www.scopus.com/search/form.uri?display=advanced",
+          "verified_http": null,
+          "verified_date": null,
+          "pattern_verified_date": null,
+          "note": "C 档：登录墙 / 会话态 / 验证码墙。交付形态=可粘贴进目标库检索框的检索式本身；URL 结构（若有）见 url_template，机构登录后可试。绝不绕登录/验证码/签名（C-14）。"
+        },
+        "review_points": [],
+        "controlled_vocab_terms": [],
+        "vocab_verification_status": "结构参考"
+      },
+      {
+        "platform": "Embase (embase.com)",
+        "host": "Elsevier / embase.com",
+        "access": "subscription",
+        "strategy_string": "('aged'/exp OR 'older adult*' OR 'older people' OR 'older person*' OR elderly OR senior* OR 'late life') AND ('cognitive training'/exp OR 'working memory training' OR 'working-memory training' OR 'working memory intervention' OR 'n-back training' OR Cogmed OR 'memory training' OR 'cognitive training' OR 'brain training')",
+        "strategy_lines": null,
+        "deep_link": {
+          "platform": "embase_com",
+          "tier": "C",
+          "url_kind": "paste_only",
+          "url": null,
+          "url_template": "https://www.embase.com/#advancedSearch",
+          "verified_http": null,
+          "verified_date": null,
+          "pattern_verified_date": null,
+          "note": "C 档：登录墙 / 会话态 / 验证码墙。交付形态=可粘贴进目标库检索框的检索式本身；URL 结构（若有）见 url_template，机构登录后可试。绝不绕登录/验证码/签名（C-14）。"
+        },
+        "review_points": [
+          "[Emtree] aged: Emtree 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+          "[Emtree] cognitive training: Emtree 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+          "语法已验·词表待核：无免费 API 的受控词须人工核对；受控词状态戳机械已核（L11）；主题词相关性/爆炸/副主题需 LLM 判断。"
+        ],
+        "controlled_vocab_terms": [
+          {
+            "term": "aged",
+            "vocab": "Emtree",
+            "status": "pending_manual",
+            "descriptor_ui": null,
+            "explode": null,
+            "verification_method": "llm_suggest_only",
+            "review_point": "Emtree 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+            "note": null,
+            "verified_date": "2026-09-30"
+          },
+          {
+            "term": "cognitive training",
+            "vocab": "Emtree",
+            "status": "pending_manual",
+            "descriptor_ui": null,
+            "explode": null,
+            "verification_method": "llm_suggest_only",
+            "review_point": "Emtree 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+            "note": null,
+            "verified_date": "2026-09-30"
+          }
+        ],
+        "vocab_verification_status": "语法已验·词表待核"
+      },
+      {
+        "platform": "Cochrane Library / CENTRAL",
+        "host": "Wiley / cochranelibrary.com",
+        "access": "mixed",
+        "strategy_string": "(\"older adult*\":ti,ab OR \"older people\":ti,ab OR \"older person*\":ti,ab OR elderly:ti,ab OR senior*:ti,ab OR \"late life\":ti,ab)\nAND\n(\"working memory training\":ti,ab OR \"working-memory training\":ti,ab OR \"working memory intervention\":ti,ab OR \"n-back training\":ti,ab OR Cogmed:ti,ab OR \"memory training\":ti,ab OR \"cognitive training\":ti,ab OR \"brain training\":ti,ab)",
+        "strategy_lines": [
+          "#1 \"older adult*\":ti,ab OR \"older people\":ti,ab OR \"older person*\":ti,ab OR elderly:ti,ab OR senior*:ti,ab OR \"late life\":ti,ab",
+          "#2 \"working memory training\":ti,ab OR \"working-memory training\":ti,ab OR \"working memory intervention\":ti,ab OR \"n-back training\":ti,ab OR Cogmed:ti,ab OR \"memory training\":ti,ab OR \"cognitive training\":ti,ab OR \"brain training\":ti,ab",
+          "#3 #1 AND #2"
+        ],
+        "deep_link": {
+          "platform": "cochrane_central",
+          "tier": "B",
+          "url_kind": "browser",
+          "url": null,
+          "url_template": "https://www.cochranelibrary.com/search?q={urlenc}",
+          "verified_http": null,
+          "verified_date": null,
+          "pattern_verified_date": null,
+          "note": "B 档：URL 有效但结果客户端渲染 / bot 被拦。交付形态=浏览器内可用的检索式；不构造脚本层直达链接。"
+        },
+        "review_points": [
+          "受控词候选未写入检索串：本宿主的受控词语法无法机械模板化（D-d 绝不输出非法语法）——请按语法卡 cochrane_central.md 人工组装受控词子句"
+        ],
+        "controlled_vocab_terms": [
+          {
+            "term": "Aged",
+            "vocab": "MeSH",
+            "status": "verified",
+            "descriptor_ui": "D000368",
+            "explode": true,
+            "verification_method": "free_api",
+            "review_point": null,
+            "note": "NCBI esearch db=mesh Count=1",
+            "verified_date": "2026-09-30"
+          },
+          {
+            "term": "Aged, 80 and over",
+            "vocab": "MeSH",
+            "status": "verified",
+            "descriptor_ui": "D000369",
+            "explode": true,
+            "verification_method": "free_api",
+            "review_point": null,
+            "note": "NCBI esearch db=mesh Count=1",
+            "verified_date": "2026-09-30"
+          },
+          {
+            "term": "Cognitive Training",
+            "vocab": "MeSH",
+            "status": "verified",
+            "descriptor_ui": null,
+            "explode": true,
+            "verification_method": "free_api",
+            "review_point": null,
+            "note": "NCBI esearch db=mesh Count=1",
+            "verified_date": "2026-09-30"
+          }
+        ],
+        "vocab_verification_status": "机械已验"
+      },
+      {
+        "platform": "APA PsycINFO (EBSCOhost)",
+        "host": "EBSCOhost (search.ebscohost.com)",
+        "access": "subscription",
+        "strategy_string": "(DE \"Aging\" OR \"older adult*\" OR \"older people\" OR \"older person*\" OR elderly OR senior* OR \"late life\") AND (DE \"Memory Training\" OR \"working memory training\" OR \"working-memory training\" OR \"working memory intervention\" OR \"n-back training\" OR Cogmed OR \"memory training\" OR \"cognitive training\" OR \"brain training\")",
+        "strategy_lines": [
+          "S1 DE \"Aging\" OR \"older adult*\" OR \"older people\" OR \"older person*\" OR elderly OR senior* OR \"late life\"",
+          "S2 DE \"Memory Training\" OR \"working memory training\" OR \"working-memory training\" OR \"working memory intervention\" OR \"n-back training\" OR Cogmed OR \"memory training\" OR \"cognitive training\" OR \"brain training\"",
+          "S3 S1 AND S2"
+        ],
+        "deep_link": {
+          "platform": "psycinfo_ebsco",
+          "tier": "C",
+          "url_kind": "paste_only",
+          "url": null,
+          "url_template": "https://search.ebscohost.com/login.aspx?authtype=ip&profile=ehost&defaultdb=psyh",
+          "verified_http": null,
+          "verified_date": null,
+          "pattern_verified_date": null,
+          "note": "C 档：登录墙 / 会话态 / 验证码墙。交付形态=可粘贴进目标库检索框的检索式本身；URL 结构（若有）见 url_template，机构登录后可试。绝不绕登录/验证码/签名（C-14）。"
+        },
+        "review_points": [
+          "[APA] Aging: APA 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+          "[APA] Memory Training: APA 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+          "语法已验·词表待核：无免费 API 的受控词须人工核对；受控词状态戳机械已核（L11）；主题词相关性/爆炸/副主题需 LLM 判断。"
+        ],
+        "controlled_vocab_terms": [
+          {
+            "term": "Aging",
+            "vocab": "APA",
+            "status": "pending_manual",
+            "descriptor_ui": null,
+            "explode": null,
+            "verification_method": "llm_suggest_only",
+            "review_point": "APA 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+            "note": null,
+            "verified_date": "2026-09-30"
+          },
+          {
+            "term": "Memory Training",
+            "vocab": "APA",
+            "status": "pending_manual",
+            "descriptor_ui": null,
+            "explode": null,
+            "verification_method": "llm_suggest_only",
+            "review_point": "APA 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+            "note": null,
+            "verified_date": "2026-09-30"
+          }
+        ],
+        "vocab_verification_status": "语法已验·词表待核"
+      },
+      {
+        "platform": "CINAHL",
+        "host": "EBSCOhost (search.ebscohost.com)",
+        "access": "subscription",
+        "strategy_string": "((MH \"Aged+\") OR (MH \"Aged, 80 and Over+\") OR \"older adult*\" OR \"older people\" OR \"older person*\" OR elderly OR senior* OR \"late life\") AND (\"working memory training\" OR \"working-memory training\" OR \"working memory intervention\" OR \"n-back training\" OR Cogmed OR \"memory training\" OR \"cognitive training\" OR \"brain training\")",
+        "strategy_lines": [
+          "S1 (MH \"Aged+\") OR (MH \"Aged, 80 and Over+\") OR \"older adult*\" OR \"older people\" OR \"older person*\" OR elderly OR senior* OR \"late life\"",
+          "S2 \"working memory training\" OR \"working-memory training\" OR \"working memory intervention\" OR \"n-back training\" OR Cogmed OR \"memory training\" OR \"cognitive training\" OR \"brain training\"",
+          "S3 S1 AND S2"
+        ],
+        "deep_link": {
+          "platform": "cinahl_ebsco",
+          "tier": "C",
+          "url_kind": "paste_only",
+          "url": null,
+          "url_template": "https://search.ebscohost.com/login.aspx?authtype=ip&profile=ehost&defaultdb=ccm",
+          "verified_http": null,
+          "verified_date": null,
+          "pattern_verified_date": null,
+          "note": "C 档：登录墙 / 会话态 / 验证码墙。交付形态=可粘贴进目标库检索框的检索式本身；URL 结构（若有）见 url_template，机构登录后可试。绝不绕登录/验证码/签名（C-14）。"
+        },
+        "review_points": [
+          "[CINAHL] Aged: CINAHL 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+          "[CINAHL] Aged, 80 and Over: CINAHL 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+          "语法已验·词表待核：无免费 API 的受控词须人工核对；受控词状态戳机械已核（L11）；主题词相关性/爆炸/副主题需 LLM 判断。"
+        ],
+        "controlled_vocab_terms": [
+          {
+            "term": "Aged",
+            "vocab": "CINAHL",
+            "status": "pending_manual",
+            "descriptor_ui": null,
+            "explode": null,
+            "verification_method": "llm_suggest_only",
+            "review_point": "CINAHL 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+            "note": null,
+            "verified_date": "2026-09-30"
+          },
+          {
+            "term": "Aged, 80 and Over",
+            "vocab": "CINAHL",
+            "status": "pending_manual",
+            "descriptor_ui": null,
+            "explode": null,
+            "verification_method": "llm_suggest_only",
+            "review_point": "CINAHL 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+            "note": null,
+            "verified_date": "2026-09-30"
+          }
+        ],
+        "vocab_verification_status": "语法已验·词表待核"
+      },
+      {
+        "platform": "知网 CNKI",
+        "host": "中国知网 / kns.cnki.net",
+        "access": "subscription",
+        "strategy_string": "(SU %= '老年人' OR SU %= '老年' OR SU %= '老人' OR SU %= '老年群体' OR SU %= '中老年人' OR SU %= '高龄老人')\nAND (SU %= '工作记忆训练' OR SU %= '工作记忆干预' OR SU %= '记忆训练' OR SU %= '认知训练' OR SU %= 'n-back训练')",
+        "strategy_lines": null,
+        "deep_link": {
+          "platform": "cnki",
+          "tier": "C",
+          "url_kind": "paste_only",
+          "url": null,
+          "url_template": null,
+          "verified_http": null,
+          "verified_date": null,
+          "pattern_verified_date": null,
+          "note": "C 档：登录墙 / 会话态 / 验证码墙。交付形态=可粘贴进目标库检索框的检索式本身；URL 结构（若有）见 url_template，机构登录后可试。绝不绕登录/验证码/签名（C-14）。"
+        },
+        "review_points": [],
+        "controlled_vocab_terms": [],
+        "vocab_verification_status": "语法已验·无受控词表"
+      },
+      {
+        "platform": "万方 Wanfang",
+        "host": "万方数据 / s.wanfangdata.com.cn",
+        "access": "subscription",
+        "strategy_string": "(老年人 or 老年 or 老人 or 老年群体 or 中老年人 or 高龄老人) and (工作记忆训练 or 工作记忆干预 or 记忆训练 or 认知训练 or n-back训练)",
+        "strategy_lines": null,
+        "deep_link": {
+          "platform": "wanfang",
+          "tier": "B",
+          "url_kind": "browser",
+          "url": null,
+          "url_template": "https://s.wanfangdata.com.cn/paper?q={urlenc}",
+          "verified_http": null,
+          "verified_date": null,
+          "pattern_verified_date": null,
+          "note": "B 档：URL 有效但结果客户端渲染 / bot 被拦。交付形态=浏览器内可用的检索式；不构造脚本层直达链接。"
+        },
+        "review_points": [],
+        "controlled_vocab_terms": [],
+        "vocab_verification_status": "语法已验·无受控词表"
+      },
+      {
+        "platform": "SinoMed / CBM（中国生物医学文献服务系统）",
+        "host": "中国医学科学院医学信息研究所·图书馆 / www.sinomed.ac.cn",
+        "access": "subscription",
+        "strategy_string": "(\"老年人/全部树/全部副主题词\" OR 老年人 OR 老年 OR 老人 OR 老年群体 OR 中老年人 OR 高龄老人) AND (工作记忆训练 OR 工作记忆干预 OR 记忆训练 OR 认知训练 OR n-back训练)",
+        "strategy_lines": [
+          "#1 \"老年人/全部树/全部副主题词\" OR 老年人 OR 老年 OR 老人 OR 老年群体 OR 中老年人 OR 高龄老人",
+          "#2 工作记忆训练 OR 工作记忆干预 OR 记忆训练 OR 认知训练 OR n-back训练",
+          "#3 #1 AND #2"
+        ],
+        "deep_link": {
+          "platform": "sinomed",
+          "tier": "C",
+          "url_kind": "paste_only",
+          "url": null,
+          "url_template": null,
+          "verified_http": null,
+          "verified_date": null,
+          "pattern_verified_date": null,
+          "note": "C 档：登录墙 / 会话态 / 验证码墙。交付形态=可粘贴进目标库检索框的检索式本身；URL 结构（若有）见 url_template，机构登录后可试。绝不绕登录/验证码/签名（C-14）。"
+        },
+        "review_points": [
+          "[CMeSH] 老年人: CMeSH 无权威免费 API：须在 SinoMed 主题检索 UI 人工确认主题词 + 副主题词组配",
+          "语法已验·词表待核：无免费 API 的受控词须人工核对；受控词状态戳机械已核（L11）；主题词相关性/爆炸/副主题需 LLM 判断。"
+        ],
+        "controlled_vocab_terms": [
+          {
+            "term": "老年人",
+            "vocab": "CMeSH",
+            "status": "pending_manual",
+            "descriptor_ui": null,
+            "explode": null,
+            "verification_method": "llm_suggest_only",
+            "review_point": "CMeSH 无权威免费 API：须在 SinoMed 主题检索 UI 人工确认主题词 + 副主题词组配",
+            "note": "suggest.do 软交叉核命中候选（置信提升）；仍须人工确认——autocomplete 子串匹配，非权威描述符 API",
+            "verified_date": "2026-09-30",
+            "soft_crosscheck": "hit"
+          }
+        ],
+        "vocab_verification_status": "语法已验·词表待核"
+      }
+    ],
+    "global_review_points": [
+      "受控词机械验证仅覆盖 MeSH/ERIC；Emtree/CINAHL/APA/CMeSH 为 LLM 建议，须在目标库人工核对。",
+      "订阅墙平台（WOS/Scopus/Embase/Ovid/EBSCO 等）执行需机构登录，本工具未实测墙内行为。",
+      "注册制 SR：本导出是专业初稿，非署名成品——受控词请在目标库人工复核，订阅墙平台请机构账号执行。",
+      "[Embase (embase.com)] [Emtree] aged: Emtree 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+      "[Embase (embase.com)] [Emtree] cognitive training: Emtree 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+      "[Embase (embase.com)] 语法已验·词表待核：无免费 API 的受控词须人工核对；受控词状态戳机械已核（L11）；主题词相关性/爆炸/副主题需 LLM 判断。",
+      "[Cochrane Library / CENTRAL] 受控词候选未写入检索串：本宿主的受控词语法无法机械模板化（D-d 绝不输出非法语法）——请按语法卡 cochrane_central.md 人工组装受控词子句",
+      "[APA PsycINFO (EBSCOhost)] [APA] Aging: APA 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+      "[APA PsycINFO (EBSCOhost)] [APA] Memory Training: APA 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+      "[APA PsycINFO (EBSCOhost)] 语法已验·词表待核：无免费 API 的受控词须人工核对；受控词状态戳机械已核（L11）；主题词相关性/爆炸/副主题需 LLM 判断。",
+      "[CINAHL] [CINAHL] Aged: CINAHL 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+      "[CINAHL] [CINAHL] Aged, 80 and Over: CINAHL 无免费查表途径 → LLM 建议，须在目标库人工核对（不得伪装已验）",
+      "[CINAHL] 语法已验·词表待核：无免费 API 的受控词须人工核对；受控词状态戳机械已核（L11）；主题词相关性/爆炸/副主题需 LLM 判断。",
+      "[SinoMed / CBM（中国生物医学文献服务系统）] [CMeSH] 老年人: CMeSH 无权威免费 API：须在 SinoMed 主题检索 UI 人工确认主题词 + 副主题词组配",
+      "[SinoMed / CBM（中国生物医学文献服务系统）] 语法已验·词表待核：无免费 API 的受控词须人工核对；受控词状态戳机械已核（L11）；主题词相关性/爆炸/副主题需 LLM 判断。"
+    ]
+  },
 }
