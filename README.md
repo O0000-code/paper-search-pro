@@ -33,6 +33,8 @@ Five open sources + native-Chinese search · four tiers · journal partitions ·
 
 **[→ Live demo (opens the actual report in your browser)](https://o0000-code.github.io/paper-search-pro/)**
 
+If it looks useful, a star makes it easy to find later and helps it reach the next person who needs it.
+
 </div>
 
 <br/>
@@ -215,6 +217,12 @@ A 14-step recipe in [`SKILL.md`](SKILL.md) drives every run. Python helpers in [
 Per-step reference documents live in [`references/`](references/) — tier decisions, query planning (PICO / SPIDER / PEO), source routing, helper cheatsheets, the RCS rubric, stop conditions, citation chasing, the classifier SubAgent prompt, the PRISMA-S 16-item checklist, summary writer guide, error handling, output conventions.
 
 **Headless mode for agents.** When the consumer is another agent rather than a person, [`scripts/agent_search.py`](scripts/agent_search.py) runs the deterministic core in a single command and returns one structured JSON envelope — deduped, relevance-scored, saturation-checked — with no HTML and no classification SubAgents. Same search discipline, machine-readable output.
+
+<br/>
+
+## Contributors
+
+I maintain paper-search-pro mostly on my own, with help from two lovely contributors, [@haoxinC111](https://github.com/haoxinC111) and [@MatrixA](https://github.com/MatrixA). You're welcome to be the third. If it has helped you, your star means a lot to me, and I'll keep improving it.
 
 <br/>
 

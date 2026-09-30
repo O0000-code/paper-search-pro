@@ -33,6 +33,8 @@
 
 **[→ 在线 Demo（浏览器直接打开真实报告）](https://o0000-code.github.io/paper-search-pro/)**
 
+觉得有用的话，欢迎点个 Star：方便以后找到，也帮下一个需要它的人发现它。
+
 </div>
 
 <br/>
@@ -215,6 +217,12 @@ PYTHONPATH=$PSP_HOME python3 -c \
 分步 reference 文档位于 [`references/`](references/) — 档级决策、查询规划（PICO / SPIDER / PEO）、源路由、helper cheatsheet、RCS 评分准则、停止条件、引文追溯、SubAgent prompt、PRISMA-S 16 项 checklist、summary 撰写指南、错误处理、输出规范。
 
 **面向 Agent 的无头模式。** 当消费方是另一个 Agent 而非人时，[`scripts/agent_search.py`](scripts/agent_search.py) 用一条命令跑完确定性核心，返回单个结构化 JSON 信封 —— 去重、相关性打分、饱和判断俱全 —— 不出 HTML、不派分类 SubAgent。同样的检索纪律，机器可读的输出。
+
+<br/>
+
+## 贡献者
+
+本项目主要由我一个人维护，还有两位可爱的贡献者 [@haoxinC111](https://github.com/haoxinC111) 和 [@MatrixA](https://github.com/MatrixA) 帮过忙，欢迎你成为第三位。如果它帮到了你，你的 Star 对我来说是很大的动力，我会继续把它更新下去。
 
 <br/>
 
