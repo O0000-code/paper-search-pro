@@ -36,6 +36,7 @@ About 83% of search hits are **not** accepted papers. They are workshops, reject
 |---|---|---|
 | `<org>[/<more>]/<YYYY>/Conference` | `ICLR.cc/2026/Conference`, `colmweb.org/COLM/2026/Conference`, `EMNLP/2023/Conference` | main-track accepted paper |
 | `TMLR` | `TMLR` ("Accepted by TMLR") | accepted journal paper |
+| `NeurIPS.cc/<YYYY>/Datasets_and_Benchmarks_Track`, `NeurIPS.cc/<YYYY>/Track/Datasets_and_Benchmarks` | — | NeurIPS Datasets & Benchmarks track (peer-reviewed, in the proceedings); labelled "NeurIPS 2025 Datasets & Benchmarks Poster" |
 
 Everything else is dropped, including `…/Rejected_Submission`, `…/Withdrawn_Submission`, `…/Submission`, `…/Workshop/…`, `TMLR/Rejected`, `TMLR/Under_Review`, `TMLR/Decision_Pending` and every import. This is a whitelist on purpose, because each venue names its non-accepted states differently. The `venue` string is never used to decide status: it is free text, and an imported record's reads exactly like an accepted one ("NeurIPS 2024").
 
@@ -74,6 +75,6 @@ Everything else is dropped, including `…/Rejected_Submission`, `…/Withdrawn_
 - **Relevance is keyword-based and noisy.** The first hits can be off-topic (a Romansh language-ID paper for "diffusion language model"). Downstream RCS scoring handles this; do not treat rank as relevance.
 - **No DOI, no arXiv id** on venue papers. Merging with OpenAlex / arXiv is by normalised title only, and a title changed between arXiv and camera-ready will not merge.
 - **The whitelist admits every venue's main track**, small ones included (e.g. KSMI 2026, a Korean music-informatics conference). Venue prestige comes from the rank layer, not from this helper.
-- **Accepted-paper tracks outside `…/Conference` are dropped**: NeurIPS Datasets & Benchmarks uses `NeurIPS.cc/<YYYY>/Datasets_and_Benchmarks_Track` or `NeurIPS.cc/2023/Track/Datasets_and_Benchmarks`. Admitting them means adding one pattern to `_accepted_kind` and a label for the track.
+- **Other accepted-paper tracks outside `…/Conference` are dropped** (e.g. `ACM.org/AIWare/2026/Data_and_Benchmark_Track`, `DMLR/Special_Track`). NeurIPS Datasets & Benchmarks is the one exception, admitted 2026-10-01; its rejected papers carry the same id plus `/Rejected_Submission`, which the exact match keeps out.
 - **Which rejected papers are visible depends on the venue.** ICLR publishes every rejected and withdrawn paper, while ICML, COLM and KDD publish only accepted ones. So rejected hits come mostly from ICLR, and the whitelist drops them all anyway.
 - **English only**: translate a Chinese query into English terms before calling, as for arXiv.

@@ -35,7 +35,9 @@ ACCEPTANCE WHITELIST (the one rule this module exists to enforce in code):
     venue's own id). A note is kept only when its venueid is exactly
         <org>[/<more>]/<YYYY>/Conference     e.g. ICLR.cc/2026/Conference,
                                                  colmweb.org/COLM/2026/Conference
-    or exactly ``TMLR``. Everything else is dropped. Whitelist, not blacklist:
+    or exactly ``TMLR``, or NeurIPS's Datasets & Benchmarks track
+        NeurIPS.cc/<YYYY>/Datasets_and_Benchmarks_Track, NeurIPS.cc/<YYYY>/Track/Datasets_and_Benchmarks
+    (labelled "NeurIPS 2025 Datasets & Benchmarks Poster"). Everything else is dropped. Whitelist, not blacklist:
     status suffixes differ per venue (…/Rejected_Submission vs TMLR/Rejected),
     so a blacklist would silently admit the next new form.
 
@@ -113,6 +115,13 @@ last_search_stats: Dict[str, Any] = {}
 
 _CONFERENCE_VENUEID = re.compile(r"[^/]+(?:/[^/]+)*/(\d{4})/Conference")
 _TMLR_VENUEID = "TMLR"
+# NeurIPS Datasets & Benchmarks: a peer-reviewed track published in the NeurIPS
+# proceedings, under its own venueid (two spellings seen live, 2023 vs 2024+).
+# Its rejected papers carry the same id plus "/Rejected_Submission", so the
+# exact match below keeps them out. Other venues' data tracks stay excluded.
+_NEURIPS_DB_VENUEID = re.compile(
+    r"NeurIPS\.cc/(\d{4})/(?:Datasets_and_Benchmarks_Track|Track/Datasets_and_Benchmarks)"
+)
 
 
 def _accepted_kind(venueid: Any) -> Optional[Tuple[str, Optional[int]]]:
@@ -123,6 +132,9 @@ def _accepted_kind(venueid: Any) -> Optional[Tuple[str, Optional[int]]]:
         return None
     if venueid == _TMLR_VENUEID:
         return ("tmlr", None)
+    m = _NEURIPS_DB_VENUEID.fullmatch(venueid)
+    if m:
+        return ("neurips_db", int(m.group(1)))
     m = _CONFERENCE_VENUEID.fullmatch(venueid)
     if m:
         return ("conference", int(m.group(1)))
@@ -179,6 +191,10 @@ def _venue_name(venue: Optional[str], venueid: str, year: int) -> str:
 def _venue_label(kind: str, year: Optional[int], venue: Optional[str], venueid: str) -> str:
     if kind == "tmlr":
         return "TMLR"
+    if kind == "neurips_db":
+        label = f"NeurIPS {year} Datasets & Benchmarks"
+        tier = _tier(venue)
+        return f"{label} {tier}" if tier else label
     label = f"{_venue_name(venue, venueid, year)} {year}"
     tier = _tier(venue)
     return f"{label} {tier}" if tier else label

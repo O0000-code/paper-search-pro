@@ -41,7 +41,8 @@ PAGE1 = _load("openreview_search_page1.json")          # full page (25), every v
 PAGE2 = _load("openreview_search_page2.json")          # short last page (7)
 CHALLENGE = _load("openreview_challenge_403.json")     # real 403 ChallengeRequiredError body
 
-# The 17 accepted notes across the two fixture pages, in relevance order.
+# The 18 accepted notes across the two fixture pages, in relevance order
+# (17 main-conference / TMLR + 1 NeurIPS Datasets & Benchmarks, whitelisted 2026-10-01).
 EXPECTED_ACCEPTED = [
     ("NeurIPS 2025 Poster", 2025, "Continuous Diffusion Model for Language Modeling"),
     ("ICLR 2026 Poster", 2026, "FlashDLM"),
@@ -55,6 +56,7 @@ EXPECTED_ACCEPTED = [
     ("TMLR", 2024, "LLM-grounded Diffusion"),
     ("ICML 2025 Spotlight", 2025, "UniDB"),
     ("ICML 2026 Spotlight", 2026, "HDFlow"),
+    ("NeurIPS 2025 Datasets & Benchmarks Poster", 2025, "CheMixHub"),
     ("ICML 2026", 2026, "Efficient-DLM"),
     ("NeurIPS 2025 Poster", 2025, "Anchored Diffusion Language Model"),
     ("ICLR 2026 Poster", 2026, "Don't Settle Too Early"),
@@ -183,9 +185,8 @@ def test_whitelist_accepts_main_conference_and_tmlr(venueid, expected):
     "dblp.org/journals/CORR/2024",
     "dblp.org/conf/NIPS/2024",
     "dblp.org/conf/NAACL/2025",
-    # tracks outside the spec's whitelist (kept out on purpose)
-    "NeurIPS.cc/2025/Datasets_and_Benchmarks_Track",
-    "NeurIPS.cc/2023/Track/Datasets_and_Benchmarks",
+    # other tracks stay out (NeurIPS Datasets & Benchmarks is whitelisted: see the end of this file)
+    "ACM.org/AIWare/2026/Data_and_Benchmark_Track",
     # malformed near-misses
     "", "tmlr", " TMLR", "TMLR ", "ICLR.cc/2026/Conference/", "ICLR.cc/26/Conference",
     "/2026/Conference", "ICLR.cc/2026/conference", None, 2026, ["TMLR"],
@@ -230,7 +231,7 @@ def test_fixture_pages_keep_exactly_the_accepted_notes():
         assert "OpenReview" not in e.venue and "CoRR" not in e.venue
     assert orh.last_search_stats == {
         "query": "diffusion language model", "pages_fetched": 2, "records_seen": 32,
-        "accepted_seen": 17, "kept": 17, "stopped": "end_of_results",
+        "accepted_seen": 18, "kept": 18, "stopped": "end_of_results",
     }
 
 
@@ -719,3 +720,37 @@ if __name__ == "__main__":
     import subprocess
 
     raise SystemExit(subprocess.call([sys.executable, "-m", "pytest", __file__, "-q"]))
+
+
+# ---------------------------------------------------------------------------
+# NeurIPS Datasets & Benchmarks track (added by the main agent, 2026-10-01)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("venueid,venue,label", [
+    ("NeurIPS.cc/2025/Datasets_and_Benchmarks_Track",
+     "NeurIPS 2025 Datasets and Benchmarks Track poster",
+     "NeurIPS 2025 Datasets & Benchmarks Poster"),
+    ("NeurIPS.cc/2024/Datasets_and_Benchmarks_Track",
+     "NeurIPS 2024 Track Datasets and Benchmarks Spotlight",
+     "NeurIPS 2024 Datasets & Benchmarks Spotlight"),
+    ("NeurIPS.cc/2023/Track/Datasets_and_Benchmarks",
+     "NeurIPS 2023 Datasets and Benchmarks Poster",
+     "NeurIPS 2023 Datasets & Benchmarks Poster"),
+])
+def test_neurips_datasets_and_benchmarks_track_is_kept_and_labelled(venueid, venue, label):
+    ent = orh._note_to_entity(_note(venueid, venue))
+    assert ent is not None
+    assert ent.venue == label
+    assert ent.year == int(venueid.split("/")[1])
+
+
+@pytest.mark.parametrize("venueid", [
+    "NeurIPS.cc/2025/Datasets_and_Benchmarks_Track/Rejected_Submission",
+    "NeurIPS.cc/2025/Datasets_and_Benchmarks_Track/Withdrawn_Submission",
+    "NeurIPS.cc/2025/Datasets_and_Benchmarks_Track/Submission",
+    "ACM.org/AIWare/2026/Data_and_Benchmark_Track",   # other venues' data tracks stay out
+    "DMLR/Special_Track",
+])
+def test_other_data_track_ids_are_dropped(venueid):
+    assert orh._note_to_entity(_note(venueid, "Submitted to NeurIPS 2025 Datasets and Benchmarks Track")) is None
