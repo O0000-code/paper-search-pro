@@ -49,15 +49,21 @@ def _run_cli(monkeypatch, argv, **stubs):
 def test_double_sort_search_passes_year_bounds_to_every_strategy(monkeypatch):
     calls = []
 
-    def fake(query, total_papers=100, sort="", year_min=None, year_max=None):
-        calls.append((sort, year_min, year_max))
+    def fake(query, total_papers=100, sort="", year_min=None, year_max=None,
+             date_from=None, date_to=None):
+        calls.append((sort, year_min, year_max, date_from, date_to))
         return []
 
     monkeypatch.setattr(oah, "search_top_n_pages", fake)
-    oah.double_sort_search("q", year_min=2015, year_max=2020, total_per_strategy=5)
+    oah.double_sort_search("q", year_min=2015, year_max=2020, total_per_strategy=6)
 
-    assert len(calls) == 3
-    assert all(c[1:] == (2015, 2020) for c in calls)
+    # cited, recent (last year of the range, then the two years before), relevance
+    assert [c[0] for c in calls] == ["cited_by_count:desc", "relevance_score:desc",
+                                     "relevance_score:desc", "relevance_score:desc"]
+    assert all(c[1:3] == (2015, 2020) for c in calls)
+    assert calls[1][3:] == ("2020-01-01", "2020-12-31")   # 2020 is a leap year
+    assert calls[2][3:] == ("2017-12-31", "2019-12-31")
+    assert calls[0][3:] == calls[3][3:] == (None, None)
 
 
 def _year_filters():
@@ -102,7 +108,8 @@ def test_find_review_articles_without_bounds_adds_no_year_filter(monkeypatch):
 def test_cli_deep_forwards_year_max(monkeypatch):
     seen = {}
 
-    def fake(query, total_papers=100, sort="", year_min=None, year_max=None):
+    def fake(query, total_papers=100, sort="", year_min=None, year_max=None,
+             date_from=None, date_to=None):
         seen.update(year_min=year_min, year_max=year_max)
         return []
 

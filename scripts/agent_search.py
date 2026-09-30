@@ -71,6 +71,7 @@ Exit codes (aligned to error.code):
 
 from __future__ import annotations
 
+import datetime
 import math
 import re
 import time
@@ -98,9 +99,10 @@ from .rank_intent import parse_rank_intent
 
 SCHEMA_VERSION = "1.0"
 
-# Current UTC-ish "now" year for recency scoring. Kept as a module constant so a
-# test can monkeypatch it deterministically rather than depending on wall-clock.
-_CURRENT_YEAR = 2026
+# Current year for recency scoring, read once at import. Tests pass ``now_year``
+# explicitly rather than depending on the wall clock. (Was a literal 2026, which
+# would have scored every paper a year too old from January on.)
+_CURRENT_YEAR = datetime.date.today().year
 
 
 # ===========================================================================
@@ -488,18 +490,13 @@ def _retrieve(
     warnings: List[str] = []
 
     if source == "openalex":
-        strategies = [
-            ("cited_by_count:desc", openalex_helper.search_top_n_pages),
-            ("publication_date:desc", openalex_helper.search_top_n_pages),
-            ("relevance_score:desc", openalex_helper.search_top_n_pages),
-        ]
         results: List[List[UnifiedPaperEntity]] = []
-        for sort, fn in strategies:
+        for leg in openalex_helper.DOUBLE_SORT_LEGS:
             try:
-                batch = fn(
+                batch = openalex_helper.run_leg(
+                    leg,
                     query,
-                    total_papers=per_strategy,
-                    sort=sort,
+                    per_strategy,
                     year_min=year_min,
                     year_max=year_max,
                 )
@@ -535,7 +532,7 @@ def _retrieve(
                     "served_by": res.served_by,
                 }
             except Exception as exc:  # one bad strategy must not kill the run
-                warnings.append(f"openalex strategy {sort} failed: {exc}")
+                warnings.append(f"openalex strategy {leg} failed: {exc}")
                 batch = []
             results.append(batch)
         return results, warnings, None

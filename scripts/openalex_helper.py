@@ -13,6 +13,7 @@ Key implementation decisions (from SA-Y2 / SA-Z2 empirical testing):
 """
 
 from typing import Dict, List, Optional, Tuple
+import datetime
 import sys
 
 import pyalex
@@ -423,6 +424,84 @@ def _collect_pages(q, limit: int, per_page: int) -> List[UnifiedPaperEntity]:
     return entities[:limit]
 
 
+def _today() -> datetime.date:
+    """Today's date. A function so tests can pin it."""
+    return datetime.date.today()
+
+
+def _default_year_max(year_max: Optional[int]) -> int:
+    """No upper bound given → cap at the current year.
+
+    OpenAlex holds records dated years ahead (2027, 2028, even 2050 — issue
+    dates, data errors); one uncapped run pulled in 81 of them, all off-topic.
+    """
+    return year_max if year_max is not None else _today().year
+
+
+# How far back the recent leg looks. Rolling, not "this calendar year": in
+# January a calendar-year window would hold almost nothing.
+RECENT_WINDOW_DAYS = 365
+
+
+def recent_window(
+    year_min: Optional[int] = None,
+    year_max: Optional[int] = None,
+    days: int = RECENT_WINDOW_DAYS,
+) -> Optional[Tuple[str, str]]:
+    """Publication-date window (ISO from, ISO to) for the recent leg.
+
+    The newest ``days`` days, clipped to the user's year range: when that range
+    ends before today, the newest ``days`` days inside it. None when the range
+    lies wholly in the future (nothing can be published there yet).
+    """
+    today = _today()
+    end = today
+    if year_max is not None and year_max < today.year:
+        end = datetime.date(year_max, 12, 31)
+    start = end - datetime.timedelta(days=days)
+    if year_min is not None:
+        floor = datetime.date(year_min, 1, 1)
+        if floor > end:
+            return None
+        start = max(start, floor)
+    return start.isoformat(), end.isoformat()
+
+
+# The recent leg's second window: the two years before the first one.
+MID_WINDOW_DAYS = 730
+
+
+def mid_window(
+    recent: Tuple[str, str],
+    year_min: Optional[int] = None,
+    days: int = MID_WINDOW_DAYS,
+) -> Optional[Tuple[str, str]]:
+    """The ``days`` days just before the ``recent`` window, clipped to year_min.
+
+    Relevance ranking leans on citations, so the relevance leg favours papers
+    several years old, and the last-year window stops a year back. Between them
+    the one-to-three-year band came back nearly empty on established topics
+    (2026-10-01, four psychology queries: 1–5 on-topic papers a year for
+    2023–2024 against 10–18 for 2018–2021).
+    """
+    end = datetime.date.fromisoformat(recent[0]) - datetime.timedelta(days=1)
+    start = end - datetime.timedelta(days=days)
+    if year_min is not None:
+        start = max(start, datetime.date(year_min, 1, 1))
+    if start > end:
+        return None
+    return start.isoformat(), end.isoformat()
+
+
+def _title_abstract_filter_value(query: str) -> str:
+    """The query as a ``title_and_abstract.search`` filter value.
+
+    Commas separate filters and ``|`` means OR inside a filter value, so either
+    character would break the filter; neither carries meaning in a search query.
+    """
+    return " ".join(query.replace(",", " ").replace("|", " ").split())
+
+
 def search_works(
     query: str,
     year_min: Optional[int] = None,
@@ -432,7 +511,7 @@ def search_works(
 ) -> List[UnifiedPaperEntity]:
     """Keyword search with optional year + type filter. Default top-25 by relevance."""
     q = Works().search(query)
-    year_filter = _year_filter(year_min, year_max)
+    year_filter = _year_filter(year_min, _default_year_max(year_max))
     if year_filter is not None:
         q = q.filter(publication_year=year_filter)
     if work_type:
@@ -446,22 +525,89 @@ def search_top_n_pages(
     sort: str = "cited_by_count:desc",
     year_min: Optional[int] = None,
     year_max: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
 ) -> List[UnifiedPaperEntity]:
     """Deep crawl. Default top-100. Sort options:
     cited_by_count:desc / publication_date:desc / relevance_score:desc.
 
     Per SA-V2 §6.3: deeper OpenAlex (top-100) beats L2 booster recall illusion.
+
+    Any sort other than relevance matches the query in title and abstract only.
+    OpenAlex's ``search=`` also matches full text; ranked by relevance that is
+    harmless, but ranked by citations or date it puts papers that merely mention
+    the words in their body first (measured 2026-09-30: 0–8 of 50 on-topic by
+    citations, 0–24 by date, across 8 topics; title-and-abstract matching lifts
+    the citation leg to 9–47). ``date_from`` / ``date_to`` (ISO dates) narrow the
+    publication date further, e.g. the recent leg's window.
     """
     if ":" not in sort:
         sort_field, sort_dir = sort, "desc"
     else:
         sort_field, sort_dir = sort.split(":", 1)
 
-    q = Works().search(query).sort(**{sort_field: sort_dir})
+    if sort_field == "relevance_score":
+        q = Works().search(query)
+    else:
+        q = Works().filter(title_and_abstract={"search": _title_abstract_filter_value(query)})
+    q = q.sort(**{sort_field: sort_dir})
     year_filter = _year_filter(year_min, year_max)
     if year_filter is not None:
         q = q.filter(publication_year=year_filter)
+    if date_from:
+        q = q.filter(from_publication_date=date_from)
+    if date_to:
+        q = q.filter(to_publication_date=date_to)
     return _collect_pages(q, total_papers, _PER_PAGE)
+
+
+# The three legs of double-sort, in run order. The order is part of the
+# agent-path contract (per_strategy_new_papers is reported in this order).
+#   cited     — the topic's most-cited work (title-and-abstract match)
+#   recent    — the most relevant work of the last RECENT_WINDOW_DAYS days (n),
+#               then of the MID_WINDOW_DAYS before that (n // 2)
+#   relevance — the most relevant work overall
+# The recent leg used to be "newest first" over a full-text match, which
+# returned whatever mentioned the words most recently: of 52 records dated
+# 2026 for "diffusion language model", about one was on topic.
+DOUBLE_SORT_LEGS: Tuple[str, ...] = ("cited", "recent", "relevance")
+
+
+def run_leg(
+    leg: str,
+    query: str,
+    n: int,
+    year_min: Optional[int] = None,
+    year_max: Optional[int] = None,
+) -> List[UnifiedPaperEntity]:
+    """Run one double-sort leg (see DOUBLE_SORT_LEGS)."""
+    year_max = _default_year_max(year_max)
+    if leg == "cited":
+        return search_top_n_pages(query, total_papers=n, sort="cited_by_count:desc",
+                                  year_min=year_min, year_max=year_max)
+    if leg == "recent":
+        window = recent_window(year_min, year_max)
+        if window is None:
+            return []
+        papers = search_top_n_pages(query, total_papers=n, sort="relevance_score:desc",
+                                    year_min=year_min, year_max=year_max,
+                                    date_from=window[0], date_to=window[1])
+        earlier = mid_window(window, year_min)
+        if earlier is not None and n // 2 > 0:
+            try:
+                older = search_top_n_pages(query, total_papers=n // 2, sort="relevance_score:desc",
+                                           year_min=year_min, year_max=year_max,
+                                           date_from=earlier[0], date_to=earlier[1])
+            except OpenAlexUnavailable as exc:
+                exc.partial = papers + list(exc.partial or [])
+                raise
+            have = {p.paper_id for p in papers}
+            papers += [p for p in older if p.paper_id not in have]
+        return papers
+    if leg == "relevance":
+        return search_top_n_pages(query, total_papers=n, sort="relevance_score:desc",
+                                  year_min=year_min, year_max=year_max)
+    raise ValueError(f"unknown double-sort leg: {leg!r}")
 
 
 def double_sort_search(
@@ -474,14 +620,14 @@ def double_sort_search(
     appears in >=2 strategies (cross-strategy boost).
 
     Per SA-V2: multi-strategy OpenAlex deep crawl > L2 booster pseudo-recall.
-    Returns papers sorted by (appearance_count desc, citation_count desc).
+    Order: see :func:`_merge_strategies`.
     """
     strategies: List[List[UnifiedPaperEntity]] = []
     try:
-        for sort in ("cited_by_count:desc", "publication_date:desc", "relevance_score:desc"):
+        for leg in DOUBLE_SORT_LEGS:
             strategies.append(
-                search_top_n_pages(query, total_per_strategy, sort,
-                                   year_min=year_min, year_max=year_max)
+                run_leg(leg, query, total_per_strategy,
+                        year_min=year_min, year_max=year_max)
             )
     except OpenAlexUnavailable as exc:
         # Keep the finished strategies plus the interrupted one's first pages.
@@ -492,18 +638,51 @@ def double_sort_search(
 
 
 def _merge_strategies(strategies: List[List[UnifiedPaperEntity]]) -> List[UnifiedPaperEntity]:
-    """Cross-strategy boost: papers seen by more strategies rank first."""
+    """Dedup across strategies. Papers several strategies found come first (more
+    strategies first, then more citations). Papers only one strategy found follow,
+    taken from the strategies in turn — relevance, recent, cited when the list is
+    double-sort's — each in its own order.
+
+    Taking turns matters because an agent that has more candidates than its
+    classification budget keeps the head of this list. Ranked by citations, the
+    single-strategy tail put every new paper last, and cutting the list removed
+    exactly the recent layer.
+    """
     seen: Dict[str, Tuple[UnifiedPaperEntity, int]] = {}
-    for strategy_papers in strategies:
-        for p in strategy_papers:
+    first_leg: Dict[str, Tuple[int, int]] = {}
+    for leg_index, strategy_papers in enumerate(strategies):
+        for rank, p in enumerate(strategy_papers):
             pid = p.paper_id
             if pid in seen:
                 prev_paper, count = seen[pid]
                 seen[pid] = (prev_paper, count + 1)
             else:
                 seen[pid] = (p, 1)
+                first_leg[pid] = (leg_index, rank)
 
-    return [p for p, _ in sorted(seen.values(), key=lambda x: (-x[1], -x[0].citation_count))]
+    shared = sorted(
+        (x for x in seen.values() if x[1] > 1),
+        key=lambda x: (-x[1], -x[0].citation_count),
+    )
+
+    # Round-robin over the single-strategy papers, last strategy first:
+    # double-sort runs cited, recent, relevance, so relevance leads each turn.
+    queues: List[List[UnifiedPaperEntity]] = [[] for _ in strategies]
+    for p, count in seen.values():
+        if count == 1:
+            queues[first_leg[p.paper_id][0]].append(p)
+    for q in queues:
+        q.sort(key=lambda p: first_leg[p.paper_id][1])
+    order = list(reversed(range(len(queues))))
+    single: List[UnifiedPaperEntity] = []
+    depth = 0
+    while any(depth < len(queues[i]) for i in order):
+        for i in order:
+            if depth < len(queues[i]):
+                single.append(queues[i][depth])
+        depth += 1
+
+    return [p for p, _ in shared] + single
 
 
 def get_work(openalex_id_or_doi: str) -> UnifiedPaperEntity:
@@ -532,10 +711,12 @@ def find_seminal_papers(
     """High-cited early papers (year<=year_max, sort cited desc).
 
     SA-Z2 F19 verified: K&T 1979 (cites=46625) returned as #1 for 'prospect theory'.
+    Matches title and abstract only, for the reason in :func:`search_top_n_pages`
+    (pre-2016, 10 per topic, 2026-10-01: on-topic 5/0/0/0 → 10/8/5/1).
     """
     q = (
         Works()
-        .search(topic)
+        .filter(title_and_abstract={"search": _title_abstract_filter_value(topic)})
         .filter(publication_year=f"<{year_max + 1}")
         .sort(cited_by_count="desc")
     )
@@ -974,6 +1155,16 @@ def _run_command(args):
             limit=args.limit,
             work_type=args.work_type,
         )
+        if getattr(args, "recent", 0):
+            # Quick tier's recent layer: relevance-ranked work of the last year,
+            # merged into the same file so raw/ still holds one file per search.
+            try:
+                recent = run_leg("recent", args.query, args.recent,
+                                 year_min=args.year_min, year_max=args.year_max)
+            except OpenAlexUnavailable as exc:
+                exc.partial = _merge_strategies([exc.partial or [], results])
+                raise
+            results = _merge_strategies([recent, results])
         payload = _entity_list_to_json(results)
         count = len(results)
     elif args.cmd == "get":
@@ -1056,6 +1247,11 @@ def _main_cli() -> None:
     p_search.add_argument("--year-min", type=int)
     p_search.add_argument("--year-max", type=int)
     p_search.add_argument("--type", dest="work_type")
+    p_search.add_argument(
+        "--recent", type=int, default=0,
+        help="Also fetch N relevance-ranked papers from the last 12 months "
+             "(clipped to the year range) and merge them in. 0 = off.",
+    )
 
     # get
     p_get = sub.add_parser("get", help="Single paper lookup by OA-ID or DOI")

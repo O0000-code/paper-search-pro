@@ -269,8 +269,12 @@ def _oa_targets(results_by_sort):
     agent_search holds the SAME module objects (from . import openalex_helper,
     quota_guard), so patching the module objects is what agent_search will call.
     """
-    def fake_search_top_n_pages(query, total_papers=100, sort="cited_by_count:desc", year_min=None, year_max=None):
-        return list(results_by_sort.get(sort, []))
+    def fake_search_top_n_pages(query, total_papers=100, sort="cited_by_count:desc", year_min=None, year_max=None,
+                                date_from=None, date_to=None):
+        # The recent leg is the only call with a publication-date window (both of
+        # its windows land here; run_leg dedups the repeat).
+        key = "recent" if date_from is not None else sort
+        return list(results_by_sort.get(key, []))
 
     return [
         (agent_search.openalex_helper, "search_top_n_pages", fake_search_top_n_pages),
@@ -289,7 +293,7 @@ def test_run_agent_search_full_envelope_openalex():
     other = _paper(doi="10.1/y", title="prospect markets", abstract="markets", year=2024, cites=10)
     targets = _oa_targets({
         "cited_by_count:desc": [kt, other],
-        "publication_date:desc": [kt],
+        "recent": [kt],
         "relevance_score:desc": [kt, other],
     })
     with _patched(*targets):
@@ -323,7 +327,7 @@ def test_run_agent_search_min_relevance_filters_but_scores_all():
     lo = _paper(doi="10.1/lo", title="unrelated", abstract="nothing here", year=1990, cites=0)
     targets = _oa_targets({
         "cited_by_count:desc": [hi, lo],
-        "publication_date:desc": [],
+        "recent": [],
         "relevance_score:desc": [],
     })
     with _patched(*targets):
@@ -339,7 +343,7 @@ def test_run_agent_search_min_relevance_filters_but_scores_all():
 def test_run_agent_search_verify_attaches_blocks_and_summary():
     p = _paper(doi="10.1/x", title="alpha", abstract="alpha", year=2024, cites=5,
                sources=["openalex", "semantic_scholar"])
-    targets = _oa_targets({"cited_by_count:desc": [p], "publication_date:desc": [], "relevance_score:desc": []})
+    targets = _oa_targets({"cited_by_count:desc": [p], "recent": [], "relevance_score:desc": []})
     with _patched(*targets):
         env = agent_search.run_agent_search("alpha", _cfg(), per_strategy=5, verify=True, now_year=2026)
     assert "verify" in env["data"][0]
@@ -358,7 +362,7 @@ def test_run_agent_search_empty_query_is_e_config():
 
 
 def test_run_agent_search_no_results_is_e_no_results():
-    targets = _oa_targets({"cited_by_count:desc": [], "publication_date:desc": [], "relevance_score:desc": []})
+    targets = _oa_targets({"cited_by_count:desc": [], "recent": [], "relevance_score:desc": []})
     with _patched(*targets):
         env = agent_search.run_agent_search("nothing matches", _cfg(), per_strategy=5)
     assert env["ok"] is False
@@ -414,7 +418,7 @@ def test_run_agent_search_auto_mode_sticky_switch_to_ss():
 def test_envelope_is_json_safe():
     import json
     p = _paper(doi="10.1/x", title="alpha", abstract="alpha", year=2024, cites=5)
-    targets = _oa_targets({"cited_by_count:desc": [p], "publication_date:desc": [], "relevance_score:desc": []})
+    targets = _oa_targets({"cited_by_count:desc": [p], "recent": [], "relevance_score:desc": []})
     with _patched(*targets):
         env = agent_search.run_agent_search("alpha", _cfg(), per_strategy=5, verify=True, now_year=2026)
     json.dumps(env)  # must not raise
@@ -815,7 +819,7 @@ def _cn_stub(source_attr, papers):
 def test_default_english_run_has_no_language_key():
     """R-19 at the envelope level: default English run emits NO meta.language key."""
     p = _paper(doi="10.1/x", title="alpha topic", abstract="alpha topic", year=2024, cites=5)
-    targets = _oa_targets({"cited_by_count:desc": [p], "publication_date:desc": [], "relevance_score:desc": []})
+    targets = _oa_targets({"cited_by_count:desc": [p], "recent": [], "relevance_score:desc": []})
     with _patched(*targets):
         env = agent_search.run_agent_search("alpha topic", _cfg_lang("auto"), per_strategy=5, now_year=2026)
     assert env["ok"] is True
@@ -837,7 +841,7 @@ def test_lang_zh_flag_emits_language_meta_without_chinese_sources():
         called["yiigle"] += 1
         return []
 
-    targets = _oa_targets({"cited_by_count:desc": [p], "publication_date:desc": [], "relevance_score:desc": []})
+    targets = _oa_targets({"cited_by_count:desc": [p], "recent": [], "relevance_score:desc": []})
     targets += [
         (agent_search.nssd_helper, "search", spy_nssd),
         (agent_search.yiigle_helper, "search", spy_yiigle),
@@ -859,7 +863,7 @@ def test_with_nssd_merges_results_and_reports():
     oa = _paper(doi="10.1/oa", title="alpha topic", abstract="alpha topic", year=2024, cites=100)
     nssd_p = _paper(doi="10.1/nssd", title="alpha topic beta", abstract="alpha topic beta",
                     year=2023, cites=3, sources=["nssd"])
-    targets = _oa_targets({"cited_by_count:desc": [oa], "publication_date:desc": [], "relevance_score:desc": []})
+    targets = _oa_targets({"cited_by_count:desc": [oa], "recent": [], "relevance_score:desc": []})
     targets.append(_cn_stub("nssd_helper", [nssd_p]))
     with _patched(*targets):
         env = agent_search.run_agent_search(
@@ -881,7 +885,7 @@ def test_with_yiigle_on_chinese_query_merges():
     meta.language reports it (no en->both upgrade needed)."""
     oa = _paper(doi="10.1/oa", title="深度学习 医学", year=2024, cites=50)
     yi = _paper(doi="10.1/yi", title="深度学习 影像", year=2023, cites=8, sources=["yiigle"])
-    targets = _oa_targets({"cited_by_count:desc": [oa], "publication_date:desc": [], "relevance_score:desc": []})
+    targets = _oa_targets({"cited_by_count:desc": [oa], "recent": [], "relevance_score:desc": []})
     targets.append(_cn_stub("yiigle_helper", [yi]))
     with _patched(*targets):
         env = agent_search.run_agent_search(
@@ -899,7 +903,7 @@ def test_with_yiigle_on_chinese_query_merges():
 def test_config_search_language_zh_adopted_in_pipeline():
     """config.search_language='zh' with no --lang => scope_source 'config'."""
     p = _paper(doi="10.1/x", title="alpha topic", abstract="alpha topic", year=2024, cites=5)
-    targets = _oa_targets({"cited_by_count:desc": [p], "publication_date:desc": [], "relevance_score:desc": []})
+    targets = _oa_targets({"cited_by_count:desc": [p], "recent": [], "relevance_score:desc": []})
     with _patched(*targets):
         env = agent_search.run_agent_search("alpha topic", _cfg_lang("zh"), per_strategy=5, now_year=2026)
     lang = env["meta"]["language"]
@@ -913,7 +917,7 @@ def test_chinese_source_empty_degrades_gracefully():
     """When NSSD returns nothing, the run still succeeds; chinese_sources_used still
     reports it (it was queried) and a warning notes the empty return."""
     oa = _paper(doi="10.1/oa", title="alpha topic", abstract="alpha topic", year=2024, cites=100)
-    targets = _oa_targets({"cited_by_count:desc": [oa], "publication_date:desc": [], "relevance_score:desc": []})
+    targets = _oa_targets({"cited_by_count:desc": [oa], "recent": [], "relevance_score:desc": []})
     targets.append(_cn_stub("nssd_helper", []))  # NSSD returns nothing
     with _patched(*targets):
         env = agent_search.run_agent_search(
@@ -931,7 +935,7 @@ def test_chinese_source_only_results_when_primary_empty():
     still succeeds on the Chinese source alone (no false E_NO_RESULTS)."""
     nssd_p = _paper(doi="10.1/nssd", title="alpha topic", abstract="alpha topic",
                     year=2023, cites=3, sources=["nssd"])
-    targets = _oa_targets({"cited_by_count:desc": [], "publication_date:desc": [], "relevance_score:desc": []})
+    targets = _oa_targets({"cited_by_count:desc": [], "recent": [], "relevance_score:desc": []})
     targets.append(_cn_stub("nssd_helper", [nssd_p]))
     with _patched(*targets):
         env = agent_search.run_agent_search(
@@ -993,7 +997,7 @@ def test_min_relevance_guard_when_no_terms():
     filtered to empty by --min-relevance; saturation marks the distribution N/A."""
     assert agent_search._tokenize_query("of the") == []  # all stopwords/short
     p = _paper(doi="10.1/x", title="anything", abstract="x", year=2024, cites=5)
-    targets = _oa_targets({"cited_by_count:desc": [p], "publication_date:desc": [], "relevance_score:desc": []})
+    targets = _oa_targets({"cited_by_count:desc": [p], "recent": [], "relevance_score:desc": []})
     with _patched(*targets):
         env = agent_search.run_agent_search("of the", _cfg(), per_strategy=5,
                                             min_relevance=0.9, now_year=2026)
@@ -1015,7 +1019,7 @@ def test_year_max_filters_chinese_sources():
     new = _paper(doi="10.1/new", title="alpha topic", year=2024, cites=3, sources=["nssd"])
     unk = _paper(doi="10.1/unk", title="alpha topic", year=None, cites=1, sources=["nssd"])
     oa = _paper(doi="10.1/oa", title="alpha topic", abstract="alpha topic", year=2020, cites=100)
-    targets = _oa_targets({"cited_by_count:desc": [oa], "publication_date:desc": [], "relevance_score:desc": []})
+    targets = _oa_targets({"cited_by_count:desc": [oa], "recent": [], "relevance_score:desc": []})
     targets.append(_cn_stub("nssd_helper", [old, new, unk]))
     with _patched(*targets):
         env = agent_search.run_agent_search(
@@ -1054,7 +1058,7 @@ def test_primary_source_flag_overrides_config_to_openalex():
     """#8 reverse: override openalex wins over config semantic_scholar — and rescues
     a keyless SS config for this run (no E_CONFIG, since SS is never selected)."""
     p = _paper(doi="10.1/oa", title="alpha topic", abstract="alpha topic", year=2024, cites=5)
-    targets = _oa_targets({"cited_by_count:desc": [p], "publication_date:desc": [], "relevance_score:desc": []})
+    targets = _oa_targets({"cited_by_count:desc": [p], "recent": [], "relevance_score:desc": []})
     cfg = _cfg(primary="semantic_scholar", ss_key="")  # no SS key
     with _patched(*targets):
         env = agent_search.run_agent_search("alpha topic", cfg, per_strategy=5,
@@ -1072,7 +1076,7 @@ def test_cjk_query_under_en_scope_warns():
     """#1: a Chinese query forced to en scope (--lang en) warns that the agent path
     does not translate; a zh scope does NOT warn."""
     p = _paper(doi="10.1/x", title="alpha", abstract="alpha", year=2024, cites=5)
-    targets = _oa_targets({"cited_by_count:desc": [p], "publication_date:desc": [], "relevance_score:desc": []})
+    targets = _oa_targets({"cited_by_count:desc": [p], "recent": [], "relevance_score:desc": []})
     with _patched(*targets):
         env = agent_search.run_agent_search("情绪调节", _cfg_lang("auto"), per_strategy=5,
                                             lang="en", now_year=2026)
@@ -1096,7 +1100,7 @@ def test_paper_id_emitted_only_when_engaged():
     nssd_p = _paper(title="alpha topic beta", abstract="alpha topic beta", year=2023,
                     cites=3, sources=["nssd"])
     nssd_p.source_native_id = "NSSD-42"  # the non-obvious paper_id fallback #17 targets
-    targets = _oa_targets({"cited_by_count:desc": [oa], "publication_date:desc": [], "relevance_score:desc": []})
+    targets = _oa_targets({"cited_by_count:desc": [oa], "recent": [], "relevance_score:desc": []})
     targets.append(_cn_stub("nssd_helper", [nssd_p]))
     with _patched(*targets):
         env = agent_search.run_agent_search("alpha topic", _cfg_lang("auto"), per_strategy=5,
@@ -1108,7 +1112,7 @@ def test_paper_id_emitted_only_when_engaged():
     assert nssd_out["paper_id"] == "NSSD-42"                    # source_native_id fallback
 
     # Default English envelope: NO paper_id key (byte-identical default, R-19).
-    with _patched(*_oa_targets({"cited_by_count:desc": [oa], "publication_date:desc": [], "relevance_score:desc": []})):
+    with _patched(*_oa_targets({"cited_by_count:desc": [oa], "recent": [], "relevance_score:desc": []})):
         env_def = agent_search.run_agent_search("alpha topic", _cfg(), per_strategy=5, now_year=2026)
     assert all("paper_id" not in p for p in env_def["data"])
     print("OK  paper_id_emitted_only_when_engaged")
@@ -1125,7 +1129,7 @@ def test_saturation_excludes_chinese_and_counts_split():
                   year=2024, cites=100 - i) for i in range(12)]
     targets = _oa_targets({
         "cited_by_count:desc": oa1,
-        "publication_date:desc": oa1,   # all dups -> last PRIMARY strategy adds 0 new
+        "recent": oa1,   # all dups -> last PRIMARY strategy adds 0 new
         "relevance_score:desc": oa1,
     })
     nssd_ps = [_paper(doi=f"10.1/nssd{i}", title="alpha topic", year=2023, cites=1,
