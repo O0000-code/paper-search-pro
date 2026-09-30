@@ -441,6 +441,9 @@ def _default_year_max(year_max: Optional[int]) -> int:
 
 # A query with this many bare words and no OR gets a warning (see query_warning).
 _BARE_WORD_WARN_AT = 6
+# Function words OpenAlex drops; they are not terms the query requires.
+_QUERY_STOPWORDS = {"a", "an", "the", "of", "on", "in", "to", "for", "and", "or", "with",
+                    "by", "from", "at", "as", "among", "between", "into", "via", "its", "their"}
 # A title-and-abstract match count below this gets a "too narrow?" hint.
 _NARROW_POOL_BELOW = 30
 
@@ -458,7 +461,8 @@ def query_warning(query: str) -> Optional[str]:
     unquoted = re.sub(r'"[^"]*"', " ", query)
     if re.search(r"\bOR\b", unquoted):
         return None
-    words = [w for w in re.findall(r"[^\s()]+", unquoted) if w not in ("AND", "NOT")]
+    words = [w for w in re.findall(r"[^\s()]+", unquoted)
+             if w not in ("AND", "NOT") and w.lower() not in _QUERY_STOPWORDS]
     n = len(words) + len(re.findall(r'"[^"]*"', query))
     if n < _BARE_WORD_WARN_AT:
         return None
@@ -1205,9 +1209,10 @@ def _fallback_args(args) -> dict:
          ("query", "topic", "limit", "year_min", "year_max", "sort", "work_type")}
     a["n"] = getattr(args, "n", None) or getattr(args, "total_per_strategy", None)
     if args.cmd == "search" and getattr(args, "recent", 0) and a.get("limit"):
-        # `search --recent N` returns up to limit + N records; capping the fallback
-        # at --limit cut off the recent layer and the fallback's own records.
-        a["limit"] = a["limit"] + args.recent
+        # `search --recent N` returns up to limit + N + N//2 records (the recent leg
+        # adds an earlier window); capping at --limit cut off the recent layer and
+        # the fallback's own records.
+        a["limit"] = a["limit"] + args.recent + args.recent // 2   # recent leg: N + N//2
     if args.cmd == "journal-list":
         a["journals"] = JOURNAL_PRESETS.get(args.preset) or []
     return a
@@ -1502,7 +1507,8 @@ def _main_cli() -> None:
         if warning:
             print(warning, file=sys.stderr)
     if args.cmd == "count" and isinstance(payload, dict) and payload.get("count") is not None \
-            and payload["count"] < _NARROW_POOL_BELOW:
+            and payload["count"] < _NARROW_POOL_BELOW \
+            and payload.get("year_min", 0) <= payload.get("year_max", 0):
         print(
             f"[paper-search-pro] only {payload['count']} works have every query word in title "
             f"or abstract for {payload['year_min']}-{payload['year_max']}. Unless the topic is "

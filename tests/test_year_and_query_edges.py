@@ -187,3 +187,66 @@ def test_or_inside_quotes_is_not_an_operator():
 
 def test_unmatched_quote_does_not_produce_broken_syntax():
     assert axh._require_terms('"working memory training') == "all:working AND all:memory AND all:training"
+
+
+# ===========================================================================
+# Second Codex review (../recency-retrieval/71_codex_review_round2.md)
+# ===========================================================================
+
+
+def test_search_recent_fallback_cap_counts_the_earlier_window(monkeypatch, today):
+    # recent 20 → up to 20 + 10 (earlier window); main 30; OpenAlex fails before
+    # the earlier window, Semantic Scholar supplies 10: all 60 fit.
+    def leg(name, q, n, year_min=None, year_max=None):
+        exc = OpenAlexUnavailable(openalex_guard.BUDGET_EXHAUSTED)
+        exc.partial = [_p(f"10.1/recent{i}") for i in range(20)]
+        raise exc
+
+    monkeypatch.setattr(ss_helper, "search", lambda q, **k: [_p(f"10.2/ss{i}") for i in range(10)])
+    out = _cli(monkeypatch, ["search", "q", "--limit", "30", "--recent", "20"],
+               search_works=lambda q, **k: [_p(f"10.1/rel{i}") for i in range(30)],
+               run_leg=leg)
+    assert sum(p["doi"].startswith("10.2/ss") for p in out) == 10
+
+
+def test_short_distinctive_title_merges():
+    kg = federated_dedup([_oa("10.48550/arxiv.2505.1", "FlashDLM")], [_or("FlashDLM")])
+    assert len(kg) == 1 and next(iter(kg.values())).venue == "ICLR 2026 Oral"
+
+
+@pytest.mark.parametrize("title", ["Introduction", "Editorial", "Erratum", "Preface"])
+def test_generic_titles_do_not_merge(title):
+    assert len(federated_dedup([_oa("10.1/a", title)], [_or(title)])) == 2
+
+
+def test_openreview_plain_terms_is_quote_aware():
+    from scripts import openreview_helper as orh
+    assert orh.plain_terms('"OR gate" neural network') == "OR gate neural network"
+    assert orh.plain_terms('"OR"') == "OR"
+
+
+def test_arxiv_stray_quote_never_exposes_an_operator():
+    q = axh._require_terms('"OR gate neural network')
+    assert not q.startswith(" ") and not q.lstrip().startswith("OR ")
+    assert "all:gate" in q and "all:network" in q
+
+
+def test_query_warning_ignores_stopwords_but_still_flags_six_content_words():
+    # 'of', 'on' are not terms; the six content words are all required, and on
+    # 2026-10-01 this query matched 749 works (2025-26) against 3,934 for the
+    # same concepts in OR groups — the warning is right to fire.
+    assert oah.query_warning("effects of social media on adolescent mental health")
+    # four content words: no warning
+    assert oah.query_warning("the role of peers in the lives of adolescents") is None
+
+
+def test_count_hint_is_silent_for_an_empty_range(monkeypatch):
+    monkeypatch.setattr(oah, "init_pyalex", lambda cfg: None)
+    monkeypatch.setattr("scripts.config.load_config", lambda: Config())
+    monkeypatch.setattr(oah, "count_title_abstract_matches",
+                        lambda q, year_min=None, year_max=None: (0, 2027, 2026))
+    monkeypatch.setattr(sys, "argv", ["openalex_helper", "count", "q", "--year-min", "2027"])
+    err = io.StringIO()
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+        oah._main_cli()
+    assert "too narrow" not in err.getvalue()

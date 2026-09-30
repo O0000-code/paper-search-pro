@@ -431,8 +431,14 @@ _PREPRINT_VENUE_RE = re.compile(
 )
 
 
-# Normalized-title length below which a title is too generic to merge on.
-_MIN_TITLE_KEY = 20
+# Titles too generic to identify a paper by (normalized). A length rule was
+# tried first and refused distinctive short titles such as "FlashDLM".
+_GENERIC_TITLES = {
+    "introduction", "editorial", "preface", "foreword", "conclusion", "conclusions",
+    "erratum", "corrigendum", "correction", "retraction", "reply", "response",
+    "commentary", "comment", "discussion", "overview", "abstract", "abstracts",
+    "summary", "index", "untitled", "frontmatter", "backmatter",
+}
 
 
 def _looks_preprint(p: UnifiedPaperEntity) -> bool:
@@ -459,7 +465,7 @@ def _absorb_openreview(kg: Dict[CanonicalKey, UnifiedPaperEntity]) -> None:
     if not or_keys:
         return
     # Guards against labelling the wrong paper: both years must be known, and a
-    # short title ("Introduction") is too generic to identify a paper by.
+    # generic title ("Introduction") does not identify a paper.
     by_title: Dict[str, List[CanonicalKey]] = {}
     for key, p in kg.items():
         if not _is_openreview_record(p):
@@ -469,7 +475,7 @@ def _absorb_openreview(kg: Dict[CanonicalKey, UnifiedPaperEntity]) -> None:
     for key in or_keys:
         orp = kg[key]
         title = normalize_title(orp.title)
-        if orp.year is None or len(title) < _MIN_TITLE_KEY:
+        if orp.year is None or not title or title in _GENERIC_TITLES:
             continue
         candidates = [k for k in by_title.get(title, [])
                       if kg[k].year is not None and abs(orp.year - kg[k].year) <= 1]

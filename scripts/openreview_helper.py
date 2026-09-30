@@ -320,12 +320,19 @@ def plain_terms(query: str) -> str:
     if not re.search(r'["()]|\b(?:AND|OR|NOT)\b', query):
         return query
     words, seen = [], set()
-    for w in re.findall(r"[^\s\"()]+", query):
-        if w in _BOOLEAN_TOKENS or w.lower() in seen:
+    # Quoted phrases are literal: an OR inside quotes is a word ("OR gate").
+    for phrase, bare in re.findall(r'"([^"]*)"|([^\s"()]+)', query):
+        if phrase:
+            tokens = phrase.split()
+        elif bare in _BOOLEAN_TOKENS:
             continue
-        seen.add(w.lower())
-        words.append(w)
-    return " ".join(words)
+        else:
+            tokens = [bare]
+        for w in tokens:
+            if w.lower() not in seen:
+                seen.add(w.lower())
+                words.append(w)
+    return " ".join(words) or re.sub(r'["()]', " ", query).strip()
 
 
 def _fetch_page(query: str, offset: int, *, session=None) -> Tuple[Optional[list], str]:
