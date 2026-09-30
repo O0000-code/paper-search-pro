@@ -84,9 +84,24 @@ def init(config: Optional[Config] = None) -> None:
             _DELAY_SECONDS = float(custom_delay)
 
 
+# Per-request timeout. The arxiv library sends requests without one, so a slow
+# arXiv response hung a run until the agent killed it (100 s, 2026-09-13).
+_REQUEST_TIMEOUT_S: float = 20.0
+
+
 def _client() -> arxiv.Client:
-    """Build a fresh arxiv.Client with our rate-limit defaults."""
-    return arxiv.Client(page_size=_PAGE_SIZE, delay_seconds=_DELAY_SECONDS, num_retries=3)
+    """Build a fresh arxiv.Client with our rate-limit defaults and a request timeout."""
+    client = arxiv.Client(page_size=_PAGE_SIZE, delay_seconds=_DELAY_SECONDS, num_retries=3)
+    session = getattr(client, "_session", None)
+    if session is not None:
+        get = session.get
+
+        def get_with_timeout(url, **kwargs):
+            kwargs.setdefault("timeout", _REQUEST_TIMEOUT_S)
+            return get(url, **kwargs)
+
+        session.get = get_with_timeout
+    return client
 
 
 # =============================================================================
@@ -184,11 +199,33 @@ def _to_dict(entity: UnifiedPaperEntity) -> dict:
     return d
 
 
+# Words dropped when a plain query is turned into required terms.
+_STOPWORDS = {"a", "an", "the", "of", "in", "on", "for", "and", "or", "to", "with", "by", "via", "from"}
+_OPERATOR_RE = re.compile(r"\b(AND|OR|ANDNOT)\b|\b(ti|abs|all|au|cat|co|jr|rn|id):")
+
+
+def _require_terms(query: str) -> str:
+    """Make every word of a plain query required.
+
+    arXiv joins bare words with OR: "diffusion language model" came back with
+    Yiddish and Romansh language-model papers (2026-10-01). A query that already
+    uses arXiv operators or field prefixes is left as written; quoted phrases
+    stay phrases.
+    """
+    if _OPERATOR_RE.search(query):
+        return query
+    terms = re.findall(r'"[^"]+"|\S+', query)
+    terms = [t for t in terms if t.startswith('"') or t.lower() not in _STOPWORDS]
+    if len(terms) < 2:
+        return query
+    return " AND ".join(f"all:{t}" for t in terms)
+
+
 def _build_query(query: str, categories: Optional[List[str]]) -> str:
     """Wrap a raw user query with a category filter clause."""
     cats = categories or DEFAULT_CATEGORIES
     cat_clause = " OR ".join(f"cat:{c}" for c in cats)
-    return f"({query}) AND ({cat_clause})"
+    return f"({_require_terms(query)}) AND ({cat_clause})"
 
 
 # =============================================================================
@@ -242,16 +279,29 @@ def search_freshness_window(
     return [_to_entity(r) for r in results]
 
 
+def _submitted_clause(date_from: Optional[str], date_to: Optional[str]) -> Optional[str]:
+    """arXiv ``submittedDate:[… TO …]`` clause for ISO dates (either end optional)."""
+    if not date_from and not date_to:
+        return None
+    start = (date_from or "1991-01-01").replace("-", "") + "0000"
+    end = (date_to or datetime.now(timezone.utc).date().isoformat()).replace("-", "") + "2359"
+    return f"submittedDate:[{start} TO {end}]"
+
+
 def search_recent(
     query: str,
     max_results: int = 30,
     categories: Optional[List[str]] = None,
     sort_by: str = "submitted",
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
 ) -> List[UnifiedPaperEntity]:
     """General arXiv search (Audit-tier or explicit user-enable).
 
-    Unlike search_freshness_window, no date cutoff — caller controls window via
-    arXiv query syntax if needed.
+    ``date_from`` / ``date_to`` (ISO dates) restrict the submission date. With
+    ``sort_by='relevance'`` this is the AI-topic recent layer: the most relevant
+    preprints of the last year (2026-09-30, two AI topics: 23 of 25 on topic).
+    The freshness sentinel only ever saw the last 4 days.
 
     Args:
         sort_by: 'submitted' (default, newest first) | 'relevance' | 'lastUpdated'
@@ -263,6 +313,9 @@ def search_recent(
         UnifiedPaperEntity list. Empty list if no results.
     """
     full_query = _build_query(query, categories)
+    window = _submitted_clause(date_from, date_to)
+    if window:
+        full_query = f"{full_query} AND {window}"
     sort_map = {
         "submitted": arxiv.SortCriterion.SubmittedDate,
         "relevance": arxiv.SortCriterion.Relevance,
@@ -329,6 +382,8 @@ def _main_cli() -> None:
     p_search.add_argument("--sort", default="submitted",
                           choices=["submitted", "relevance", "lastUpdated"])
     p_search.add_argument("--all-cats", action="store_true")
+    p_search.add_argument("--since-days", type=int, default=None,
+                          help="Only preprints submitted in the last N days (e.g. 365).")
 
     # get — single paper by id
     p_get = sub.add_parser("get", help="Lookup single paper by arxiv_id")
@@ -339,11 +394,26 @@ def _main_cli() -> None:
 
     if args.cmd == "freshness":
         cats = ALL_CATEGORIES if args.all_cats else None
-        results = search_freshness_window(args.query, days=args.days, limit=args.limit, categories=cats)
+        try:
+            results = search_freshness_window(args.query, days=args.days, limit=args.limit,
+                                              categories=cats)
+        except Exception as exc:
+            print(f"[paper-search-pro] arXiv freshness search failed ({type(exc).__name__}: {exc}); "
+                  "returning no arXiv records.", file=sys.stderr)
+            results = []
         json.dump(_entity_list_to_json(results), sys.stdout, default=str, indent=2)
     elif args.cmd == "search":
         cats = ALL_CATEGORIES if args.all_cats else None
-        results = search_recent(args.query, max_results=args.limit, categories=cats, sort_by=args.sort)
+        date_from = None
+        if args.since_days:
+            date_from = (datetime.now(timezone.utc) - timedelta(days=args.since_days)).date().isoformat()
+        try:
+            results = search_recent(args.query, max_results=args.limit, categories=cats,
+                                    sort_by=args.sort, date_from=date_from)
+        except Exception as exc:  # arXiv down / slow: an empty source, not a failed run
+            print(f"[paper-search-pro] arXiv search failed ({type(exc).__name__}: {exc}); "
+                  "returning no arXiv records.", file=sys.stderr)
+            results = []
         json.dump(_entity_list_to_json(results), sys.stdout, default=str, indent=2)
     elif args.cmd == "get":
         result = get_by_arxiv_id(args.arxiv_id)

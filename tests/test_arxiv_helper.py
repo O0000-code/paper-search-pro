@@ -88,7 +88,8 @@ def test_build_query_applies_category_filter() -> None:
     """Default cat filter must always include cs.* — SA-V2 §3.4 noise-defense."""
     q = _build_query("language models", None)
     assert "cat:cs.*" in q
-    assert "(language models)" in q
+    # Plain words are all required (arXiv would OR them): see test_arxiv_recent.py.
+    assert "(all:language AND all:models)" in q
     # all-cats mode must include physics
     q_all = _build_query("dark matter", ALL_CATEGORIES)
     assert "cat:physics.*" in q_all
