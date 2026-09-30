@@ -417,7 +417,64 @@ def federated_dedup(
                 while (key + (f"v{suffix}",)) in kg:
                     suffix += 1
                 kg[key + (f"v{suffix}",)] = p
+    _absorb_openreview(kg)
     return kg
+
+
+# ============================================================================
+# OpenReview: fold each accepted paper into the same paper's other record
+# ============================================================================
+
+# Venue strings that mean "not yet published at a venue".
+_PREPRINT_VENUE_RE = re.compile(
+    r"arxiv|biorxiv|medrxiv|ssrn|research square|\bpreprints?\b|openreview", re.IGNORECASE
+)
+
+
+def _is_openreview_record(p: UnifiedPaperEntity) -> bool:
+    return (p.source_native_id or "").startswith("openreview:")
+
+
+def _absorb_openreview(kg: Dict[CanonicalKey, UnifiedPaperEntity]) -> None:
+    """Merge OpenReview records into the arXiv / OpenAlex record of the same paper.
+
+    OpenReview notes carry no DOI or arXiv id, so canonical_key cannot join them;
+    without this the same paper would appear twice. Matched by normalized title,
+    years at most one apart (a 2025 preprint accepted at ICLR 2026). The match
+    takes the accepted venue ("ICLR 2026 Oral") when its own venue is empty or a
+    preprint server — that label is what OpenReview adds. Unmatched OpenReview
+    records stay as they are. Runs after the main pass, so input order does not
+    matter; a KG without OpenReview records is untouched.
+    """
+    or_keys = [k for k, p in kg.items() if _is_openreview_record(p)]
+    if not or_keys:
+        return
+    by_title: Dict[str, List[CanonicalKey]] = {}
+    for key, p in kg.items():
+        if not _is_openreview_record(p):
+            t = normalize_title(p.title)
+            if t:
+                by_title.setdefault(t, []).append(key)
+    for key in or_keys:
+        orp = kg[key]
+        target_key = next(
+            (k for k in by_title.get(normalize_title(orp.title), [])
+             if orp.year is None or kg[k].year is None or abs(orp.year - kg[k].year) <= 1),
+            None,
+        )
+        if target_key is None:
+            continue
+        target = kg[target_key]
+        was_preprint = (not target.venue or bool(_PREPRINT_VENUE_RE.search(target.venue))
+                        or (target.type or "").lower() == "preprint")
+        native_id = target.source_native_id
+        merge_paper_fields(target, orp)
+        target.source_native_id = native_id  # stays the other source's record
+        if was_preprint and orp.venue:
+            target.venue = orp.venue
+            if (target.type or "").lower() == "preprint":
+                target.type = "article"
+        del kg[key]
 
 
 def kg_to_list(

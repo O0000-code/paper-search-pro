@@ -374,10 +374,11 @@ PYTHONPATH=$PSP_HOME \
     --input-files "$SEARCH_DIR/raw/openalex.json" \
                   "$SEARCH_DIR/raw/pubmed.json" \
                   "$SEARCH_DIR/raw/arxiv.json" \
+                  "$SEARCH_DIR/raw/openreview.json" \
     --output "$SEARCH_DIR/kg.json"
 ```
 
-Pass only the input files you actually produced — skip ones that were not enabled by STEP 2. **If STEP 4 ran the Chinese boosters, add `"$SEARCH_DIR/raw/nssd.json"` / `"$SEARCH_DIR/raw/yiigle.json"` to the same `--input-files` list** — they carry the identical entity shape and federate exactly like the others (CJK-safe dedup is handled by the Phase 0 canonical-key fix, so distinct Chinese titles don't collapse). For an English-only run those files don't exist, so the call is byte-identical to v2.2 (R-19). This handles DOI normalization (arXiv X→x case), version stripping, E5b guard (same title+year but different DOIs are kept separate), and field-priority merge.
+Pass only the input files you actually produced — skip ones that were not enabled by STEP 2 (and add `raw/arxiv_fresh.json` when the 4-day sentinel ran). OpenReview records carry no DOI; the resolver folds each into the same paper's arXiv/OpenAlex record by title and gives it the accepted venue label. **If STEP 4 ran the Chinese boosters, add `"$SEARCH_DIR/raw/nssd.json"` / `"$SEARCH_DIR/raw/yiigle.json"` to the same `--input-files` list** — they carry the identical entity shape and federate exactly like the others (CJK-safe dedup is handled by the Phase 0 canonical-key fix, so distinct Chinese titles don't collapse). For an English-only run those files don't exist, so the call is byte-identical to v2.2 (R-19). This handles DOI normalization (arXiv X→x case), version stripping, E5b guard (same title+year but different DOIs are kept separate), and field-priority merge.
 
 `--as-list` exists but is only for consumers that want a sorted list (by citation_count); do not use it in this pipeline.
 
