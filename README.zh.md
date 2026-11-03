@@ -234,7 +234,7 @@ PYTHONPATH=$PSP_HOME python3 -c \
 
 ## 贡献者
 
-本项目主要由我一个人维护，还有两位可爱的贡献者 [@haoxinC111](https://github.com/haoxinC111) 和 [@MatrixA](https://github.com/MatrixA) 帮过忙，欢迎你成为第三位。如果它帮到了你，你的 Star 对我来说是很大的动力，我会继续把它更新下去。
+本项目主要由我一个人维护，还有三位可爱的贡献者 [@haoxinC111](https://github.com/haoxinC111)、[@MatrixA](https://github.com/MatrixA) 和 [@jack-reson8](https://github.com/jack-reson8) 帮过忙，欢迎你成为第四位。如果它帮到了你，你的 Star 对我来说是很大的动力，我会继续把它更新下去。
 
 <br/>
 

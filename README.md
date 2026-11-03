@@ -234,7 +234,7 @@ Per-step reference documents live in [`references/`](references/) — tier decis
 
 ## Contributors
 
-I maintain paper-search-pro mostly on my own, with help from two lovely contributors, [@haoxinC111](https://github.com/haoxinC111) and [@MatrixA](https://github.com/MatrixA). You're welcome to be the third. If it has helped you, your star means a lot to me, and I'll keep improving it.
+I maintain paper-search-pro mostly on my own, with help from three lovely contributors, [@haoxinC111](https://github.com/haoxinC111), [@MatrixA](https://github.com/MatrixA) and [@jack-reson8](https://github.com/jack-reson8). You're welcome to be the fourth. If it has helped you, your star means a lot to me, and I'll keep improving it.
 
 <br/>
 
